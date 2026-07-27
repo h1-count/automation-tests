@@ -1,0 +1,236 @@
+公寓锁
+上行-心跳
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"heartbeat","vendor":"zhiju","timestamp":"1731912700000","sequence":"1731912700150825","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ota_version","value":"MCUP134_1V2.19"}]}
+
+下行-校表
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"version\":\"2.0\",\"flowDirection\":\"0\",\"controlType\":\"control.func\",\"messageType\":\"\",\"vendor\":\"zhiju\",\"timestamp\":\"1732254893814\",\"sequence\":\"1840357816321073001\",\"data\":[{\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"deviceId\":\"BESTCORE002\",\"code\":\"check_time\",\"value\":{\"timestamp\":1732433677231}}]}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1732254893000","sequence":"1840357816321073001","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+下行-重启
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"version\":\"2.0\",\"flowDirection\":\"0\",\"controlType\":\"control.func\",\"messageType\":\"\",\"vendor\":\"zhiju\",\"timestamp\":\"1732254893815\",\"sequence\":\"1840357816321073002\",\"data\":[{\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"deviceId\":\"BESTCORE002\",\"code\":\"restart\",\"value\":{}}]}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731913154000","sequence":"1840357816321073002","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+下行-重置
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"version\":\"2.0\",\"flowDirection\":\"0\",\"controlType\":\"control.func\",\"messageType\":\"\",\"vendor\":\"zhiju\",\"timestamp\":\"1732254893816\",\"sequence\":\"1840357816321073003\",\"data\":[{\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"deviceId\":\"BESTCORE002\",\"code\":\"reset\",\"value\":{}}]}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731913227000","sequence":"1840357816321073003","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+
+下行属性控制-常开模式-关闭
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"control.prop\",\"data\":[{\"code\":\"normally_open\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":\"0\"}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073001\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731913460000","sequence":"1840357816321073001","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"control.prop","vendor":"zhiju","timestamp":"1731913460000","sequence":"1731913460000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"normally_open","value":"0"}]}
+
+
+下行属性控制-常开模式-开启
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"control.prop\",\"data\":[{\"code\":\"normally_open\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":\"1\"}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073101\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731913625000","sequence":"1840357816321073101","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"control.prop","vendor":"zhiju","timestamp":"1731913625000","sequence":"1731913625000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"normally_open","value":"1"}]}
+
+下行属性控制-验证方式-单一用户
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"control.prop\",\"data\":[{\"code\":\"verification\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":\"0\"}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073002\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731913759000","sequence":"1840357816321073002","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"control.prop","vendor":"zhiju","timestamp":"1731913759000","sequence":"1731913759000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"verification","value":"0"}]}
+
+下行属性控制-验证方式-组合用户
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"control.prop\",\"data\":[{\"code\":\"verification\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":\"1\"}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073002\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731913839000","sequence":"1840357816321073002","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"control.prop","vendor":"zhiju","timestamp":"1731913840000","sequence":"1731913840000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"verification","value":"1"}
+
+下行属性控制-本地设置-关闭
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"control.prop\",\"data\":[{\"code\":\"local_setting\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":\"0\"}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073003\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731914267000","sequence":"1840357816321073003","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"control.prop","vendor":"zhiju","timestamp":"1731914268000","sequence":"1731914268000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"local_setting","value":"0"}]}
+
+下行属性控制-本地设置-开启
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"control.prop\",\"data\":[{\"code\":\"local_setting\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":\"1\"}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073003\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731914413000","sequence":"1840357816321073003","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"control.prop","vendor":"zhiju","timestamp":"1731914413000","sequence":"1731914413000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"local_setting","value":"1"}]}
+
+
+下行属性控制-音量-静音
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"control.prop\",\"data\":[{\"code\":\"volume\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":\"0\"}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073004\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731914515000","sequence":"1840357816321073004","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"control.prop","vendor":"zhiju","timestamp":"1731914516000","sequence":"1731914516000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"volume","value":"0"}]}
+
+下行属性控制-音量-中音
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"control.prop\",\"data\":[{\"code\":\"volume\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":\"2\"}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073004\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731914634000","sequence":"1840357816321073004","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"control.prop","vendor":"zhiju","timestamp":"1731914635000","sequence":"1731914635000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"volume","value":"2"}]}
+
+下行属性控制-语言-中文
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"control.prop\",\"data\":[{\"code\":\"language\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":\"0\"}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073005\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731914729000","sequence":"1840357816321073005","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"control.prop","vendor":"zhiju","timestamp":"1731914729000","sequence":"1731914729000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"language","value":"0"}]}
+
+下行属性查询-锁状态
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"query.prop\",\"data\":[{\"code\":\"lock_state\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":{}}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073011\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731914879000","sequence":"1840357816321073011","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731914879000","sequence":"1731914879000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"lock_state","value":"1"}]}
+
+下行属性查询-门状态
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"query.prop\",\"data\":[{\"code\":\"door_state\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":{}}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073012\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731914942000","sequence":"1840357816321073012","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731914942000","sequence":"1731914942000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"door_state","value":"1"}]}
+
+下行属性查询-密码剩余组数
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"query.prop\",\"data\":[{\"code\":\"password_remain_num\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":{}}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073013\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731915000000","sequence":"1840357816321073013","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731915000000","sequence":"1731915000000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"password_remain_num","value":"149"}]}
+
+下行属性查询-NFC剩余组数
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"query.prop\",\"data\":[{\"code\":\"nfc_remain_num\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":{}}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073014\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731912782000","sequence":"1840357816321073014","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731912782000","sequence":"1731912782000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"nfc_remain_num","value":"150"}]}
+
+下行属性查询-指纹剩余组数
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"query.prop\",\"data\":[{\"code\":\"fingerprint_remain_num\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":{}}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073015\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731912873000","sequence":"1840357816321073015","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731912873000","sequence":"1731912873000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"fingerprint_remain_num","value":"50"}]}
+
+下行属性查询-信号强度
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"query.prop\",\"data\":[{\"code\":\"signal_intensity\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":{}}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073016\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731912929000","sequence":"1840357816321073016","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731912929000","sequence":"1731912929000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"signal_intensity","value":"60"}]}
+
+下行属性查询-电池电量
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"query.prop\",\"data\":[{\"code\":\"battery\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":{}}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073017\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731912996000","sequence":"1840357816321073017","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731912997000","sequence":"1731912997000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"battery","value":"100"}]}
+
+下行属性查询-常开模式
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"query.prop\",\"data\":[{\"code\":\"normally_open\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":{}}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073018\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731913543000","sequence":"1840357816321073018","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731913676000","sequence":"1840357816321073018","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731913543000","sequence":"1731913543000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"normally_open","value":"0"}]}
+
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731913677000","sequence":"1731913677000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"normally_open","value":"1"}]}
+
+
+下行属性查询-验证方式
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"query.prop\",\"data\":[{\"code\":\"verification\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":{}}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073019\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731913974000","sequence":"1840357816321073019","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731913975000","sequence":"1731913975000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"verification","value":"0"}]}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731914091000","sequence":"1840357816321073019","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731914091000","sequence":"1731914091000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"verification","value":"1"}]}
+
+下行属性查询-本地设置
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"query.prop\",\"data\":[{\"code\":\"local_setting\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":{}}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073020\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731914316000","sequence":"1840357816321073020","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731914316000","sequence":"1731914316000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"local_setting","value":"0"}]}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731914459000","sequence":"1840357816321073020","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731914459000","sequence":"1731914459000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"local_setting","value":"1"}]}
+
+下行属性查询-音量
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"query.prop\",\"data\":[{\"code\":\"volume\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":{}}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073021\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731914588000","sequence":"1840357816321073021","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731914589000","sequence":"1731914589000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"volume","value":"0"}]}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731914683000","sequence":"1840357816321073021","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731914683000","sequence":"1731914683000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"volume","value":"2"}]}
+
+下行属性查询-语言
+{"clientId":"BESTCORE002","topic":"zhiju/zhiju_lock_wk1apt/BESTCORE002/command/down","message":"{\"controlType\":\"query.prop\",\"data\":[{\"code\":\"language\",\"deviceId\":\"BESTCORE002\",\"model\":\"zhiju.lock.wk1apt\",\"parentDeviceId\":\"\",\"value\":{}}],\"flowDirection\":\"0\",\"messageType\":\"\",\"sequence\":\"1840357816321073022\",\"timestamp\":\"1731726504425\",\"vendor\":\"zhiju\",\"version\":\"2.0\"}"}
+
+ack
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"ack","vendor":"zhiju","timestamp":"1731914787000","sequence":"1840357816321073022","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"ack","value":"1" }]}
+
+prop
+{"version":"2.0","flowDirection":"1","controlType":"","messageType":"query.prop","vendor":"zhiju","timestamp":"1731914788000","sequence":"1731914788000301650","data":[{"model":"zhiju.lock.wk1apt","parentDeviceId":"","deviceId":"BESTCORE002","code":"language","value":"0"}]}

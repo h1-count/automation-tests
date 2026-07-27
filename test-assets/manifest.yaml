@@ -1,0 +1,133 @@
+version: 1
+assets:
+  - assetId: open-platform-synthetic-business-license
+    kind: test-document
+    path: documents/open-platform/synthetic-business-license.png.b64
+    sha256: 7d3363a1a467b98174155c190e6d4b4c3e37226ec51f910b818b8e3bb8267e61
+    status: active
+    projects:
+      - open-platform
+    platform: web
+    version: 1.0.0
+    scopes:
+      - registration
+    defaultSelection: true
+    description: 开放平台注册正式执行使用的无真实业务信息合成 PNG；文件以 base64 文本保存，运行时仅在内存中解码上传。
+
+  - assetId: lazy-cat-android-dev-1-0-1
+    kind: app-package
+    path: app/lazy-cat/android/app-dev-release-1.0.1.apk
+    sha256: cf74673ed40eba3f3d09d627cf7fefe0afc039d6a1d575c8e5ab9c32aa23c378
+    status: active
+    projects:
+      - lazy-cat
+    platform: android
+    version: 1.0.1
+    scopes:
+      - login-register
+    defaultSelection: true
+    description: 懒猫 Android 开发测试安装包；可作为登录和注册测试的静态候选包，包名、Activity 与设备兼容性仍须在工程阶段验证。
+
+  - assetId: firmware-light-20241015
+    kind: firmware-package
+    path: firmware/Light_20241015.bin
+    sha256: 1881a1a089d679ade7a822709dcae509711bd9939a3d0e4343f33373ecb91b43
+    status: inventory-only
+    description: 灯类固件文件；尚未确认适用项目、设备型号和测试用途。
+  - assetId: firmware-light-20241021
+    kind: firmware-package
+    path: firmware/Light_20241021.bin
+    sha256: 7d24d60fdcf793e7ee3c4620cdc30688087b9d9369e026166c52cb0a3b82ef2f
+    status: inventory-only
+    description: 灯类固件文件；尚未确认适用项目、设备型号和测试用途。
+  - assetId: firmware-power-panel-20241015
+    kind: firmware-package
+    path: firmware/PowerPanel_20241015.bin
+    sha256: d484767acd6ef02fee170b6b2000c61701d073490774fd54d5dd67efb74d07c5
+    status: inventory-only
+    description: 面板类固件文件；尚未确认适用项目、设备型号和测试用途。
+  - assetId: firmware-sensor-20241016
+    kind: firmware-package
+    path: firmware/Sensor_20241016.bin
+    sha256: 4f14336d97f9c77658db52ecedffa053a1eb022b6534d7a548fbbd898152582d
+    status: inventory-only
+    description: 传感器类固件文件；尚未确认适用项目、设备型号和测试用途。
+  - assetId: firmware-plc-presence-sensor-v0132
+    kind: firmware-package
+    path: firmware/plc软件包/plc人体存在传感器程序/PLCLME4015B_HPPLH03(Sensor_merrytek)_SH_V0132(20240903_HC1S)_D0001.bin
+    sha256: 35faa81b668bcf8f00b17a5cce6497f539194aa797eca65a209da3192866e34c
+    status: inventory-only
+    description: PLC 人体存在传感器程序包；尚未确认适用项目、硬件型号和升级测试用途。
+  - assetId: firmware-plc-switch-v0132
+    kind: firmware-package
+    path: firmware/plc软件包/plc开关程序/PLCLME4015B_HPPLH03(CompSw_kpu)_SH_V0132(20240802)_D0001.bin
+    sha256: 49a5d10c30c0e7eae1b38341a397fc119199466cc178655745846cdca1b56320
+    status: inventory-only
+    description: PLC 开关程序包；尚未确认适用项目、硬件型号和升级测试用途。
+  - assetId: firmware-plc-power-panel-v0118
+    kind: firmware-package
+    path: firmware/plc软件包/plc插卡取电程序/PLCLME4015B_HPPLH03(PowerPanel_kpu)_SH_V0118(20240913_HC1S)_D0001.bin
+    sha256: 716052868e9c346bbd391ea268e6a9499e6dda419d3f885658fee009d5fd465a
+    status: inventory-only
+    description: PLC 插卡取电面板程序包；尚未确认适用项目、硬件型号和升级测试用途。
+  - assetId: firmware-plc-thermostat-v0139
+    kind: firmware-package
+    path: firmware/plc软件包/plc温控器程序/PLCLME4015B_HPPLH03_SH_V0139(202406072021_HC1S)_D0001.bin
+    sha256: a4208f3078891021bb68edcd88e15e586536489d2edaa9e668c2335801577c14
+    status: inventory-only
+    description: PLC 温控器程序包；尚未确认适用项目、硬件型号和升级测试用途。
+  - assetId: firmware-plc-light-driver-v0407
+    kind: firmware-package
+    path: firmware/plc软件包/plc灯驱程序/PLCLME4015B_HPPLH03(Light+CCT)_SH_V0407(20241012_HC1S)_D0001.bin
+    sha256: 93ca9b8b44788e0871924c7c33df7d798d17cc3ea428705403fd29ad9599312f
+    status: inventory-only
+    description: PLC 灯驱程序包；尚未确认适用项目、硬件型号和升级测试用途。
+  - assetId: firmware-plc-curtain-v0110
+    kind: firmware-package
+    path: firmware/plc软件包/plc窗帘电机程序/PLCLME4015B_HPPLH03(Reax+Curtain)_SH_V0110(20240402)_D0001(1).bin
+    sha256: 821252e33b7ef8887d0f101a41d43d6906881a2c1810fadecdd93b89f021c48e
+    status: inventory-only
+    description: PLC 窗帘电机程序包；尚未确认适用项目、硬件型号和升级测试用途。
+  - assetId: firmware-plc-gateway-archive-v114
+    kind: firmware-package
+    path: firmware/plc软件包/plc网关程序/LME_JINYUN_GW_TEST_V1.1.4_20241016.rar
+    sha256: 1f6f76140f65095ef53182a7b1400067998335e42baeeabdee78839e65ffc767
+    status: inventory-only
+    description: PLC 网关程序归档包；尚未确认适用项目、硬件型号和升级测试用途。
+  - assetId: firmware-plc-gateway-module
+    kind: firmware-package
+    path: firmware/plc软件包/plc网关程序/plc模组/gateway_plc.bin
+    sha256: 011ef29d1ce64ee3276edaa766a3c4c430947476b02e422af3eb5714c9ea5dfc
+    status: inventory-only
+    description: PLC 网关模块固件文件；尚未确认适用项目、硬件型号和升级测试用途。
+  - assetId: firmware-gateway-ota-v116
+    kind: firmware-package
+    path: firmware/网关ota升级包/LME_JINYUN_GW_TEST_V1.1.6_20241022.tgz
+    sha256: ef178a570641ffdb8afee78880347d39f4a56088ffcd761701ea5af861144a0f
+    status: inventory-only
+    description: 网关 OTA 升级包；尚未确认适用项目、硬件型号和升级测试用途。
+
+  - assetId: visual-switch-guide-source
+    kind: visual-baseline
+    path: product-image/switch-guide-source.png
+    sha256: b277c7e407668a8f490050b454aa27e414e83272d5c255c2426a76f9ca3bef05
+    status: inventory-only
+    description: 开关产品引导原始图片；尚未确认适用项目和视觉校验用途。
+  - assetId: visual-switch-guide
+    kind: visual-baseline
+    path: product-image/switch-guide.png
+    sha256: f69b8d2585935bce972a557207dc96681d8206752bc676e4d1b25fddd99153b7
+    status: inventory-only
+    description: 开关产品引导图片；尚未确认适用项目和视觉校验用途。
+  - assetId: visual-switch-product-source
+    kind: visual-baseline
+    path: product-image/switch-product-source.png
+    sha256: 7d9a44fc4ea525b7ac2a278498fb8cd9788353b6827618904423236357228cde
+    status: inventory-only
+    description: 开关产品原始图片；尚未确认适用项目和视觉校验用途。
+  - assetId: visual-switch-product
+    kind: visual-baseline
+    path: product-image/switch-product.png
+    sha256: 933c8eb9d3b16b58415c383368b625073fbd5caac7f549b4e3a9bb3c7ef2ac90
+    status: inventory-only
+    description: 开关产品图片；尚未确认适用项目和视觉校验用途。

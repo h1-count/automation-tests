@@ -1,0 +1,481 @@
+version: 3
+knowledge_indexes:
+  - id: open-platform-knowledge-index
+    project: open-platform
+    path: indexes/open-platform.yaml
+    status: reviewed
+    updated_at: 2026-07-16
+    covered_material_ids:
+      - openapi-document
+      - cloud-cloud-api-document
+      - smart-lock-api-document
+      - industry-saas-api-document
+      - iot-platform-help
+      - cloud-bridge-protocol-conversion-guide
+      - iot-service-development-introduction
+      - product-development-detail
+      - product-test-and-launch
+      - function-definition-detail
+      - product-development-center
+      - authorization-code-management
+      - hardware-module-introduction
+      - device-development-detail
+      - advanced-configuration
+      - operation-management
+      - value-added-services
+      - platform-overview-core-value
+      - pre-integration-preparation
+      - platform-access-authorization
+      - platform-development-guide
+      - device-callback-message-document
+      - product-access-system-requirement
+      - aiot-platform-project-document
+      - open-platform-technical-solution
+      - open-platform-interface-document
+      - centralized-interaction-management-platform
+      - open-platform-axure-prototype
+materials:
+  - id: product-access-system-requirement
+    type: requirement
+    path: requirements/open-platform/产品接入系统功能需求说明 .docx
+    source: user-provided
+    source_version: 1.2
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - product-development
+    status: active
+    notes: 原始需求文档；文档版本信息与变更日志显示最新版本为 1.2。
+  - id: apartment-lock-command-report
+    type: device-protocol
+    path: knowledge-base/device-protocol/公寓锁指令下发上报.txt
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects: []
+    reference_scopes:
+      - smart-lock
+      - command-reporting
+    status: active
+    notes: 文件名显示为公寓锁指令下发与上报资料；具体协议版本和适用项目待确认。
+  - id: home-device-access-protocol
+    type: device-protocol
+    path: knowledge-base/device-protocol/家居设备接入协议.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects: []
+    reference_scopes:
+      - device-access
+    status: active
+    notes: 家居设备接入协议；版本和适用项目待确认。
+  - id: bluetooth-communication-protocol-20241202
+    type: device-protocol
+    path: knowledge-base/device-protocol/蓝牙通讯协议20241202.doc
+    source: repository-catalog
+    source_version: 20241202
+    applicable_projects: []
+    reference_scopes:
+      - bluetooth
+      - device-access
+    status: active
+    notes: 文件名含协议日期；具体适用设备待确认。
+  - id: generic-device-access-protocol
+    type: device-protocol
+    path: knowledge-base/device-protocol/通用设备接入协议.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects: []
+    reference_scopes:
+      - device-access
+    status: active
+    notes: 通用设备接入协议；版本和适用项目待确认。
+  - id: jinyun-device-control-with-logs
+    type: device-protocol
+    path: knowledge-base/device-protocol/金云设备控制指令发送(包含日志指令).pdf
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects: []
+    reference_scopes:
+      - device-control
+      - device-logs
+    status: active
+    notes: 金云设备控制与日志指令资料；服务和协议适用范围待确认。
+  - id: jinshan-cloud-device-control
+    type: device-protocol
+    path: knowledge-base/device-protocol/金山云设备控制指令发送.pdf
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects: []
+    reference_scopes:
+      - device-control
+    status: active
+    notes: 金山云设备控制指令资料；服务和协议适用范围待确认。
+  - id: access-control-communication-protocol
+    type: device-protocol
+    path: knowledge-base/device-protocol/门禁通讯协议.doc
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects: []
+    reference_scopes:
+      - access-control
+      - device-access
+    status: active
+    notes: 门禁通信协议；版本和适用项目待确认。
+  - id: smart-lock-communication-protocol-20240113
+    type: device-protocol
+    path: knowledge-base/device-protocol/门锁通讯协20240113.doc
+    source: repository-catalog
+    source_version: 20240113
+    applicable_projects: []
+    reference_scopes:
+      - smart-lock
+      - device-access
+    status: active
+    notes: 文件名含门锁通信协议日期；具体适用设备待确认。
+  - id: openapi-document
+    type: api-documentation
+    path: knowledge-base/open-platform/API接口文档/OpenAPI .docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - api
+    status: active
+    notes: 开放平台 OpenAPI 资料；接口版本待确认。
+  - id: cloud-cloud-api-document
+    type: api-documentation
+    path: knowledge-base/open-platform/API接口文档/云云api.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - cloud-integration
+      - api
+    status: active
+    notes: 云云 API 资料；具体服务边界待确认。
+  - id: smart-lock-api-document
+    type: api-documentation
+    path: knowledge-base/open-platform/API接口文档/智能门锁 API.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - smart-lock
+      - api
+    status: active
+    notes: 智能门锁 API 资料；接口版本和适用项目待确认。
+  - id: industry-saas-api-document
+    type: api-documentation
+    path: knowledge-base/open-platform/API接口文档/行业saas api.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - saas
+      - api
+    status: active
+    notes: 行业 SaaS API 资料；接口版本和适用项目待确认。
+  - id: iot-platform-help
+    type: platform-documentation
+    path: knowledge-base/open-platform/iot平台帮助文档.pdf
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - platform-overview
+      - account-management
+      - enterprise-membership
+      - product-development
+    status: active
+    notes: IoT 平台帮助资料，覆盖平台介绍、账号与企业成员、产品开发等宽范围；具体章节主题以 open-platform-knowledge-index 为准，版本待确认。
+  - id: cloud-bridge-protocol-conversion-guide
+    type: integration-guide
+    path: knowledge-base/open-platform/云云接入bridge协议转换操作指南.pdf
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - cloud-integration
+      - protocol-conversion
+    status: active
+    notes: 云云接入 bridge 协议转换指南；版本待确认。
+  - id: iot-service-development-introduction
+    type: platform-documentation
+    path: knowledge-base/open-platform/平台文档中心/IOT服务开发/IoT服务开发介绍.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - iot-service-development
+    status: active
+    notes: IoT 服务开发介绍；版本待确认。
+  - id: product-development-detail
+    type: platform-documentation
+    path: knowledge-base/open-platform/平台文档中心/产品开发/产品开发详解.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - product-development
+    status: active
+    notes: 产品开发详解；版本待确认。
+  - id: product-test-and-launch
+    type: platform-documentation
+    path: knowledge-base/open-platform/平台文档中心/产品开发/产品测试与上线.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - product-testing
+      - product-launch
+    status: active
+    notes: 产品测试与上线资料；版本待确认。
+  - id: function-definition-detail
+    type: platform-documentation
+    path: knowledge-base/open-platform/平台文档中心/产品开发/功能定义详解.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - function-definition
+    status: active
+    notes: 功能定义详解；版本待确认。
+  - id: product-development-center
+    type: platform-documentation
+    path: knowledge-base/open-platform/平台文档中心/产品开发/平台文档中心-产品开发.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - product-development
+    status: active
+    notes: 产品开发中心入口资料；版本待确认。
+  - id: authorization-code-management
+    type: platform-documentation
+    path: knowledge-base/open-platform/平台文档中心/产品开发/授权码管理.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - authorization-code
+    status: active
+    notes: 授权码管理资料；版本待确认。
+  - id: hardware-module-introduction
+    type: platform-documentation
+    path: knowledge-base/open-platform/平台文档中心/产品开发/硬件模组介绍.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - hardware-module
+    status: active
+    notes: 硬件模组介绍；版本待确认。
+  - id: device-development-detail
+    type: platform-documentation
+    path: knowledge-base/open-platform/平台文档中心/产品开发/设备开发详解.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - device-development
+    status: active
+    notes: 设备开发详解；版本待确认。
+  - id: advanced-configuration
+    type: platform-documentation
+    path: knowledge-base/open-platform/平台文档中心/产品开发/高级配置.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - advanced-configuration
+    status: active
+    notes: 高级配置资料；版本待确认。
+  - id: operation-management
+    type: platform-documentation
+    path: knowledge-base/open-platform/平台文档中心/产品运营/运营管理.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - operation-management
+    status: active
+    notes: 产品运营资料；版本待确认。
+  - id: value-added-services
+    type: platform-documentation
+    path: knowledge-base/open-platform/平台文档中心/增值服务/增值服务.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - value-added-services
+    status: active
+    notes: 增值服务资料；版本待确认。
+  - id: platform-overview-core-value
+    type: platform-documentation
+    path: knowledge-base/open-platform/平台文档中心/平台介绍/平台概览与核心价值.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - platform-overview
+    status: active
+    notes: 平台概览资料；版本待确认。
+  - id: pre-integration-preparation
+    type: platform-documentation
+    path: knowledge-base/open-platform/平台文档中心/接入前备/接入前备.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - pre-integration
+    status: active
+    notes: 接入前准备资料；版本待确认。
+  - id: platform-access-authorization
+    type: integration-guide
+    path: knowledge-base/open-platform/平台获取接口授权方式.pdf
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - api-authorization
+    status: active
+    notes: 平台获取接口授权方式；版本待确认。
+  - id: platform-development-guide
+    type: platform-documentation
+    path: knowledge-base/open-platform/开发指南/开发指南.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - development-guide
+    status: active
+    notes: 平台开发指南；版本待确认。
+  - id: device-callback-message-document
+    type: integration-guide
+    path: knowledge-base/open-platform/开发指南/设备回调消息文档.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - device-callback
+      - api
+    status: active
+    notes: 设备回调消息资料；版本待确认。
+  - id: aiot-platform-project-document
+    type: requirement
+    path: requirements/open-platform/AIoT平台项目.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - platform-home
+      - account-management
+      - enterprise-membership
+      - work-order
+    status: active
+    notes: 开放平台官网、注册登录、控制台、账号企业与工单需求；版本待确认。
+  - id: open-platform-technical-solution
+    type: technical-design
+    path: requirements/open-platform/开放平台技术方案.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - platform-architecture
+      - gateway-routing
+      - api-authorization
+      - cloud-integration
+    status: active
+    notes: 开放平台网关、服务平台、权限和云云接入技术方案；版本待确认。
+  - id: open-platform-interface-document
+    type: api-documentation
+    path: requirements/open-platform/开放平台接口文档.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - product-development
+      - product-creation
+      - function-definition
+      - api
+    status: active
+    notes: 开放平台产品开发及相关模块接口资料；版本待确认。
+  - id: centralized-interaction-management-platform
+    type: requirement
+    path: requirements/open-platform/集中交互管理平台.docx
+    source: repository-catalog
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - operation-backend
+      - module-procurement
+      - audit-management
+    status: active
+    notes: 开放平台后台（运营侧）采购管理、审核管理与接口资料；版本待确认。
+  - id: open-platform-axure-prototype
+    type: prototype
+    path: prototypes/open-platform
+    source: user-provided
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - platform-home
+      - account-registration
+      - account-login
+      - console
+      - account-management
+      - enterprise-membership
+      - work-order
+      - documentation
+      - service-support
+    status: active
+    notes: Axure 导出的原型资料包；以目录入口及页面 HTML 作为按需读取定位，目录内运行资源不单独登记。
+  - id: lazy-cat-app-product-requirement
+    type: requirement
+    path: requirements/lazy-cat/V1.0 懒猫慧居app产品需求文档.docx
+    source: user-provided
+    source_version: V1.2
+    applicable_projects:
+      - lazy-cat
+    reference_scopes:
+      - app
+      - product-requirement
+    status: active
+    notes: 懒猫慧居 App 产品需求文档；正文变更日志最新版本为 V1.2，包含注册登录、密码重置等模块。本次注册登录测试实际引用“注册登录模块”“忘记密码/重置密码”章节。
+  - id: lazy-cat-operation-backend-phase-one-requirement
+    type: requirement
+    path: requirements/lazy-cat/第一阶段：V1.0版本-c端运营后台功能.docx
+    source: user-provided
+    source_version: V1.0
+    applicable_projects:
+      - lazy-cat
+    reference_scopes:
+      - operation-backend
+    status: active
+    notes: 懒猫慧居第一阶段运营后台功能需求资料；本次仅按文件名登记，具体模块和章节范围待按需读取后补充。

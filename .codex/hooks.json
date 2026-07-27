@@ -1,0 +1,17 @@
+{
+  "description": "Project-local guard for active automation-test stage envelopes.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/scripts/codex-stop-stage-envelope.mjs\"",
+            "timeout": 30,
+            "statusMessage": "Checking automation-test final reply eligibility"
+          }
+        ]
+      }
+    ]
+  }
+}

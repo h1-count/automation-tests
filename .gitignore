@@ -1,0 +1,36 @@
+# Dependencies and build metadata
+node_modules/
+*.tsbuildinfo
+
+# Local environment configuration and secrets
+.env
+.env.*
+!.env.example
+.auth/
+.local/
+
+# Local audit ledgers retained with archived testcase requests; never commit test resource IDs.
+testcases/archive/**/test-data/
+testcases/archive/**/test-ledger/
+testcases/archive/**/task-state/
+testcases/archive/legacy-local-test-data/
+
+# Test execution artifacts
+artifacts/*
+!artifacts/.gitkeep
+!artifacts/README.md
+!artifacts/**/
+!artifacts/**/.gitkeep
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+coverage/
+
+# Runtime logs
+*.log
+appium-logs/
+
+# Operating-system files
+.DS_Store
+Thumbs.db

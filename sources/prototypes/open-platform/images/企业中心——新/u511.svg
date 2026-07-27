@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" width="288px" height="118px" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <path d="M 0 0  L 268 0  L 268 98  L 0 98  Z " fill-rule="evenodd" fill="black" id="path9" />
+    <clipPath id="clip10">
+      <use xlink:href="#path9" />
+    </clipPath>
+    <filter x="-50.00%" y="-50.00%" width="200.00%" height="200.00%" filterUnits="objectBoundingBox" id="filter11">
+      <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0  " in="SourceGraphic" />
+    </filter>
+    <filter x="1554px" y="315px" width="288px" height="118px" filterUnits="userSpaceOnUse" id="filter12">
+      <feOffset dx="0" dy="4" in="SourceAlpha" result="shadowOffsetInner" />
+      <feGaussianBlur stdDeviation="5" in="shadowOffsetInner" result="shadowGaussian" />
+      <feComposite in2="shadowGaussian" operator="atop" in="SourceAlpha" result="shadowComposite" />
+      <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.0980392156862745 0  " in="shadowComposite" />
+    </filter>
+    <g id="widget13">
+      <g transform="matrix(1 0 0 1 1564 321 )" clip-path="url(#clip10)" filter="url(#filter11)">
+        <mask id="path-1-outside-1" maskUnits="userSpaceOnUse" x="0" y="0" width="268" height="98" fill="black">
+          <rect fill="white" width="268" height="98" />
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M5 1C2.79086 1 1 2.79086 1 5V87C1 89.2091 2.79086 91 5 91H126.343C127.404 91 128.421 91.4214 129.172 92.1716L133.293 96.2929C133.683 96.6834 134.317 96.6834 134.707 96.2929L138.828 92.1716C139.579 91.4214 140.596 91 141.657 91H263C265.209 91 267 89.2091 267 87V5C267 2.79086 265.209 1 263 1H5Z" />
+        </mask>
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M5 1C2.79086 1 1 2.79086 1 5V87C1 89.2091 2.79086 91 5 91H126.343C127.404 91 128.421 91.4214 129.172 92.1716L133.293 96.2929C133.683 96.6834 134.317 96.6834 134.707 96.2929L138.828 92.1716C139.579 91.4214 140.596 91 141.657 91H263C265.209 91 267 89.2091 267 87V5C267 2.79086 265.209 1 263 1H5Z" fill="white" />
+        <path d="M133.293 96.2929L134 95.5858L134 95.5858L133.293 96.2929ZM134.707 96.2929L134 95.5858L134 95.5858L134.707 96.2929ZM2 5C2 3.34315 3.34315 2 5 2V0C2.23858 0 0 2.23858 0 5H2ZM2 87V5H0V87H2ZM5 90C3.34315 90 2 88.6569 2 87H0C0 89.7614 2.23858 92 5 92V90ZM126.343 90H5V92H126.343V90ZM128.464 92.8787L132.586 97L134 95.5858L129.879 91.4645L128.464 92.8787ZM132.586 97C133.367 97.7811 134.633 97.7811 135.414 97L134 95.5858H134L132.586 97ZM135.414 97L139.536 92.8787L138.121 91.4645L134 95.5858L135.414 97ZM263 90H141.657V92H263V90ZM266 87C266 88.6569 264.657 90 263 90V92C265.761 92 268 89.7614 268 87H266ZM266 5V87H268V5H266ZM263 2C264.657 2 266 3.34315 266 5H268C268 2.23858 265.761 0 263 0V2ZM5 2H263V0H5V2ZM139.536 92.8787C140.098 92.3161 140.861 92 141.657 92V90C140.331 90 139.059 90.5268 138.121 91.4645L139.536 92.8787ZM126.343 92C127.139 92 127.902 92.3161 128.464 92.8787L129.879 91.4645C128.941 90.5268 127.669 90 126.343 90V92Z" fill="#E5E6EB" mask="url(#path-1-outside-1)" />
+      </g>
+    </g>
+  </defs>
+  <g transform="matrix(1 0 0 1 -1554 -315 )">
+    <use xlink:href="#widget13" filter="url(#filter12)" />
+    <use xlink:href="#widget13" />
+  </g>
+</svg>
