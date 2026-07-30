@@ -28,8 +28,8 @@
 | 1 | 计划 | 资料、静态资产与环境预检 | 用户提出开放平台登录和注册测试需求 | 测试计划形成并通过静态检查 | 已完成 | 已读取需求文档、命中原型页和注册 FAQ；合成营业执照与 test 配置预检通过 | 本计划“输入资料”“测试资产选择”“环境选择”区块 |
 | 2 | 计划确认 | 确认范围、环境、推断与数据策略 | 测试计划已生成 | 用户确认计划 | 已完成 | 用户已确认本计划；本次确认只开放用例生成与评审，不授权发送验证码、上传、注册提交或正式执行 | `CNF-STX-03` 用户确认记录；本计划“基本信息”状态 |
 | 3 | 用例 | 生成全部用例包与追溯 | 测试计划已确认 | 登录、注册用例包和 `REQ ↔ RULE ↔ caseId` 闭环 | 已完成 | 已生成 2 个用例包、40 条原子用例、19 项 REQ 和 43 条 RULE；关系同步及规则、Markdown、架构和环境预检通过 | `cases-login.md`、`cases-registration.md`；关系同步、规则设计、Markdown、架构与环境检查结果 |
-| 4 | 评审 | 多角色评审、自动演进与复审 | 用例草案完整且静态检查通过 | 资料明确的缺口关闭，最终复审收敛 | 进行中 | `REV-20260727-ACCOUNT-02` 的确定性缺口已自动修订并通过静态检查；正在登记下一轮最终复审 | 本计划“多角色评审记录”区块 |
-| 5 | 用例确认 | 确认用例集与剩余业务裁决 | 最终复审收敛 | 用户确认用例 | 待开始 | 等待评审闭环 | 用户确认记录 |
+| 4 | 评审 | 多角色评审、自动演进与复审 | 用例草案完整且静态检查通过 | 用户补充口径已纳入并完成最终复审 | 进行中 | 用户已补充 LOGIN-005 失败反馈口径，需对修订后的正式资产完成新一轮最终复审 | 本计划“多角色评审记录”区块 |
+| 5 | 用例确认 | 确认用例集与剩余业务裁决 | 最终复审收敛 | 用户确认用例 | 等待确认 | 最小问题：确认 40 条用例及 REGISTRATION-016 单次重提预算是否确认；LOGIN-005 已由用户确认纳入正式验收。确认后动作：进入工程设计，不自动授权短信、认证、上传、注册提交或正式执行 | 用户确认记录 |
 | 6 | 工程设计 | 仓库、Graphify、数据、探索与脚本方案定位 | 用例已确认 | 工程设计完成自动校验 | 待开始 | 等待用例确认；此阶段才读取被测代码并进行零写入可见探索 | 本计划“工程层：代码定位与自动化设计”区块 |
 | 7 | 脚本与执行 | 生成脚本、确认不可变清单并执行 | 工程设计完成 | 正式报告与复盘完成 | 待开始 | 等待工程设计、脚本评审和独立执行授权 | 正式脚本与 `artifacts/` 脱敏报告 |
 
@@ -38,7 +38,7 @@
 ### 包含
 
 - 官网“立即使用”或“登录/注册”入口到账号页的导航，以及登录与注册页签切换。
-- 手机号与密码登录主链路、登录成功后进入 AIoT 控制台的可观察结果。
+- 手机号与密码登录主链路、登录成功后进入 AIoT 控制台的可观察结果，以及无效凭据登录失败后的可见失败反馈。
 - 原型展示的手机号与验证码登录入口、获取验证码、协议勾选、登录按钮和“账号登录”模式切换；资料未定义的验证码发送反馈、有效期和重发间隔不生成通过或失败断言。
 - “忘记密码”入口的可见性与跳转；重置流程和验收规则在资料补齐前保持适用待补充。
 - 企业注册字段、输入边界、唯一性提示、手机号验证、协议确认、合成营业执照上传和注册提交。
@@ -113,7 +113,7 @@
 | --- | --- | --- | --- | --- | --- |
 | OPEN-PLATFORM-LOGIN-003 | 登录短信请求 | 1 | 无 | 不记录验证码或短信正文；频控恢复待确认 | 待独立执行授权 |
 | OPEN-PLATFORM-LOGIN-004 | 有效凭据认证提交 | 1 | 无 | 用例结束退出或关闭隔离浏览器上下文 | 待独立执行授权 |
-| OPEN-PLATFORM-LOGIN-005 | 无效凭据认证提交 | 1 | 无 | 不保存凭据或会话；仅在用户纳入正式验收后执行 | 待用户裁决及独立执行授权 |
+| OPEN-PLATFORM-LOGIN-005 | 无效凭据认证提交 | 1 | 无 | 不保存凭据或会话；仅接受可见失败反馈的脱敏事实 | 待独立执行授权 |
 | OPEN-PLATFORM-REGISTRATION-009 | 合成文件上传校验 | 每个明确文件等价类 1 次 | 无企业申请 | 可能产生临时上传对象；清理能力待工程设计确认 | 待独立执行授权 |
 | OPEN-PLATFORM-REGISTRATION-011 | 注册短信请求 | 1 | 无 | 不记录验证码或短信正文；频控恢复待确认 | 待独立执行授权 |
 | OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025 | 预登记有效表单基线夹具只读复位 | 0 | 无 | 每个 caseId 使用彼此隔离夹具；不得依赖前例页面状态；夹具不可用则阻塞该 caseId | 已确认零当前副作用；工程能力待补 |
@@ -128,7 +128,7 @@
 | OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-LOGIN-002、OPEN-PLATFORM-LOGIN-006、OPEN-PLATFORM-REGISTRATION-001、OPEN-PLATFORM-REGISTRATION-002、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-004、OPEN-PLATFORM-REGISTRATION-005、OPEN-PLATFORM-REGISTRATION-007、OPEN-PLATFORM-REGISTRATION-008、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-012、OPEN-PLATFORM-REGISTRATION-020、OPEN-PLATFORM-REGISTRATION-021、OPEN-PLATFORM-REGISTRATION-022、OPEN-PLATFORM-REGISTRATION-030 | 待工程设计 | 零持久写入导航、输入、本地或提交前服务校验；不发送短信、不上传、不认证、不提交申请 | 无 | 0 | 不适用或待确认只读入口 | 常规脱敏 |
 | OPEN-PLATFORM-LOGIN-003 | 待工程设计 | 最多请求 1 次登录验证码，不提交登录 | 短信请求 | 1 | 不适用 | 暂停或遮罩敏感采集，不记录短信正文 |
 | OPEN-PLATFORM-LOGIN-004 | 待工程设计 | 最多提交 1 次有效凭据登录，随后退出或关闭隔离会话 | 临时认证会话 | 1 | 控制台目标只读核验 | 密码、Cookie、Token 和会话不进入产物 |
-| OPEN-PLATFORM-LOGIN-005 | 待工程设计 | 最多提交 1 次无效凭据；用户裁决前不执行 | 认证尝试 | 1 | 不适用 | 不记录凭据和响应敏感字段 |
+| OPEN-PLATFORM-LOGIN-005 | 待工程设计 | 最多提交 1 次无效凭据 | 认证尝试 | 1 | 不进入 AIoT 控制台且展示 Toast、弹窗或等价可见失败反馈 | 不记录凭据和响应敏感字段 |
 | OPEN-PLATFORM-REGISTRATION-009 | 待工程设计 | 上传脱敏合成文件并验证类型、大小边界，不提交申请 | 临时上传对象待确认 | 每个明确等价类 1 | 不适用 | Trace、视频和网络摘要按上传阶段暂停或遮罩 |
 | OPEN-PLATFORM-REGISTRATION-011 | 待工程设计 | 最多请求 1 次注册验证码并由用户完成最小安全挑战，不提交申请 | 短信请求 | 1 | 不适用 | 不记录验证码、手机号原值或短信正文 |
 | OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025 | 待工程设计 | 分别读取并复位预登记的独立有效表单基线夹具，只改变一个决策条件；不发送短信、不上传、不提交申请 | 预登记表单夹具 | 0 | 需证明夹具身份、独立恢复和未提交事实 | 夹具不可用时阻塞对应 caseId 并重开授权，禁止复用前例残留 |
@@ -143,11 +143,11 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 用例集状态 | 待评审 |
+| 用例集状态 | 待用户确认 |
 | 已完成用例包 | `cases-login.md`：6 条；`cases-registration.md`：34 条 |
 | 待生成或待补齐用例包 | 无；40 条 caseId 与 43 条 RULE 已完成关系同步 |
-| 当前阻塞项 | 仅 `OPEN-PLATFORM-LOGIN-005` 的业务验收口径待用户裁决，不阻塞其余用例自动演进 |
-| 下一门禁 | 登记并完成下一轮五角色最终复审；收敛后进入用户用例确认 |
+| 当前阻塞项 | REGISTRATION-016 的单次驳回重提写入预算仍待确认；LOGIN-005 的用户确认口径已完成最终复审 |
+| 下一门禁 | 仅确认 REGISTRATION-016 单次重提预算；确认后进入工程设计，不自动授权任何业务执行 |
 
 ## 覆盖基准与拆分清单
 
@@ -157,7 +157,7 @@
 
 | 基准资料 | 层级或模块/流程 | 可验证场景或规则 | 计划覆盖范围 | 关联 RULE | 派生 caseId | 差异、不适用或待补充依据 |
 | --- | --- | --- | --- | --- | --- | --- |
-| AIoT 平台项目需求 | 官网与账号访问 / 登录 | 登录入口、手机号密码登录、登录后进入控制台 | 入口、密码登录主链路、登录后目标；无效凭据结果隔离待裁决 | RULE-NAV-001、RULE-LOGIN-004、RULE-LOGIN-005、RULE-LOGIN-007 | OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005 | 密码格式、失败提示和会话规则未定义；LOGIN-005 不作为已确认验收 |
+| AIoT 平台项目需求与用户裁决 | 官网与账号访问 / 登录 | 登录入口、手机号密码登录、登录后进入控制台、无效凭据失败 | 入口、密码登录主链路、登录后目标；无效凭据失败且显示可见反馈 | RULE-NAV-001、RULE-LOGIN-004、RULE-LOGIN-005、RULE-LOGIN-007 | OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005 | 密码格式、提示文案、失败次数、锁定与会话策略未定义；不限制 Toast、弹窗或等价反馈形态 |
 | 登录原型 | 登录页面 / 验证码登录与账号登录 | 手机号、验证码、协议、登录、忘记密码、账号登录切换 | 页面交互、模式切换、验证码受控执行、忘记密码入口 | RULE-LOGIN-001、RULE-LOGIN-002、RULE-LOGIN-003、RULE-LOGIN-006 | OPEN-PLATFORM-LOGIN-002、OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-006 | 验证码有效期、重发间隔和重置流程未定义 |
 | AIoT 平台项目需求 | 企业注册 / 字段与唯一性 | 企业资料、联系人、联系方式、简介、邮箱、唯一性提示和手机号多企业关系 | 字段等价类、边界、唯一性、提示和关系 | RULE-REG-001、RULE-REG-002、RULE-REG-003、RULE-REG-004、RULE-REG-005、RULE-REG-006、RULE-REG-007、RULE-REG-008、RULE-REG-009、RULE-REG-010、RULE-REG-013、RULE-REG-014、RULE-REG-016、RULE-REG-025、RULE-REG-031、RULE-REG-034 | OPEN-PLATFORM-REGISTRATION-001、OPEN-PLATFORM-REGISTRATION-002、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-004、OPEN-PLATFORM-REGISTRATION-005、OPEN-PLATFORM-REGISTRATION-006、OPEN-PLATFORM-REGISTRATION-007、OPEN-PLATFORM-REGISTRATION-008、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-012、OPEN-PLATFORM-REGISTRATION-021、OPEN-PLATFORM-REGISTRATION-022、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-029、OPEN-PLATFORM-REGISTRATION-030 | 信用代码字符集和校验位算法未定义，不生成对应断言 |
 | 注册原型 | 企业注册 / 入口、验证码与提交 | 注册页签、验证码、协议、提交按钮和字段布局 | 注册入口、关键交互、提交前置条件和零持久写入探索 | RULE-NAV-002、RULE-REG-015、RULE-REG-018、RULE-REG-026 | OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-020、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025 | 验证码发送反馈和成功页未定义 |
@@ -167,7 +167,7 @@
 
 | 类别 | 拆分项与适用规则 | 计划覆盖范围 | 关联 RULE | 派生 caseId | 不适用、待补充或合并依据 |
 | --- | --- | --- | --- | --- | --- |
-| 输入字段 | 登录手机号、验证码、密码；注册企业名称、信用代码、地址、标识、营业执照、申请人、联系方式、简介、邮箱、验证码 | 必填、格式、长度、唯一性、文件属性、字段一致性和未定义边界 | RULE-LOGIN-002、RULE-LOGIN-004、RULE-LOGIN-007、RULE-REG-001、RULE-REG-002、RULE-REG-003、RULE-REG-004、RULE-REG-005、RULE-REG-006、RULE-REG-007、RULE-REG-009、RULE-REG-010、RULE-REG-011、RULE-REG-012、RULE-REG-013、RULE-REG-014、RULE-REG-015、RULE-REG-016、RULE-REG-025、RULE-REG-028、RULE-REG-031、RULE-REG-032、RULE-REG-033 | OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-REGISTRATION-001、OPEN-PLATFORM-REGISTRATION-002、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-004、OPEN-PLATFORM-REGISTRATION-005、OPEN-PLATFORM-REGISTRATION-007、OPEN-PLATFORM-REGISTRATION-008、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-012、OPEN-PLATFORM-REGISTRATION-021、OPEN-PLATFORM-REGISTRATION-022、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-030、OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033 | 只对资料明确的格式和边界生成断言；LOGIN-005 待用户裁决 |
+| 输入字段 | 登录手机号、验证码、密码；注册企业名称、信用代码、地址、标识、营业执照、申请人、联系方式、简介、邮箱、验证码 | 必填、格式、长度、唯一性、文件属性、字段一致性和未定义边界 | RULE-LOGIN-002、RULE-LOGIN-004、RULE-LOGIN-007、RULE-REG-001、RULE-REG-002、RULE-REG-003、RULE-REG-004、RULE-REG-005、RULE-REG-006、RULE-REG-007、RULE-REG-009、RULE-REG-010、RULE-REG-011、RULE-REG-012、RULE-REG-013、RULE-REG-014、RULE-REG-015、RULE-REG-016、RULE-REG-025、RULE-REG-028、RULE-REG-031、RULE-REG-032、RULE-REG-033 | OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-REGISTRATION-001、OPEN-PLATFORM-REGISTRATION-002、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-004、OPEN-PLATFORM-REGISTRATION-005、OPEN-PLATFORM-REGISTRATION-007、OPEN-PLATFORM-REGISTRATION-008、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-012、OPEN-PLATFORM-REGISTRATION-021、OPEN-PLATFORM-REGISTRATION-022、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-030、OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033 | 无效凭据必须失败并显示可见反馈；其他未定义格式和边界不生成断言 |
 | 枚举与状态 | 验证码登录、账号登录；申请未提交、已提交、待审核、审核不通过、重新提交、审核通过 | 模式切换和申请状态迁移 | RULE-LOGIN-001、RULE-REG-008、RULE-REG-019、RULE-REG-020、RULE-REG-021、RULE-REG-022、RULE-REG-029、RULE-REG-030 | OPEN-PLATFORM-LOGIN-002、OPEN-PLATFORM-REGISTRATION-006、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-026、OPEN-PLATFORM-REGISTRATION-027、OPEN-PLATFORM-REGISTRATION-028、OPEN-PLATFORM-REGISTRATION-034 | 登录会话过期和锁定状态未定义；审核状态使用隔离资源 |
 | 关键交互 | 立即使用、登录/注册入口、页签切换、获取验证码、协议、登录、忘记密码、上传、注册提交和重提 | 入口、阻断、跳转、提交和恢复路径 | RULE-NAV-001、RULE-NAV-002、RULE-LOGIN-001、RULE-LOGIN-002、RULE-LOGIN-003、RULE-LOGIN-004、RULE-LOGIN-005、RULE-LOGIN-006、RULE-LOGIN-007、RULE-REG-011、RULE-REG-012、RULE-REG-015、RULE-REG-018、RULE-REG-019、RULE-REG-020、RULE-REG-021、RULE-REG-022、RULE-REG-026 | OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-LOGIN-002、OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-LOGIN-006、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-020、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025、OPEN-PLATFORM-REGISTRATION-026、OPEN-PLATFORM-REGISTRATION-034 | 安全挑战只允许最小人工接管 |
 | 角色与权限 | 注册人作为企业管理员；一个企业一个管理员账号；一个用户可加入多个企业组；一个手机号可注册多个企业；系统权限需申请 | 账号身份、企业组展示与登录后可见范围 | RULE-LOGIN-005、RULE-REG-017、RULE-REG-023、RULE-REG-024、RULE-REG-027、RULE-REG-030、RULE-REG-034 | OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-018、OPEN-PLATFORM-REGISTRATION-019、OPEN-PLATFORM-REGISTRATION-028、OPEN-PLATFORM-REGISTRATION-029 | 企业成员管理超出范围；系统权限审批不执行 |
@@ -179,13 +179,13 @@
 | 多条件业务规则 | 决策表：必填项、唯一性、手机号验证、协议四项均有效才允许提交；分别令必填项缺失、唯一性失败、手机号未验证、协议未勾选，其他三项保持有效并在场景后复位 | REQ-REG-010 | 注册提交允许与四类独立阻断 | RULE-REG-018、RULE-REG-025、RULE-REG-026 | OPEN-PLATFORM-REGISTRATION-002、OPEN-PLATFORM-REGISTRATION-004、OPEN-PLATFORM-REGISTRATION-008、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025 | 负向场景以提交入口不可激活且无提交请求为稳定判据；精确禁用样式待探索，不得提交申请 |
 | 生命周期与状态机 | 状态迁移：未提交到已提交；待审核在 1–2 个工作日产生结果；驳回后重新提交；通过后管理员登录并核验名称状态 | REQ-REG-001、REQ-REG-003、REQ-REG-011、REQ-REG-012 | 注册申请审核状态机与字段后置状态 | RULE-REG-008、RULE-REG-019、RULE-REG-020、RULE-REG-021、RULE-REG-022、RULE-REG-029、RULE-REG-030 | OPEN-PLATFORM-REGISTRATION-006、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-026、OPEN-PLATFORM-REGISTRATION-027、OPEN-PLATFORM-REGISTRATION-028、OPEN-PLATFORM-REGISTRATION-034 | 审核耗时 1–2 个工作日，正式执行需隔离资源和可恢复观察 |
 | 复杂输入 | 等价类与边界：企业名称 2/50、信用代码 18/19 上边界、标识 3/6、地址 50、姓名 20、手机号 11、简介 300、邮箱 50、营业执照类型和小于/等于/大于 10MB；另验证名称和代码与合成证照一致性 | REQ-REG-001、REQ-REG-002、REQ-REG-003、REQ-REG-004、REQ-REG-005、REQ-REG-006、REQ-REG-007、REQ-REG-008 | 注册字段有效、无效、边界和跨字段一致性输入 | RULE-REG-001、RULE-REG-002、RULE-REG-003、RULE-REG-004、RULE-REG-005、RULE-REG-006、RULE-REG-007、RULE-REG-008、RULE-REG-009、RULE-REG-010、RULE-REG-011、RULE-REG-012、RULE-REG-013、RULE-REG-014、RULE-REG-015、RULE-REG-016、RULE-REG-028、RULE-REG-031、RULE-REG-032、RULE-REG-033 | OPEN-PLATFORM-REGISTRATION-001、OPEN-PLATFORM-REGISTRATION-002、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-004、OPEN-PLATFORM-REGISTRATION-005、OPEN-PLATFORM-REGISTRATION-006、OPEN-PLATFORM-REGISTRATION-007、OPEN-PLATFORM-REGISTRATION-008、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-012、OPEN-PLATFORM-REGISTRATION-021、OPEN-PLATFORM-REGISTRATION-022、OPEN-PLATFORM-REGISTRATION-030、OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033 | 信用代码最小长度、字符集和校验位、部分字符空格规则未定义；不生成对应断言 |
-| 核心用户旅程 | 场景法：账号入口、登录模式切换、密码登录、验证码请求受控路径、注册入口、注册提交、审核时限与短信、驳回重提、审核通过后登录、忘记密码入口 | REQ-NAV-001、REQ-LOGIN-001、REQ-LOGIN-002、REQ-LOGIN-003、REQ-LOGIN-004、REQ-REG-009、REQ-REG-010、REQ-REG-011、REQ-REG-012 | 主成功、受控失败、回退和恢复 | RULE-NAV-001、RULE-NAV-002、RULE-LOGIN-001、RULE-LOGIN-002、RULE-LOGIN-003、RULE-LOGIN-004、RULE-LOGIN-005、RULE-LOGIN-006、RULE-REG-015、RULE-REG-017、RULE-REG-018、RULE-REG-019、RULE-REG-020、RULE-REG-021、RULE-REG-022、RULE-REG-023、RULE-REG-024、RULE-REG-026、RULE-REG-027、RULE-REG-030、RULE-REG-034 | OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-LOGIN-002、OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-006、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-018、OPEN-PLATFORM-REGISTRATION-019、OPEN-PLATFORM-REGISTRATION-020、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025、OPEN-PLATFORM-REGISTRATION-026、OPEN-PLATFORM-REGISTRATION-028、OPEN-PLATFORM-REGISTRATION-029、OPEN-PLATFORM-REGISTRATION-034 | 忘记密码正文和验证码反馈缺少验收；LOGIN-005 待用户裁决 |
+| 核心用户旅程 | 场景法：账号入口、登录模式切换、密码登录、无效凭据失败反馈、验证码请求受控路径、注册入口、注册提交、审核时限与短信、驳回重提、审核通过后登录、忘记密码入口 | REQ-NAV-001、REQ-LOGIN-001、REQ-LOGIN-002、REQ-LOGIN-003、REQ-LOGIN-004、REQ-REG-009、REQ-REG-010、REQ-REG-011、REQ-REG-012 | 主成功、受控失败、回退和恢复 | RULE-NAV-001、RULE-NAV-002、RULE-LOGIN-001、RULE-LOGIN-002、RULE-LOGIN-003、RULE-LOGIN-004、RULE-LOGIN-005、RULE-LOGIN-006、RULE-LOGIN-007、RULE-REG-015、RULE-REG-017、RULE-REG-018、RULE-REG-019、RULE-REG-020、RULE-REG-021、RULE-REG-022、RULE-REG-023、RULE-REG-024、RULE-REG-026、RULE-REG-027、RULE-REG-030、RULE-REG-034 | OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-LOGIN-002、OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-LOGIN-006、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-018、OPEN-PLATFORM-REGISTRATION-019、OPEN-PLATFORM-REGISTRATION-020、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025、OPEN-PLATFORM-REGISTRATION-026、OPEN-PLATFORM-REGISTRATION-028、OPEN-PLATFORM-REGISTRATION-029、OPEN-PLATFORM-REGISTRATION-034 | 忘记密码正文和验证码反馈缺少验收；LOGIN-005 不限定提示文案或呈现组件 |
 
 ## 覆盖矩阵
 
 | 覆盖域 | 适用性与依据 | 计划覆盖范围 | 结论 | 派生 caseId |
 | --- | --- | --- | --- | --- |
-| 业务功能与规则 | 适用：登录和注册是本次核心请求 | 入口、认证模式、注册字段、独立阻断、提交、审核和账号身份 | 已覆盖；LOGIN-005 待裁决 | OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025 |
+| 业务功能与规则 | 适用：登录和注册是本次核心请求 | 入口、认证模式、注册字段、独立阻断、提交、审核和账号身份 | 已覆盖；LOGIN-005 已纳入正式验收，待最终复审 | OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025 |
 | 输入与数据校验 | 适用：需求明确多个字段边界、格式、唯一性和证照一致性 | 登录输入和全部注册字段的已定义等价类、边界与跨字段一致性 | 已覆盖 | OPEN-PLATFORM-REGISTRATION-001、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-005、OPEN-PLATFORM-REGISTRATION-007、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-012、OPEN-PLATFORM-REGISTRATION-021、OPEN-PLATFORM-REGISTRATION-022、OPEN-PLATFORM-REGISTRATION-030、OPEN-PLATFORM-REGISTRATION-032 |
 | 状态与生命周期 | 适用：注册存在已提交、待审核、审核不通过、重提和审核通过 | 互斥隔离申请状态机、字段后置状态与后续登录 | 已覆盖；执行能力待补 | OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-REGISTRATION-006、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-027 |
 | 数据完整性与一致性 | 适用：名称、标识、信用代码唯一；名称和信用代码需匹配证照；手机号与账号存在多企业关系 | 唯一性、跨字段一致性、重复提交风险和账号企业关系 | 已覆盖 | OPEN-PLATFORM-REGISTRATION-002、OPEN-PLATFORM-REGISTRATION-004、OPEN-PLATFORM-REGISTRATION-008、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-026、OPEN-PLATFORM-REGISTRATION-028、OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-033、OPEN-PLATFORM-REGISTRATION-034 |
@@ -206,7 +206,7 @@
 | REQ-NAV-001 | AIoT 平台项目需求“官网改造”；平台帮助文档第 8 页 | P0 | 官网“立即使用”进入登录页面；官网“登录/注册”进入可切换到注册表单的账号访问路径 | 适用 | 两条入口路径分别验证 | OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-REGISTRATION-020 | 已覆盖 | 正式执行前需确认目标页面可访问 |
 | REQ-LOGIN-001 | 登录原型“登录页面” | P0 | 用户可在验证码登录与账号登录入口之间切换 | 适用 | 模式切换与字段组可见性 | OPEN-PLATFORM-LOGIN-002 | 已覆盖 | 只断言原型明确的交互 |
 | REQ-LOGIN-002 | 登录原型“登录页面” | P0 | 验证码登录展示手机号、验证码、获取验证码、协议和登录入口 | 适用 | 表单结构与受控验证码请求；不提交验证码登录 | OPEN-PLATFORM-LOGIN-003 | 受控执行 | 发送验证码需独立执行授权；完整登录结果、成功反馈与重发规则未定义 |
-| REQ-LOGIN-003 | AIoT 平台项目需求“登录” | P0 | 使用手机号和密码登录 | 适用 | 正确账号登录和资料未定义的失败分支 | OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005 | 已覆盖 | 密码规则、错误提示、锁定与会话策略未定义 |
+| REQ-LOGIN-003 | AIoT 平台项目需求“登录”；2026-07-27 用户裁决 | P0 | 使用手机号和密码登录；无效凭据必须失败且有可见失败反馈 | 适用 | 正确账号登录；无效凭据失败、不进入控制台与可见反馈 | OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005 | 已覆盖 | 密码规则、精确提示、锁定与会话策略未定义；不限定反馈组件或文案 |
 | REQ-LOGIN-004 | AIoT 平台项目需求“AIoT控制台” | P0 | 统一登录验证后默认进入 AIoT 控制台 | 适用 | 登录后路由和控制台入口 | OPEN-PLATFORM-LOGIN-004 | 已覆盖 | 需测试账号和登录会话；安全挑战不得绕过 |
 | REQ-LOGIN-005 | 登录原型“登录页面” | P1 | 登录页提供忘记密码入口 | 适用 | 入口可见性与跳转 | OPEN-PLATFORM-LOGIN-006 | 适用待补充 | 重置步骤、身份校验和成功结果未定义 |
 | REQ-REG-001 | AIoT 平台项目需求“注册”；帮助文档物理第 9 页 | P0 | 企业名称必填、2–50 字符、仅中文英文数字且唯一；须与营业执照名称一致，提交后不可修改，审核通过登录后作为企业组名称展示 | 适用 | 输入、唯一性、跨字段一致性和后置状态 | OPEN-PLATFORM-REGISTRATION-001、OPEN-PLATFORM-REGISTRATION-002、OPEN-PLATFORM-REGISTRATION-027、OPEN-PLATFORM-REGISTRATION-028、OPEN-PLATFORM-REGISTRATION-033 | 已覆盖 | 唯一性、证照内容和后置状态需受控能力 |
@@ -237,7 +237,7 @@
 | RULE-LOGIN-004 | REQ-LOGIN-003 | AIoT 需求“手机号、密码登录” | 业务规则 | 输入有效测试手机号和密码并提交 | 完成统一登录；遇安全挑战时仅人工完成挑战 | 场景法 | 受控执行 | 受控执行 | OPEN-PLATFORM-LOGIN-004 | 需要测试账号、执行授权和可能的安全挑战 |
 | RULE-LOGIN-005 | REQ-LOGIN-004 | AIoT 需求“验证后默认进入AIoT控制台” | 状态流转 | 登录验证成功 | 当前会话进入 AIoT 控制台或可观察到等价目标 | 状态迁移 | 受控执行 | 受控执行 | OPEN-PLATFORM-LOGIN-004 | 依赖 RULE-LOGIN-004 |
 | RULE-LOGIN-006 | REQ-LOGIN-005 | 登录原型“忘记密码” | 页面交互 | 选择忘记密码 | 进入密码恢复入口 | 交互断言 | 待补充 | 待补充 | OPEN-PLATFORM-LOGIN-006 | 恢复流程和成功验收未定义 |
-| RULE-LOGIN-007 | REQ-LOGIN-003 | 现有资料仅定义有效手机号密码登录 | 异常与恢复 | 提交一次无效凭据 | 业务验收结果待用户裁决；裁决前只记录脱敏观察 | 场景法 | 待用户裁决 | 用户裁决 | OPEN-PLATFORM-LOGIN-005 | 最小问题：是否将无效凭据不得建立认证会话作为本次正式验收 |
+| RULE-LOGIN-007 | REQ-LOGIN-003 | 2026-07-27 用户裁决 | 异常与恢复 | 提交一次无效凭据 | 登录失败、不进入 AIoT 控制台，且展示 Toast、弹窗、字段错误或等价可见失败反馈 | 场景法 | 受控执行 | 已覆盖 | OPEN-PLATFORM-LOGIN-005 | 已纳入正式验收，待最终复审；最多 1 次认证提交、独立执行授权且不连续失败；不限定反馈组件或文案 |
 | RULE-REG-001 | REQ-REG-001 | AIoT 需求“企业名称” | 输入边界 | 企业名称为空 | 阻止提交并提示“请输入集团名称” | 等价类 | 适用 | 已覆盖 | OPEN-PLATFORM-REGISTRATION-001 | 零写入本地校验优先 |
 | RULE-REG-002 | REQ-REG-001 | AIoT 需求“企业名称长度” | 输入边界 | 企业名称长度为 1、2、50、51 字符 | 2–50 字符有效，越界被拒绝 | 边界值 | 适用 | 已覆盖 | OPEN-PLATFORM-REGISTRATION-001 | 使用合成文本 |
 | RULE-REG-003 | REQ-REG-001 | AIoT 需求“企业名称内容” | 输入边界 | 输入中文、英文、数字或特殊符号、表情 | 中文英文数字有效；特殊符号和表情被拒绝 | 等价类 | 适用 | 已覆盖 | OPEN-PLATFORM-REGISTRATION-001 | 空格规则未定义 |
@@ -287,7 +287,7 @@
 | RULE-LOGIN-004 | 手机号密码登录 | 必填 | 有效测试手机号和密码 | 有效凭据完成统一登录；安全挑战不绕过 | 开放平台测试账号 | 最多 1 次认证提交与安全挑战 | OPEN-PLATFORM-LOGIN-004 | 受控执行 |
 | RULE-LOGIN-005 | 登录会话目标 | 不适用 | 登录验证成功 | 当前会话进入 AIoT 控制台或等价目标 | 已成功建立隔离会话 | 只读目标核验并关闭会话 | OPEN-PLATFORM-LOGIN-004 | 受控执行 |
 | RULE-LOGIN-006 | 忘记密码入口 | 不适用 | 选择忘记密码 | 进入密码恢复入口 | 不需要远端业务数据 | 零写入入口导航 | OPEN-PLATFORM-LOGIN-006 | 待补充 |
-| RULE-LOGIN-007 | 无效凭据 | 必填 | 提交一次无效凭据 | 裁决前仅记录观察，不形成正式通过失败 | 独立无效测试凭据 | 用户裁决后再独立授权 | OPEN-PLATFORM-LOGIN-005 | 用户裁决 |
+| RULE-LOGIN-007 | 无效凭据 | 必填 | 提交一次无效凭据 | 登录失败、不进入 AIoT 控制台，且展示 Toast、弹窗、字段错误或等价可见失败反馈 | 独立无效测试凭据 | 最多 1 次认证提交；独立执行授权；不进行连续失败尝试 | OPEN-PLATFORM-LOGIN-005 | 已覆盖 |
 | RULE-REG-001 | 企业名称必填 | 必填 | 空值、有效合成名称 | 空值被拒绝并显示资料提示 | 不需要既有远端数据 | 零写入本地校验优先 | OPEN-PLATFORM-REGISTRATION-001 | 已覆盖 |
 | RULE-REG-002 | 企业名称长度 | 必填 | 1、2、50、51 字符 | 2–50 字符有效，越界被拒绝 | 合成企业名称 | 零写入本地校验优先 | OPEN-PLATFORM-REGISTRATION-001 | 已覆盖 |
 | RULE-REG-003 | 企业名称字符 | 必填 | 中文、英文、数字、特殊符号、表情 | 中文英文数字有效；特殊符号和表情被拒绝 | 合成企业名称 | 零写入本地校验优先 | OPEN-PLATFORM-REGISTRATION-001 | 已覆盖 |
@@ -329,6 +329,8 @@
 | --- | --- | --- | --- | --- |
 | REV-20260727-ACCOUNT-01 初审自动演进 | RULE-NAV-001、RULE-NAV-002、RULE-LOGIN-001、RULE-LOGIN-002、RULE-LOGIN-003、RULE-LOGIN-004、RULE-LOGIN-005、RULE-LOGIN-006、RULE-LOGIN-007、RULE-REG-001、RULE-REG-002、RULE-REG-003、RULE-REG-004、RULE-REG-005、RULE-REG-006、RULE-REG-007、RULE-REG-008、RULE-REG-009、RULE-REG-010、RULE-REG-011、RULE-REG-012、RULE-REG-013、RULE-REG-014、RULE-REG-015、RULE-REG-016、RULE-REG-017、RULE-REG-018、RULE-REG-019、RULE-REG-020、RULE-REG-021、RULE-REG-022、RULE-REG-023、RULE-REG-024、RULE-REG-025、RULE-REG-026、RULE-REG-027、RULE-REG-028、RULE-REG-029、RULE-REG-030、RULE-REG-031、RULE-REG-032、RULE-REG-033、RULE-REG-034 | 同一账号访问请求、字段邻域、提交决策、审核状态、证照一致性与账号企业关系 | OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-REGISTRATION-001 至 OPEN-PLATFORM-REGISTRATION-033 | 关系同步通过；规则设计与 Markdown 通过；架构 108 通过、2 警告、0 失败；环境 3 通过、2 警告、0 失败 |
 | REV-20260727-ACCOUNT-02 最终复审自动演进 | RULE-NAV-001、RULE-NAV-002、RULE-LOGIN-002、RULE-LOGIN-003、RULE-REG-009、RULE-REG-013、RULE-REG-017、RULE-REG-018、RULE-REG-019、RULE-REG-021、RULE-REG-022、RULE-REG-025、RULE-REG-026、RULE-REG-028、RULE-REG-032、RULE-REG-033 | 两条官网入口、验证码请求边界、企业标识与申请人姓名、独立提交基线、证照审核夹具、通过与驳回短信、认证与写入隔离 | OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-REGISTRATION-007、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-018、OPEN-PLATFORM-REGISTRATION-020、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025、OPEN-PLATFORM-REGISTRATION-026、OPEN-PLATFORM-REGISTRATION-028、OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033、OPEN-PLATFORM-REGISTRATION-034 | 关系同步、规则设计与 Markdown 通过；架构 108 通过、2 警告、0 失败；环境 3 通过、2 警告、0 失败 |
+| REV-20260727-ACCOUNT-03 最终复审自动演进 | RULE-NAV-002、RULE-LOGIN-004、RULE-LOGIN-005、RULE-REG-018、RULE-REG-025、RULE-REG-026、RULE-REG-031 | 信用代码长度上界、注册返回登录、负向提交判据与登录会话隔离 | OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-020、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025、OPEN-PLATFORM-REGISTRATION-030 | 资料明确缺口已修订并进入下一轮复审 |
+| REV-20260727-ACCOUNT-04 最终复审收敛 | RULE-NAV-002、RULE-LOGIN-004、RULE-LOGIN-005、RULE-REG-018、RULE-REG-025、RULE-REG-026、RULE-REG-031 | 对第三轮演进结果进行独立复核 | OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-020、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025、OPEN-PLATFORM-REGISTRATION-030 | 五角色均通过，评审事务已收敛 |
 
 ## 用例包目录
 
@@ -341,9 +343,14 @@
 
 | 变更编号 | 来源与版本 | 受影响需求追溯编号 | 影响判定与依据 | 受影响 caseId | 脚本/工程设计影响 | 数据/环境影响 | 是否复测与结论 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| IMP-20260727-001 | `REV-20260727-ACCOUNT-01` 初审、`REV-20260727-ACCOUNT-02` 最终复审；当前受控资料基线 | REQ-NAV-001、REQ-LOGIN-001、REQ-LOGIN-002、REQ-LOGIN-003、REQ-LOGIN-004、REQ-LOGIN-005、REQ-REG-001、REQ-REG-002、REQ-REG-003、REQ-REG-004、REQ-REG-005、REQ-REG-006、REQ-REG-007、REQ-REG-008、REQ-REG-009、REQ-REG-010、REQ-REG-011、REQ-REG-012、REQ-REG-013 | 新请求无既有正式脚本迁移；两轮评审补齐入口、字段提示、状态隔离、证照审核证据、通过与驳回通知，并拆分原聚合用例 | OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-LOGIN-002、OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-LOGIN-006、OPEN-PLATFORM-REGISTRATION-001、OPEN-PLATFORM-REGISTRATION-002、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-004、OPEN-PLATFORM-REGISTRATION-005、OPEN-PLATFORM-REGISTRATION-006、OPEN-PLATFORM-REGISTRATION-007、OPEN-PLATFORM-REGISTRATION-008、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-012、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-018、OPEN-PLATFORM-REGISTRATION-019、OPEN-PLATFORM-REGISTRATION-020、OPEN-PLATFORM-REGISTRATION-021、OPEN-PLATFORM-REGISTRATION-022、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025、OPEN-PLATFORM-REGISTRATION-026、OPEN-PLATFORM-REGISTRATION-027、OPEN-PLATFORM-REGISTRATION-028、OPEN-PLATFORM-REGISTRATION-029、OPEN-PLATFORM-REGISTRATION-030、OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033、OPEN-PLATFORM-REGISTRATION-034 | 关系同步与 43 条规则设计需以当前 40 条 caseId 为工程输入；后续脚本按副作用边界和场景组唯一绑定 | 首次申请、重提、短信、认证、上传、决策基线和互斥审核资源分别隔离；重提预算待确认 | 是；两轮缺口自动演进后需完成静态校验与下一轮最终复审 | 自动演进中 |
+| IMP-20260727-001 | `REV-20260727-ACCOUNT-01` 至 `REV-20260727-ACCOUNT-05`；当前受控资料基线与 2026-07-27 用户裁决 | REQ-NAV-001、REQ-LOGIN-001、REQ-LOGIN-002、REQ-LOGIN-003、REQ-LOGIN-004、REQ-LOGIN-005、REQ-REG-001、REQ-REG-002、REQ-REG-003、REQ-REG-004、REQ-REG-005、REQ-REG-006、REQ-REG-007、REQ-REG-008、REQ-REG-009、REQ-REG-010、REQ-REG-011、REQ-REG-012、REQ-REG-013 | 新请求无既有正式脚本迁移；既有三轮演进补齐入口、字段提示、状态隔离、证照审核证据、通知、长度上界、提交判据和会话收尾；用户已确认 LOGIN-005 为正式失败反馈验收，正进行最小范围复审 | OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-LOGIN-002、OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-LOGIN-006、OPEN-PLATFORM-REGISTRATION-001、OPEN-PLATFORM-REGISTRATION-002、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-004、OPEN-PLATFORM-REGISTRATION-005、OPEN-PLATFORM-REGISTRATION-006、OPEN-PLATFORM-REGISTRATION-007、OPEN-PLATFORM-REGISTRATION-008、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-012、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-018、OPEN-PLATFORM-REGISTRATION-019、OPEN-PLATFORM-REGISTRATION-020、OPEN-PLATFORM-REGISTRATION-021、OPEN-PLATFORM-REGISTRATION-022、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025、OPEN-PLATFORM-REGISTRATION-026、OPEN-PLATFORM-REGISTRATION-027、OPEN-PLATFORM-REGISTRATION-028、OPEN-PLATFORM-REGISTRATION-029、OPEN-PLATFORM-REGISTRATION-030、OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033、OPEN-PLATFORM-REGISTRATION-034 | 关系同步与 43 条规则设计以当前 40 条 caseId 为工程输入；后续脚本按副作用边界和场景组唯一绑定 | 首次申请、重提、短信、认证、上传、决策基线和互斥审核资源分别隔离；LOGIN-005 认证仍需独立执行授权；重提预算待确认 | 是；第五批次发现项自动演进后需最终复审 | 复审中 |
 
 ## 合理推断
+
+## 用户裁决记录
+
+- 2026-07-27：无效凭据登录必须失败，不进入 AIoT 控制台，并展示可见失败反馈；可采用 Toast、弹窗、字段错误或等价形式，不固定文案或组件。
+- 2026-07-27：审核不通过后可以重新申请；该业务口径已由 OPEN-PLATFORM-REGISTRATION-016 覆盖。其单次驳回重提写入预算和执行授权仍须单独确认。
 
 - 用户所称“开放平台”唯一匹配当前仓库已登记的 `open-platform` Web 项目，因此使用该项目的需求、原型、帮助文档和项目经验。
 - 用户未指定环境，按已记录的长期偏好把 `test` 作为候选；环境选择不构成验证码、登录、文件上传、注册提交或正式执行授权。
@@ -353,7 +360,7 @@
 ## 待补充信息
 
 - 验证码登录和注册验证码的成功提示、有效期、重发间隔、频控和失败反馈未定义；在补充资料或用户裁决前不生成这些精确断言。
-- 登录密码策略、错误次数锁定、会话有效期、退出和失效恢复未定义；无效凭据是否“不得建立认证会话”作为正式业务验收待用户裁决，裁决前只记录观察且不猜测提示正文。
+- 登录密码策略、错误次数锁定、会话有效期、退出和失效恢复未定义；用户已确认无效凭据必须登录失败且展示可见失败反馈，但不限定提示文案或反馈组件。
 - 忘记密码的身份校验、验证码、密码规则、完成页和返回登录流程未定义；当前只覆盖入口与跳转。
 - 企业信用代码最小长度、字符集和校验位算法、企业地址“有效”的具体判定、申请人姓名的空格与特殊字符规则未定义；信用代码最大 18 字符已由资料的 `0/18` 计数器明确。
 - 注册成功页或提交反馈正文未定义；首次提交用例只记录单次提交事实，资料明确的最终结果由后续审核与短信证据闭环。
@@ -408,64 +415,88 @@
 
 | 角色 | 执行方式 | Agent 任务标识 | 隔离方式 | 输入基线 | 执行状态 | 结论 | 发现项编号 | 处置状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 需求一致性评审 | 真实子智能体 | /root/req_review_r1 | fork_turns=none | testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md；sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf | 已完成 | 阻塞 | MRR-REQ-001、MRR-REQ-002、MRR-REQ-003、MRR-REQ-004、MRR-REQ-005、MRR-REQ-006、MRR-REQ-007 | 自动演进 |
-| 测试设计评审 | 真实子智能体 | /root/design_review_r1 | fork_turns=none | testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md；docs/testing/testcase-guideline.md | 已完成 | 需演进 | MRR-DES-001、MRR-DES-002、MRR-DES-003、MRR-DES-004、MRR-DES-005、MRR-DES-006、MRR-DES-007 | 自动演进 |
-| 追溯审计 | 真实子智能体 | /root/trace_review_r1 | fork_turns=none | testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-TRC-001、MRR-TRC-002、MRR-TRC-003、MRR-TRC-004、MRR-TRC-005、MRR-TRC-006 | 自动演进 |
-| 交互与状态专项评审 | 真实子智能体 | /root/interaction_review_r1 | fork_turns=none | testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/requirements/open-platform/AIoT平台项目.docx；sources/knowledge-base/open-platform/iot平台帮助文档.pdf | 已完成 | 需演进 | MRR-INT-001、MRR-INT-002、MRR-INT-003、MRR-INT-004、MRR-INT-005、MRR-INT-006、MRR-INT-007、MRR-INT-008 | 自动演进 |
-| 变更影响评审 | 真实子智能体 | /root/impact_review_r1 | fork_turns=none | testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md；sources/manifest.yaml | 已完成 | 需演进 | MRR-IMP-001、MRR-IMP-002、MRR-IMP-003 | 自动演进 |
+| 需求一致性评审 | 真实子智能体 | /root/req_review_r1 | fork_turns=none | testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md；sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf | 已完成 | 阻塞 | MRR-REQ-001、MRR-REQ-002、MRR-REQ-003、MRR-REQ-004、MRR-REQ-005、MRR-REQ-006、MRR-REQ-007 | 待用户裁决 |
+| 测试设计评审 | 真实子智能体 | /root/design_review_r1 | fork_turns=none | testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md；docs/testing/testcase-guideline.md | 已完成 | 需演进 | MRR-DES-001、MRR-DES-002、MRR-DES-003、MRR-DES-004、MRR-DES-005、MRR-DES-006、MRR-DES-007 | 已关闭 |
+| 追溯审计 | 真实子智能体 | /root/trace_review_r1 | fork_turns=none | testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-TRC-001、MRR-TRC-002、MRR-TRC-003、MRR-TRC-004、MRR-TRC-005、MRR-TRC-006 | 已关闭 |
+| 交互与状态专项评审 | 真实子智能体 | /root/interaction_review_r1 | fork_turns=none | testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/requirements/open-platform/AIoT平台项目.docx；sources/knowledge-base/open-platform/iot平台帮助文档.pdf | 已完成 | 需演进 | MRR-INT-001、MRR-INT-002、MRR-INT-003、MRR-INT-004、MRR-INT-005、MRR-INT-006、MRR-INT-007、MRR-INT-008 | 已关闭 |
+| 变更影响评审 | 真实子智能体 | /root/impact_review_r1 | fork_turns=none | testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md；sources/manifest.yaml | 已完成 | 需演进 | MRR-IMP-001、MRR-IMP-002、MRR-IMP-003 | 已关闭 |
 
 #### 发现项
 
 | 发现项编号 | 角色 | 证据 | 发现项分类 | 受影响 REQ/caseId | 严重度 | 处置方式 | 修订/裁决证据 | 关闭状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
-| MRR-DES-001 | 测试设计评审 | REGISTRATION-013 聚合必填项缺失、唯一性失败、手机号未验证、协议未勾选四类独立失败原因，且前置无法独立建立其余有效条件；plan.md 的多条件决策表映射也遗漏 RULE-REG-018 与该 caseId。 | 资料明确的设计缺口 | REQ-REG-010、RULE-REG-018、OPEN-PLATFORM-REGISTRATION-013、plan.md#测试设计技术与依据 | 高 | 自动演进 | REGISTRATION-013、023、024、025 分别覆盖四类阻断；REGISTRATION-014 覆盖全有效提交；决策表已关联 RULE-REG-018、025、026。 | 已关闭 |
-| MRR-DES-002 | 测试设计评审 | REGISTRATION-016 需要已驳回申请，REGISTRATION-017 需要已通过申请，当前最多 1 条 tracked_residual 申请无法同时提供互斥终态；驳回用例也未验证重新提交结果。 | 资料明确的设计缺口 | REQ-REG-011、REQ-REG-012、RULE-REG-020、RULE-REG-021、RULE-REG-022、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、plan.md#测试数据策略与残留台账 | 高 | 自动演进 | REGISTRATION-015、016、017、026 使用待审核、驳回、通过的独立预登记资源；REGISTRATION-016 已包含重新提交，独立预算 1 待确认。 | 已关闭 |
-| MRR-DES-003 | 测试设计评审 | LOGIN-003 至 005、REGISTRATION-009、011、018 存在短信、认证会话或上传副作用却标记 no_write，计划未统一定义副作用类型、数量预算、残留或清理结论。 | 资料明确的设计缺口 | OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-018、plan.md#测试数据策略与残留台账、plan.md#执行清单映射 | 高 | 自动演进 | “非持久副作用与授权明细”逐 caseId 区分短信、认证、上传与申请；执行清单分别登记次数、授权和残留恢复。 | 已关闭 |
-| MRR-DES-004 | 测试设计评审 | REGISTRATION-010 聚合申请人姓名和联系方式，REGISTRATION-012 聚合企业简介和邮箱，独立字段失败无法分别报告。 | 资料明确的设计缺口 | REQ-REG-006、REQ-REG-007、REQ-REG-008、RULE-REG-013、RULE-REG-014、RULE-REG-016、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-012 | 中 | 自动演进 | REGISTRATION-010、021、012、022 分别覆盖姓名、联系方式、简介与邮箱，RULE 关系已同步。 | 已关闭 |
-| MRR-DES-005 | 测试设计评审 | REGISTRATION-015 同时验证 1–2 个工作日审核结果与短信送达，分别对应 RULE-REG-020、021，两个独立失败原因无法分别报告。 | 资料明确的设计缺口 | REQ-REG-011、RULE-REG-020、RULE-REG-021、OPEN-PLATFORM-REGISTRATION-015 | 中 | 自动演进 | REGISTRATION-015 仅覆盖审核时限，REGISTRATION-026 独立覆盖短信结果；RULE-REG-020、021 已分开映射。 | 已关闭 |
-| MRR-DES-006 | 测试设计评审 | REQ-REG-005 明确营业执照为最新三证合一扫描件或照片、指定格式且不超过 10MB；REGISTRATION-009 未覆盖证照内容类别，且未把恰好 10MB 写成明确输入与独立断言。 | 需求覆盖缺口 | REQ-REG-005、RULE-REG-011、RULE-REG-012、OPEN-PLATFORM-REGISTRATION-009 | 高 | 自动演进 | REGISTRATION-009 明确小于、等于和大于 10MB；新增 RULE-REG-033 与 REGISTRATION-032 覆盖最新三证合一内容类别。 | 已关闭 |
-| MRR-DES-007 | 测试设计评审 | REGISTRATION-019 只观察当前已有一个管理员，未触发唯一性校验或读取能够证明约束的后台状态，不能证明系统阻止第二个管理员申请。 | 资料明确的设计缺口 | REQ-REG-009、RULE-REG-024、OPEN-PLATFORM-REGISTRATION-019 | 高 | 自动演进 | REGISTRATION-019 改为提交前唯一性触发或权威只读约束证据，并断言前后管理员关系不增加。 | 已关闭 |
+| MRR-DES-001 | 测试设计评审 | REGISTRATION-013 聚合必填项缺失、唯一性失败、手机号未验证、协议未勾选四类独立失败原因，且前置无法独立建立其余有效条件；plan.md 的多条件决策表映射也遗漏 RULE-REG-018 与该 caseId。 | 资料明确的设计缺口 | REQ-REG-010、RULE-REG-018、OPEN-PLATFORM-REGISTRATION-013、plan.md#测试设计技术与依据 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025、OPEN-PLATFORM-REGISTRATION-014，决策表同步。 | 已关闭 |
+| MRR-DES-002 | 测试设计评审 | REGISTRATION-016 需要已驳回申请，REGISTRATION-017 需要已通过申请，当前最多 1 条 tracked_residual 申请无法同时提供互斥终态；驳回用例也未验证重新提交结果。 | 资料明确的设计缺口 | REQ-REG-011、REQ-REG-012、RULE-REG-020、RULE-REG-021、RULE-REG-022、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、plan.md#测试数据策略与残留台账 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-026，互斥资源和重提预算分别登记。 | 已关闭 |
+| MRR-DES-003 | 测试设计评审 | LOGIN-003 至 005、REGISTRATION-009、011、018 存在短信、认证会话或上传副作用却标记 no_write，计划未统一定义副作用类型、数量预算、残留或清理结论。 | 资料明确的设计缺口 | OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-018、plan.md#测试数据策略与残留台账、plan.md#执行清单映射 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-018，逐项登记副作用。 | 已关闭 |
+| MRR-DES-004 | 测试设计评审 | REGISTRATION-010 聚合申请人姓名和联系方式，REGISTRATION-012 聚合企业简介和邮箱，独立字段失败无法分别报告。 | 资料明确的设计缺口 | REQ-REG-006、REQ-REG-007、REQ-REG-008、RULE-REG-013、RULE-REG-014、RULE-REG-016、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-012 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-021、OPEN-PLATFORM-REGISTRATION-012、OPEN-PLATFORM-REGISTRATION-022，字段分别报告。 | 已关闭 |
+| MRR-DES-005 | 测试设计评审 | REGISTRATION-015 同时验证 1–2 个工作日审核结果与短信送达，分别对应 RULE-REG-020、021，两个独立失败原因无法分别报告。 | 资料明确的设计缺口 | REQ-REG-011、RULE-REG-020、RULE-REG-021、OPEN-PLATFORM-REGISTRATION-015 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-026，审核时限与短信结果分开映射。 | 已关闭 |
+| MRR-DES-006 | 测试设计评审 | REQ-REG-005 明确营业执照为最新三证合一扫描件或照片、指定格式且不超过 10MB；REGISTRATION-009 未覆盖证照内容类别，且未把恰好 10MB 写成明确输入与独立断言。 | 需求覆盖缺口 | REQ-REG-005、RULE-REG-011、RULE-REG-012、OPEN-PLATFORM-REGISTRATION-009 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-032，覆盖大小边界与三证合一内容类别。 | 已关闭 |
+| MRR-DES-007 | 测试设计评审 | REGISTRATION-019 只观察当前已有一个管理员，未触发唯一性校验或读取能够证明约束的后台状态，不能证明系统阻止第二个管理员申请。 | 资料明确的设计缺口 | REQ-REG-009、RULE-REG-024、OPEN-PLATFORM-REGISTRATION-019 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-019，增加提交前唯一性触发或权威只读约束证据。 | 已关闭 |
 
-| MRR-TRC-001 | 追溯审计 | 覆盖基准与拆分清单使用 RULE 范围简写，但派生器只解析范围端点，导致多行派生 caseId 语义不完整而静态检查形式通过。 | 资料明确的设计缺口 | plan.md#覆盖基准与拆分清单、RULE-REG-001 至 RULE-REG-024、OPEN-PLATFORM-REGISTRATION-002 至 OPEN-PLATFORM-REGISTRATION-018 | 高 | 自动演进 | 覆盖基准、拆分清单和测试设计技术均已展开逐条 RULE；关系同步、规则设计和架构检查通过。 | 已关闭 |
-| MRR-TRC-002 | 追溯审计 | 测试设计技术的多条件业务规则行误关联 RULE-REG-015、016、019，遗漏真正定义提交决策的 RULE-REG-018、026 与负向用例。 | 资料明确的设计缺口 | REQ-REG-010、RULE-REG-015、RULE-REG-016、RULE-REG-018、RULE-REG-019、RULE-REG-026、OPEN-PLATFORM-REGISTRATION-011 至 OPEN-PLATFORM-REGISTRATION-014 | 高 | 自动演进 | 决策表改为 RULE-REG-018、025、026，并关联 REGISTRATION-013、014、023、024、025。 | 已关闭 |
-| MRR-TRC-003 | 追溯审计 | 规则设计矩阵 29 行中有 26 行关联 caseId 仍为待阶段二生成，仅新增 RULE-REG-025 至 027 已回填，矩阵无法形成有效反向追溯。 | 资料明确的设计缺口 | RULE-NAV-001、RULE-LOGIN-001 至 RULE-LOGIN-005、RULE-REG-001 至 RULE-REG-024、plan.md#规则设计矩阵 | 高 | 自动演进 | 43 条 RULE 均已在规则设计矩阵回填实际 caseId；规则设计与架构检查通过。 | 已关闭 |
-| MRR-TRC-004 | 追溯审计 | 测试范围包含登录与注册页签切换，但 RULE-NAV-001 与 LOGIN-001 只验证入口可见可操作，未选择注册入口或断言进入注册页；注册用例均从已进入注册页开始。 | 需求覆盖缺口 | 测试范围：登录与注册页签切换、REQ-NAV-001、RULE-NAV-001、OPEN-PLATFORM-LOGIN-001、cases-registration.md | 高 | 自动演进 | 新增 RULE-NAV-002 与 REGISTRATION-020，实际选择注册入口、断言字段组并返回登录表单。 | 已关闭 |
-| MRR-TRC-005 | 追溯审计 | LOGIN-003 至 005、REGISTRATION-009、011 标为 no_write，但执行清单混合验证码、登录、文件上传和企业申请创建，无法按 caseId 判定真实副作用与授权范围。 | 资料明确的设计缺口 | OPEN-PLATFORM-LOGIN-003 至 OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-011、plan.md#测试数据策略与残留台账、plan.md#执行清单映射 | 高 | 自动演进 | 执行清单按 caseId 拆分短信、认证、上传、首次申请和重提；各项次数、授权与残留边界已登记。 | 已关闭 |
+| MRR-TRC-001 | 追溯审计 | 覆盖基准与拆分清单使用 RULE 范围简写，但派生器只解析范围端点，导致多行派生 caseId 语义不完整而静态检查形式通过。 | 资料明确的设计缺口 | plan.md#覆盖基准与拆分清单、RULE-REG-001 至 RULE-REG-024、OPEN-PLATFORM-REGISTRATION-002 至 OPEN-PLATFORM-REGISTRATION-018 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-002、OPEN-PLATFORM-REGISTRATION-018，覆盖与拆分视图展开并同步。 | 已关闭 |
+| MRR-TRC-002 | 追溯审计 | 测试设计技术的多条件业务规则行误关联 RULE-REG-015、016、019，遗漏真正定义提交决策的 RULE-REG-018、026 与负向用例。 | 资料明确的设计缺口 | REQ-REG-010、RULE-REG-015、RULE-REG-016、RULE-REG-018、RULE-REG-019、RULE-REG-026、OPEN-PLATFORM-REGISTRATION-011 至 OPEN-PLATFORM-REGISTRATION-014 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025，决策表关系纠正。 | 已关闭 |
+| MRR-TRC-003 | 追溯审计 | 规则设计矩阵 29 行中有 26 行关联 caseId 仍为待阶段二生成，仅新增 RULE-REG-025 至 027 已回填，矩阵无法形成有效反向追溯。 | 资料明确的设计缺口 | RULE-NAV-001、RULE-LOGIN-001 至 RULE-LOGIN-005、RULE-REG-001 至 RULE-REG-024、plan.md#规则设计矩阵 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-REGISTRATION-001，43 条 RULE 均已回填实际 caseId。 | 已关闭 |
+| MRR-TRC-004 | 追溯审计 | 测试范围包含登录与注册页签切换，但 RULE-NAV-001 与 LOGIN-001 只验证入口可见可操作，未选择注册入口或断言进入注册页；注册用例均从已进入注册页开始。 | 需求覆盖缺口 | 测试范围：登录与注册页签切换、REQ-NAV-001、RULE-NAV-001、OPEN-PLATFORM-LOGIN-001、cases-registration.md | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-REGISTRATION-020，分别覆盖登录与注册入口。 | 已关闭 |
+| MRR-TRC-005 | 追溯审计 | LOGIN-003 至 005、REGISTRATION-009、011 标为 no_write，但执行清单混合验证码、登录、文件上传和企业申请创建，无法按 caseId 判定真实副作用与授权范围。 | 资料明确的设计缺口 | OPEN-PLATFORM-LOGIN-003 至 OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-011、plan.md#测试数据策略与残留台账、plan.md#执行清单映射 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-011，副作用逐项拆分。 | 已关闭 |
 | MRR-TRC-006 | 追溯审计 | RULE-REG-025 与 RULE-REG-004、006、010 定义并映射相同唯一性行为，未增加新可验证行为，形成重复语义和重复边。 | 质量建议 | REQ-REG-013、RULE-REG-004、RULE-REG-006、RULE-REG-010、RULE-REG-025、OPEN-PLATFORM-REGISTRATION-002、004、008 | 低 | 风险登记 | 非本次验收阻塞；建议明确聚合规则与字段规则的唯一追溯职责或去除重复边。 | 不适用 |
 
-| MRR-REQ-001 | 需求一致性评审 | 帮助文档物理第9页明确企业名称须与营业执照名称一致、登录后作为企业组名称展示且提交后不可修改；当前仅覆盖必填、长度、字符和唯一性。 | 需求覆盖缺口 | REQ-REG-001、RULE-REG-001 至 RULE-REG-004、OPEN-PLATFORM-REGISTRATION-001、OPEN-PLATFORM-REGISTRATION-002 | 高 | 自动演进 | REQ-REG-001 已扩充；RULE-REG-028、029、030 与 REGISTRATION-033、027、028 分别覆盖一致性、不可改和企业组展示。 | 已关闭 |
-| MRR-REQ-002 | 需求一致性评审 | 帮助文档物理第8页企业信用代码显示 0/18，第9页明确须与营业执照统一社会信用代码一致且不得重复；当前错误记录长度未定义并仅验证非空。 | 需求覆盖缺口 | REQ-REG-002、RULE-REG-005、RULE-REG-006、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-004 | 高 | 自动演进 | REQ-REG-002 已补 18 字符与证照一致；RULE-REG-031、032 和 REGISTRATION-030、031 覆盖 17/18/19 与一致性。 | 已关闭 |
-| MRR-REQ-003 | 需求一致性评审 | 帮助文档物理第8页企业邮箱显示 0/50，当前只覆盖选填与格式并把长度登记为未定义。 | 需求覆盖缺口 | REQ-REG-008、RULE-REG-016、OPEN-PLATFORM-REGISTRATION-012 | 中 | 自动演进 | REQ-REG-008、RULE-REG-016 与 REGISTRATION-022 已补邮箱 50/51 字符边界。 | 已关闭 |
-| MRR-REQ-004 | 需求一致性评审 | 帮助文档物理第9页明确上传最新三证合一营业执照扫描件或照片；当前只验证必传、格式和大小，任意合成图片即可通过。 | 资料明确的设计缺口 | REQ-REG-005、RULE-REG-011、RULE-REG-012、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-014 | 中 | 自动演进 | RULE-REG-033 与 REGISTRATION-032 独立覆盖脱敏三证合一扫描件或照片内容类别；REGISTRATION-009 保留文件属性。 | 已关闭 |
-| MRR-REQ-005 | 需求一致性评审 | 需求文档明确一个手机号可以注册多个企业，帮助文档另行明确一个用户账号可加入多个企业组；当前将两项合并，只验证既有账号加入多个企业组。 | 需求覆盖缺口 | REQ-REG-009、RULE-REG-023、OPEN-PLATFORM-REGISTRATION-018 | 高 | 自动演进 | REQ-REG-009 拆分三类关系；RULE-REG-023、024、034 与 REGISTRATION-018、019、029 分别覆盖。 | 已关闭 |
-| MRR-REQ-006 | 需求一致性评审 | 帮助文档物理第9页明确审核不通过后根据反馈重新发起申请；当前只进入重提路径并修改数据，明确不再次提交。 | 需求覆盖缺口 | REQ-REG-012、RULE-REG-022、OPEN-PLATFORM-REGISTRATION-016 | 高 | 自动演进 | REGISTRATION-016 已补修改后重新提交和回到审核链路的断言；独立预算 1 明确待用户确认。 | 已关闭 |
-| MRR-REQ-007 | 需求一致性评审 | 资料只定义手机号密码登录主链路，未定义无效凭据验收；当前 LOGIN-005 将无效凭据不得进入成功态作为正式通过失败断言。 | 业务裁决/资料冲突 | REQ-LOGIN-003、RULE-LOGIN-004、OPEN-PLATFORM-LOGIN-005 | 中 | 用户裁决 | 最小裁决：确认无效凭据不得建立认证会话是否作为本次正式业务验收；未确认前仅登记为非阻塞质量建议。 | 待用户裁决 |
+| MRR-REQ-001 | 需求一致性评审 | 帮助文档物理第9页明确企业名称须与营业执照名称一致、登录后作为企业组名称展示且提交后不可修改；当前仅覆盖必填、长度、字符和唯一性。 | 需求覆盖缺口 | REQ-REG-001、RULE-REG-001 至 RULE-REG-004、OPEN-PLATFORM-REGISTRATION-001、OPEN-PLATFORM-REGISTRATION-002 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-033、OPEN-PLATFORM-REGISTRATION-027、OPEN-PLATFORM-REGISTRATION-028，覆盖一致性、不可改和企业组展示。 | 已关闭 |
+| MRR-REQ-002 | 需求一致性评审 | 帮助文档物理第8页企业信用代码显示 0/18，第9页明确须与营业执照统一社会信用代码一致且不得重复；当前错误记录长度未定义并仅验证非空。 | 需求覆盖缺口 | REQ-REG-002、RULE-REG-005、RULE-REG-006、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-004 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-030、OPEN-PLATFORM-REGISTRATION-031，覆盖最大 18 字符上界与证照一致性。 | 已关闭 |
+| MRR-REQ-003 | 需求一致性评审 | 帮助文档物理第8页企业邮箱显示 0/50，当前只覆盖选填与格式并把长度登记为未定义。 | 需求覆盖缺口 | REQ-REG-008、RULE-REG-016、OPEN-PLATFORM-REGISTRATION-012 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-022，补充邮箱 50/51 字符边界。 | 已关闭 |
+| MRR-REQ-004 | 需求一致性评审 | 帮助文档物理第9页明确上传最新三证合一营业执照扫描件或照片；当前只验证必传、格式和大小，任意合成图片即可通过。 | 资料明确的设计缺口 | REQ-REG-005、RULE-REG-011、RULE-REG-012、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-014 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-009，分别覆盖证照内容类别与文件属性。 | 已关闭 |
+| MRR-REQ-005 | 需求一致性评审 | 需求文档明确一个手机号可以注册多个企业，帮助文档另行明确一个用户账号可加入多个企业组；当前将两项合并，只验证既有账号加入多个企业组。 | 需求覆盖缺口 | REQ-REG-009、RULE-REG-023、OPEN-PLATFORM-REGISTRATION-018 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-018、OPEN-PLATFORM-REGISTRATION-019、OPEN-PLATFORM-REGISTRATION-029，三类关系独立覆盖。 | 已关闭 |
+| MRR-REQ-006 | 需求一致性评审 | 帮助文档物理第9页明确审核不通过后根据反馈重新发起申请；当前只进入重提路径并修改数据，明确不再次提交。 | 需求覆盖缺口 | REQ-REG-012、RULE-REG-022、OPEN-PLATFORM-REGISTRATION-016 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-016，补充修订、单次重提和回到审核链路。 | 已关闭 |
+| MRR-REQ-007 | 需求一致性评审 | 资料只定义手机号密码登录主链路，未定义无效凭据验收；当前 LOGIN-005 将无效凭据不得进入成功态作为正式通过失败断言。 | 业务裁决/资料冲突 | REQ-LOGIN-003、RULE-LOGIN-004、OPEN-PLATFORM-LOGIN-005 | 中 | 用户裁决 | 最小待确认问题：无效凭据不得建立认证会话是否纳入正式验收；当前未裁决，OPEN-PLATFORM-LOGIN-005 保持受控执行且仅作非阻塞观察。 | 待用户裁决 |
 
-| MRR-IMP-001 | 变更影响评审 | 这是独立新请求且无既有脚本迁移，但规则邻域只到 RULE-REG-024，新增 RULE-REG-025 至 027 后变更影响分析仍记录无变更、无受影响 caseId。 | 资料明确的设计缺口 | RULE-REG-025、RULE-REG-026、RULE-REG-027、OPEN-PLATFORM-REGISTRATION-002、004、008、011、017、plan.md#规则邻域复核、plan.md#变更影响分析 | 中 | 自动演进 | 规则邻域已扩展到 RULE-REG-034；IMP-20260727-001 记录受影响 REQ/caseId、后续脚本绑定和复测。 | 已关闭 |
-| MRR-IMP-002 | 变更影响评审 | LOGIN-003 至 005、REGISTRATION-009、011 定义为 no_write 和零预算，但执行清单允许验证码、登录和上传并统一写成企业注册申请预算 1，无法逐 caseId 判定授权和残留影响。 | 资料明确的设计缺口 | RULE-LOGIN-002、RULE-LOGIN-004、RULE-LOGIN-005、RULE-REG-012、RULE-REG-015、RULE-REG-026、OPEN-PLATFORM-LOGIN-003 至 005、OPEN-PLATFORM-REGISTRATION-009、011、plan.md#测试数据策略与残留台账、plan.md#执行清单映射 | 高 | 自动演进 | “非持久副作用与授权明细”和执行清单逐 caseId 登记短信、认证、上传和申请预算、授权及残留。 | 已关闭 |
-| MRR-IMP-003 | 变更影响评审 | REGISTRATION-006、014 至 017 共用最多一条申请却依赖已提交、待审核、驳回和通过等互斥状态，变更影响分析和场景组未记录状态准备、顺序、恢复和重跑隔离。 | 资料明确的设计缺口 | REQ-REG-003、REQ-REG-010 至 012、RULE-REG-008、RULE-REG-019 至 022、OPEN-PLATFORM-REGISTRATION-006、014 至 017、plan.md#测试数据策略与残留台账、plan.md#页面场景组映射、plan.md#变更影响分析 | 高 | 自动演进 | 首次申请、已提交、待审核、驳回、通过状态分别登记；只读分支不迁移状态，REGISTRATION-016 独立重提预算和恢复点。 | 已关闭 |
+| MRR-IMP-001 | 变更影响评审 | 这是独立新请求且无既有脚本迁移，但规则邻域只到 RULE-REG-024，新增 RULE-REG-025 至 027 后变更影响分析仍记录无变更、无受影响 caseId。 | 资料明确的设计缺口 | RULE-REG-025、RULE-REG-026、RULE-REG-027、OPEN-PLATFORM-REGISTRATION-002、004、008、011、017、plan.md#规则邻域复核、plan.md#变更影响分析 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-002、OPEN-PLATFORM-REGISTRATION-004、OPEN-PLATFORM-REGISTRATION-008、OPEN-PLATFORM-REGISTRATION-011、OPEN-PLATFORM-REGISTRATION-017，变更影响与规则邻域同步。 | 已关闭 |
+| MRR-IMP-002 | 变更影响评审 | LOGIN-003 至 005、REGISTRATION-009、011 定义为 no_write 和零预算，但执行清单允许验证码、登录和上传并统一写成企业注册申请预算 1，无法逐 caseId 判定授权和残留影响。 | 资料明确的设计缺口 | RULE-LOGIN-002、RULE-LOGIN-004、RULE-LOGIN-005、RULE-REG-012、RULE-REG-015、RULE-REG-026、OPEN-PLATFORM-LOGIN-003 至 005、OPEN-PLATFORM-REGISTRATION-009、011、plan.md#测试数据策略与残留台账、plan.md#执行清单映射 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-011，预算、授权和残留逐项登记。 | 已关闭 |
+| MRR-IMP-003 | 变更影响评审 | REGISTRATION-006、014 至 017 共用最多一条申请却依赖已提交、待审核、驳回和通过等互斥状态，变更影响分析和场景组未记录状态准备、顺序、恢复和重跑隔离。 | 资料明确的设计缺口 | REQ-REG-003、REQ-REG-010 至 012、RULE-REG-008、RULE-REG-019 至 022、OPEN-PLATFORM-REGISTRATION-006、014 至 017、plan.md#测试数据策略与残留台账、plan.md#页面场景组映射、plan.md#变更影响分析 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-006、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017，互斥状态、恢复和重跑隔离已登记。 | 已关闭 |
 
-| MRR-INT-001 | 交互与状态专项评审 | 帮助文档和计划范围包含登录与注册入口切换，但现有用例未实际选择注册页签或断言注册字段组出现。 | 需求覆盖缺口 | REQ-NAV-001、RULE-NAV-001、OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-LOGIN-002、OPEN-PLATFORM-REGISTRATION-001 至 019 | 高 | 自动演进 | RULE-NAV-002 与 REGISTRATION-020 覆盖注册入口选择、字段组和提交入口可见及返回登录。 | 已关闭 |
-| MRR-INT-002 | 交互与状态专项评审 | 帮助文档明确企业名称提交后不可修改，当前仅覆盖名称输入和唯一性，地址不可修改用例不能替代名称状态迁移。 | 需求覆盖缺口 | REQ-REG-001、RULE-REG-001 至 004、OPEN-PLATFORM-REGISTRATION-001、002、006 | 高 | 自动演进 | RULE-REG-029 与 REGISTRATION-027 使用已提交隔离申请独立核验企业名称只读状态。 | 已关闭 |
-| MRR-INT-003 | 交互与状态专项评审 | LOGIN-003 断言获取验证码控件产生可观察状态变化，但资料只定义入口，计划也明确反馈、有效期和重发规则未定义。 | 资料明确的设计缺口 | REQ-LOGIN-002、RULE-LOGIN-003、OPEN-PLATFORM-LOGIN-003 | 中 | 自动演进 | LOGIN-003 已删除未定义状态变化断言，仅记录控件可操作和获授权后的短信请求事实。 | 已关闭 |
-| MRR-INT-004 | 交互与状态专项评审 | REGISTRATION-013 聚合四类失败状态且未定义组合间复位；前置又不发送验证码、不上传文件，无法建立其余条件有效的基线。 | 资料明确的设计缺口 | REQ-REG-010、RULE-REG-018、RULE-REG-026、OPEN-PLATFORM-REGISTRATION-011、013、014 | 高 | 自动演进 | REGISTRATION-013、023、024、025 分别声明独立有效基线、单一无效条件、复位与未提交证据。 | 已关闭 |
-| MRR-INT-005 | 交互与状态专项评审 | REGISTRATION-014 以已提交或待审核二选一状态作为通过断言，但资料未定义即时页面状态名称，只定义后续审核和短信链路。 | 资料明确的设计缺口 | REQ-REG-010、REQ-REG-011、RULE-REG-019 至 021、OPEN-PLATFORM-REGISTRATION-014、015 | 高 | 自动演进 | REGISTRATION-014 已移除即时状态名称断言；REGISTRATION-015 与 026 通过可恢复审核和短信证据闭环。 | 已关闭 |
-| MRR-INT-006 | 交互与状态专项评审 | REGISTRATION-006、014 至 017 共用一条申请却要求已提交、待审核、驳回和通过互斥状态，未定义隔离资源、状态准备、恢复、顺序或清理。 | 资料明确的设计缺口 | REQ-REG-003、REQ-REG-010 至 012、RULE-REG-008、RULE-REG-019 至 022、OPEN-PLATFORM-REGISTRATION-006、014 至 017 | 高 | 自动演进 | 数据策略与执行清单已分别登记首次申请及已提交、待审核、驳回、通过隔离资源、恢复点、预算和残留。 | 已关闭 |
-| MRR-INT-007 | 交互与状态专项评审 | 帮助文档明确驳回后重新发起申请，REGISTRATION-016 只进入编辑并修改数据，不再次提交，标题与覆盖结论超过实际步骤。 | 需求覆盖缺口 | REQ-REG-012、RULE-REG-022、OPEN-PLATFORM-REGISTRATION-016 | 高 | 自动演进 | REGISTRATION-016 已增加受控重新提交和回到审核链路的预期；独立预算 1 明确待确认。 | 已关闭 |
-| MRR-INT-008 | 交互与状态专项评审 | REGISTRATION-019 只复述平台不允许第二个管理员，未提供可执行动作、可观察阻断或前后关系状态。 | 资料明确的设计缺口 | REQ-REG-009、RULE-REG-024、OPEN-PLATFORM-REGISTRATION-019 | 高 | 自动演进 | REGISTRATION-019 已定义提交前触发或权威只读约束证据，并核验前后管理员关系不增加。 | 已关闭 |
+| MRR-INT-001 | 交互与状态专项评审 | 帮助文档和计划范围包含登录与注册入口切换，但现有用例未实际选择注册页签或断言注册字段组出现。 | 需求覆盖缺口 | REQ-NAV-001、RULE-NAV-001、OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-LOGIN-002、OPEN-PLATFORM-REGISTRATION-001 至 019 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-020，覆盖注册入口、字段组和返回登录。 | 已关闭 |
+| MRR-INT-002 | 交互与状态专项评审 | 帮助文档明确企业名称提交后不可修改，当前仅覆盖名称输入和唯一性，地址不可修改用例不能替代名称状态迁移。 | 需求覆盖缺口 | REQ-REG-001、RULE-REG-001 至 004、OPEN-PLATFORM-REGISTRATION-001、002、006 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-027，使用已提交隔离申请核验企业名称只读状态。 | 已关闭 |
+| MRR-INT-003 | 交互与状态专项评审 | LOGIN-003 断言获取验证码控件产生可观察状态变化，但资料只定义入口，计划也明确反馈、有效期和重发规则未定义。 | 资料明确的设计缺口 | REQ-LOGIN-002、RULE-LOGIN-003、OPEN-PLATFORM-LOGIN-003 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-003，删除未定义状态变化断言，仅记录控件和受控请求事实。 | 已关闭 |
+| MRR-INT-004 | 交互与状态专项评审 | REGISTRATION-013 聚合四类失败状态且未定义组合间复位；前置又不发送验证码、不上传文件，无法建立其余条件有效的基线。 | 资料明确的设计缺口 | REQ-REG-010、RULE-REG-018、RULE-REG-026、OPEN-PLATFORM-REGISTRATION-011、013、014 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025，分别绑定独立基线和复位证据。 | 已关闭 |
+| MRR-INT-005 | 交互与状态专项评审 | REGISTRATION-014 以已提交或待审核二选一状态作为通过断言，但资料未定义即时页面状态名称，只定义后续审核和短信链路。 | 资料明确的设计缺口 | REQ-REG-010、REQ-REG-011、RULE-REG-019 至 021、OPEN-PLATFORM-REGISTRATION-014、015 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-026，移除即时状态名称并用审核与短信闭环。 | 已关闭 |
+| MRR-INT-006 | 交互与状态专项评审 | REGISTRATION-006、014 至 017 共用一条申请却要求已提交、待审核、驳回和通过互斥状态，未定义隔离资源、状态准备、恢复、顺序或清理。 | 资料明确的设计缺口 | REQ-REG-003、REQ-REG-010 至 012、RULE-REG-008、RULE-REG-019 至 022、OPEN-PLATFORM-REGISTRATION-006、014 至 017 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-006、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017，互斥资源与恢复分别登记。 | 已关闭 |
+| MRR-INT-007 | 交互与状态专项评审 | 帮助文档明确驳回后重新发起申请，REGISTRATION-016 只进入编辑并修改数据，不再次提交，标题与覆盖结论超过实际步骤。 | 需求覆盖缺口 | REQ-REG-012、RULE-REG-022、OPEN-PLATFORM-REGISTRATION-016 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-016，增加受控重新提交和回到审核链路。 | 已关闭 |
+| MRR-INT-008 | 交互与状态专项评审 | REGISTRATION-019 只复述平台不允许第二个管理员，未提供可执行动作、可观察阻断或前后关系状态。 | 资料明确的设计缺口 | REQ-REG-009、RULE-REG-024、OPEN-PLATFORM-REGISTRATION-019 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-019，增加提交前触发或权威只读证据及前后关系核验。 | 已关闭 |
 
 #### 沉淀判定
 
 | 发现项编号 | 归属类型 | 目标位置 | 证据状态 | 处理结果 |
 | --- | --- | --- | --- | --- |
-| MRR-DES-001 | 需求事实 | REQ-REG-010 → RULE-REG-018 → caseId | 资料已确认 | 待回链 |
-| MRR-DES-002 | 需求事实 | REQ-REG-011、REQ-REG-012 → RULE-REG-020 至 RULE-REG-022 → caseId | 资料已确认 | 待回链 |
+| MRR-DES-001 | 需求事实 | REQ-REG-010 → RULE-REG-018、RULE-REG-026 → OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025 | 资料已确认 | 已回链 |
+| MRR-DES-002 | 需求事实 | REQ-REG-011、REQ-REG-012 → RULE-REG-020、RULE-REG-021、RULE-REG-022 → OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-026 | 资料已确认 | 已回链 |
 | MRR-DES-003 | 通用规则 | docs/testing/testcase-guideline.md#5.3、#5.7 | 资料已确认 | 已引用 |
-| MRR-DES-004 | 需求事实 | REQ-REG-006 至 REQ-REG-008 → RULE-REG-013、014、016 → caseId | 资料已确认 | 待回链 |
-| MRR-DES-005 | 需求事实 | REQ-REG-011 → RULE-REG-020、RULE-REG-021 → caseId | 资料已确认 | 待回链 |
-| MRR-DES-006 | 需求事实 | REQ-REG-005 → RULE → caseId | 资料已确认 | 待回链 |
-| MRR-DES-007 | 需求事实 | REQ-REG-009 → RULE-REG-024 → OPEN-PLATFORM-REGISTRATION-019 | 资料已确认 | 待回链 |
+| MRR-DES-004 | 需求事实 | REQ-REG-006、REQ-REG-007、REQ-REG-008 → RULE-REG-013、RULE-REG-014、RULE-REG-016 → OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-012、OPEN-PLATFORM-REGISTRATION-021、OPEN-PLATFORM-REGISTRATION-022 | 资料已确认 | 已回链 |
+| MRR-DES-005 | 需求事实 | REQ-REG-011 → RULE-REG-020、RULE-REG-021 → OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-026 | 资料已确认 | 已回链 |
+| MRR-DES-006 | 需求事实 | REQ-REG-005 → RULE-REG-011、RULE-REG-012、RULE-REG-032 → OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-032 | 资料已确认 | 已回链 |
+| MRR-DES-007 | 需求事实 | REQ-REG-009 → RULE-REG-024 → OPEN-PLATFORM-REGISTRATION-019 | 资料已确认 | 已回链 |
+| MRR-TRC-001 | 通用规则 | docs/testing/testcase-guideline.md | 资料已确认 | 已引用 |
+| MRR-TRC-002 | 通用规则 | docs/testing/testcase-guideline.md | 资料已确认 | 已引用 |
+| MRR-TRC-003 | 通用规则 | docs/testing/testcase-guideline.md | 资料已确认 | 已引用 |
+| MRR-TRC-004 | 需求事实 | REQ-NAV-001 → RULE-NAV-001、RULE-NAV-002 → OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-REGISTRATION-020 | 资料已确认 | 已回链 |
+| MRR-TRC-005 | 通用规则 | docs/testing/environment-guideline.md | 资料已确认 | 已引用 |
+| MRR-TRC-006 | 未验证推断 | plan.md#风险与审核事项 | 待验证，重复追溯职责不影响本次验收 | 风险登记 |
+| MRR-REQ-001 | 需求事实 | REQ-REG-001 → RULE-REG-001、RULE-REG-002、RULE-REG-003、RULE-REG-004、RULE-REG-028、RULE-REG-029、RULE-REG-030 → OPEN-PLATFORM-REGISTRATION-027、OPEN-PLATFORM-REGISTRATION-028、OPEN-PLATFORM-REGISTRATION-033 | 资料已确认 | 已回链 |
+| MRR-REQ-002 | 需求事实 | REQ-REG-002 → RULE-REG-005、RULE-REG-006、RULE-REG-031、RULE-REG-033 → OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-004、OPEN-PLATFORM-REGISTRATION-030、OPEN-PLATFORM-REGISTRATION-031 | 资料已确认 | 已回链 |
+| MRR-REQ-003 | 需求事实 | REQ-REG-008 → RULE-REG-016、RULE-REG-034 → OPEN-PLATFORM-REGISTRATION-012、OPEN-PLATFORM-REGISTRATION-022 | 资料已确认 | 已回链 |
+| MRR-REQ-004 | 需求事实 | REQ-REG-005 → RULE-REG-011、RULE-REG-012、RULE-REG-032 → OPEN-PLATFORM-REGISTRATION-009、OPEN-PLATFORM-REGISTRATION-032 | 资料已确认 | 已回链 |
+| MRR-REQ-005 | 需求事实 | REQ-REG-009 → RULE-REG-023、RULE-REG-024、RULE-REG-029 → OPEN-PLATFORM-REGISTRATION-018、OPEN-PLATFORM-REGISTRATION-019、OPEN-PLATFORM-REGISTRATION-029 | 资料已确认 | 已回链 |
+| MRR-REQ-006 | 需求事实 | REQ-REG-012 → RULE-REG-022 → OPEN-PLATFORM-REGISTRATION-016 | 资料已确认 | 已回链 |
+| MRR-REQ-007 | 未验证推断 | plan.md#风险与审核事项 | 验收缺失，无效凭据未定义正式验收 | 待用户裁决 |
+| MRR-IMP-001 | 通用规则 | docs/testing/testcase-guideline.md | 资料已确认 | 已引用 |
+| MRR-IMP-002 | 通用规则 | docs/testing/environment-guideline.md | 资料已确认 | 已引用 |
+| MRR-IMP-003 | 通用规则 | docs/testing/environment-guideline.md | 资料已确认 | 已引用 |
+| MRR-INT-001 | 需求事实 | REQ-NAV-001 → RULE-NAV-002 → OPEN-PLATFORM-REGISTRATION-020 | 资料已确认 | 已回链 |
+| MRR-INT-002 | 需求事实 | REQ-REG-001 → RULE-REG-029 → OPEN-PLATFORM-REGISTRATION-027 | 资料已确认 | 已回链 |
+| MRR-INT-003 | 通用规则 | docs/testing/testcase-guideline.md | 资料已确认 | 已引用 |
+| MRR-INT-004 | 通用规则 | docs/testing/testcase-guideline.md | 资料已确认 | 已引用 |
+| MRR-INT-005 | 需求事实 | REQ-REG-010、REQ-REG-011 → RULE-REG-019、RULE-REG-020、RULE-REG-021 → OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-015、OPEN-PLATFORM-REGISTRATION-026 | 资料已确认 | 已回链 |
+| MRR-INT-006 | 通用规则 | docs/testing/environment-guideline.md | 资料已确认 | 已引用 |
+| MRR-INT-007 | 需求事实 | REQ-REG-012 → RULE-REG-022 → OPEN-PLATFORM-REGISTRATION-016 | 资料已确认 | 已回链 |
+| MRR-INT-008 | 需求事实 | REQ-REG-009 → RULE-REG-024 → OPEN-PLATFORM-REGISTRATION-019 | 资料已确认 | 已回链 |
 <!-- review-batch:REV-20260727-ACCOUNT-01:end -->
 
 <!-- review-batch:REV-20260727-ACCOUNT-02:start -->
@@ -486,44 +517,43 @@
 
 | 角色 | 执行方式 | Agent 任务标识 | 隔离方式 | 输入基线 | 执行状态 | 结论 | 发现项编号 | 处置状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 需求一致性评审 | 真实子智能体 | /root/req_review_r2 | fork_turns=none | sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-REQ2-001、MRR-REQ2-002、MRR-REQ2-003 | 自动演进 |
-| 测试设计评审 | 真实子智能体 | /root/design_review_r2 | fork_turns=none | sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；docs/testing/testcase-guideline.md；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-DES2-001、MRR-DES2-002、MRR-DES2-003、MRR-DES2-004 | 自动演进 |
-| 追溯审计 | 真实子智能体 | /root/trace_review_r2 | fork_turns=none | sources/manifest.yaml；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-TRA2-001、MRR-TRA2-002 | 自动演进 |
-| 交互与状态专项评审 | 真实子智能体 | /root/interaction_review_r2 | fork_turns=none | sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/requirements/open-platform/AIoT平台项目.docx；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-UX2-001、MRR-UX2-002 | 自动演进 |
-| 变更影响评审 | 真实子智能体 | /root/impact_review_r2 | fork_turns=none | sources/manifest.yaml；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-CHG2-001、MRR-CHG2-002、MRR-CHG2-003、MRR-CHG2-004、MRR-CHG2-005 | 自动演进 |
+| 需求一致性评审 | 真实子智能体 | /root/req_review_r2 | fork_turns=none | sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-REQ2-001、MRR-REQ2-002、MRR-REQ2-003 | 已关闭 |
+| 测试设计评审 | 真实子智能体 | /root/design_review_r2 | fork_turns=none | sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；docs/testing/testcase-guideline.md；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-DES2-001、MRR-DES2-002、MRR-DES2-003、MRR-DES2-004 | 已关闭 |
+| 追溯审计 | 真实子智能体 | /root/trace_review_r2 | fork_turns=none | sources/manifest.yaml；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-TRA2-001、MRR-TRA2-002 | 已关闭 |
+| 交互与状态专项评审 | 真实子智能体 | /root/interaction_review_r2 | fork_turns=none | sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/requirements/open-platform/AIoT平台项目.docx；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-UX2-001、MRR-UX2-002 | 已关闭 |
+| 变更影响评审 | 真实子智能体 | /root/impact_review_r2 | fork_turns=none | sources/manifest.yaml；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-CHG2-001、MRR-CHG2-002、MRR-CHG2-003、MRR-CHG2-004、MRR-CHG2-005 | 已关闭 |
 
 #### 发现项
 
 | 发现项编号 | 角色 | 证据 | 发现项分类 | 受影响 REQ/caseId | 严重度 | 处置方式 | 修订/裁决证据 | 关闭状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
-| MRR-TRA2-001 | 追溯审计 | plan.md 的测试数据策略与执行清单仍使用 caseId 起点至终点简写；逐范围展开后 OPEN-PLATFORM-REGISTRATION-006 同时落入零写入本地校验与读取既有隔离状态资源，导致授权范围重复且语义冲突。 | 资料明确的设计缺口 | plan.md#测试数据策略与残留台账、plan.md#执行清单映射、OPEN-PLATFORM-REGISTRATION-006，以及范围简写隐藏的中间 caseId | 高 | 自动演进 | 数据策略逐条列出 40 个 caseId；执行清单按导航、本地校验、短信、认证、上传、首次申请、重提、决策夹具与只读状态资源互斥映射，REGISTRATION-006 仅保留在只读状态资源组。 | 已关闭 |
-| MRR-TRA2-002 | 追溯审计 | 计划前部与只读审计确认 39 个唯一 caseId、19 个 REQ、43 个 RULE，但用例集评审与演进仍写成 34 条规则、25 条用例及注册 19 条，属于过期计数。 | 资料明确的设计缺口 | plan.md#用例集生成状态、plan.md#用例包目录、plan.md#用例集评审与演进、cases-login.md、cases-registration.md | 中 | 自动演进 | 新增 REGISTRATION-034 后统一为 19 项 REQ、43 条 RULE、40 条 caseId，其中登录 6 条、注册 34 条；关系和静态检查复跑。 | 已关闭 |
+| MRR-TRA2-001 | 追溯审计 | plan.md 的测试数据策略与执行清单仍使用 caseId 起点至终点简写；逐范围展开后 OPEN-PLATFORM-REGISTRATION-006 同时落入零写入本地校验与读取既有隔离状态资源，导致授权范围重复且语义冲突。 | 资料明确的设计缺口 | plan.md#测试数据策略与残留台账、plan.md#执行清单映射、OPEN-PLATFORM-REGISTRATION-006，以及范围简写隐藏的中间 caseId | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-006；数据策略逐条列出 40 个 caseId，执行清单按副作用互斥映射。 | 已关闭 |
+| MRR-TRA2-002 | 追溯审计 | 计划前部与只读审计确认 39 个唯一 caseId、19 个 REQ、43 个 RULE，但用例集评审与演进仍写成 34 条规则、25 条用例及注册 19 条，属于过期计数。 | 资料明确的设计缺口 | plan.md#用例集生成状态、plan.md#用例包目录、plan.md#用例集评审与演进、cases-login.md、cases-registration.md | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-034；统一为 19 项 REQ、43 条 RULE、40 条 caseId，其中登录 6 条、注册 34 条。 | 已关闭 |
 
-| MRR-DES2-001 | 测试设计评审 | 企业标识必填，但 RULE-REG-009 与 REGISTRATION-007 未覆盖空值，却标为已覆盖。 | 资料明确的设计缺口 | REQ-REG-004、RULE-REG-009、OPEN-PLATFORM-REGISTRATION-007 | 中 | 自动演进 | REQ-REG-004、RULE-REG-009、规则设计矩阵和 REGISTRATION-007 已覆盖常驻提示、空值、3/6 边界及非法字符，并断言空值时阻止继续注册。 | 已关闭 |
-| MRR-DES2-002 | 测试设计评审 | REGISTRATION-013、014、023、024、025 的独立决策基线需要已验证手机号和有效营业执照，但现有计划仅为 REGISTRATION-011 预算一次短信、为 REGISTRATION-009 预算上传，并把负向场景归入不发送不上传组，导致依赖前例残留或突破预算。 | 资料明确的设计缺口 | REQ-REG-010、RULE-REG-015、RULE-REG-018、RULE-REG-026、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025 | 高 | 自动演进 | REGISTRATION-013、023、024、025 分别绑定可独立恢复、彼此隔离且预先登记的有效表单夹具，当前请求不发送短信或上传；REGISTRATION-014 单独登记短信、上传和首次申请各 1 次。 | 已关闭 |
-| MRR-DES2-003 | 测试设计评审 | REGISTRATION-031、032、033 依赖证照内容审核却统一为 no_write 和既有隔离状态，未绑定能证明匹配、不匹配、通过或驳回的互斥资源；真实提交则超预算，只读则缺资源身份与结果。 | 资料明确的设计缺口 | REQ-REG-001、REQ-REG-002、REQ-REG-005、RULE-REG-028、RULE-REG-032、RULE-REG-033、OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033 | 高 | 自动演进 | REGISTRATION-031、032、033 改为只读审计，分别绑定不可变且互斥的输入摘要、申请标识和审核结果夹具；无法证明身份、输入和结果绑定时不得判定通过。 | 已关闭 |
-| MRR-DES2-004 | 测试设计评审 | REGISTRATION-014 仅记录提交尝试和 CreateIntent，把业务结果交给后续用例，未在本用例内证明服务器接受且只创建一条申请，P0 主成功用例缺少独立最终结果。 | 资料明确的设计缺口 | REQ-REG-010、RULE-REG-019、OPEN-PLATFORM-REGISTRATION-014 | 高 | 自动演进 | REGISTRATION-014 增加按唯一合成标识的稳定只读 UI、API 或后台核验，必须证明平台接受且审核链路恰有一条申请；证据不可用时本用例不能通过。 | 已关闭 |
+| MRR-DES2-001 | 测试设计评审 | 企业标识必填，但 RULE-REG-009 与 REGISTRATION-007 未覆盖空值，却标为已覆盖。 | 资料明确的设计缺口 | REQ-REG-004、RULE-REG-009、OPEN-PLATFORM-REGISTRATION-007 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-007；覆盖常驻提示、空值、3/6 边界及非法字符。 | 已关闭 |
+| MRR-DES2-002 | 测试设计评审 | REGISTRATION-013、014、023、024、025 的独立决策基线需要已验证手机号和有效营业执照，但现有计划仅为 REGISTRATION-011 预算一次短信、为 REGISTRATION-009 预算上传，并把负向场景归入不发送不上传组，导致依赖前例残留或突破预算。 | 资料明确的设计缺口 | REQ-REG-010、RULE-REG-015、RULE-REG-018、RULE-REG-026、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025；分别绑定隔离夹具与独立预算。 | 已关闭 |
+| MRR-DES2-003 | 测试设计评审 | REGISTRATION-031、032、033 依赖证照内容审核却统一为 no_write 和既有隔离状态，未绑定能证明匹配、不匹配、通过或驳回的互斥资源；真实提交则超预算，只读则缺资源身份与结果。 | 资料明确的设计缺口 | REQ-REG-001、REQ-REG-002、REQ-REG-005、RULE-REG-028、RULE-REG-032、RULE-REG-033、OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033；分别绑定不可变且互斥的审核夹具。 | 已关闭 |
+| MRR-DES2-004 | 测试设计评审 | REGISTRATION-014 仅记录提交尝试和 CreateIntent，把业务结果交给后续用例，未在本用例内证明服务器接受且只创建一条申请，P0 主成功用例缺少独立最终结果。 | 资料明确的设计缺口 | REQ-REG-010、RULE-REG-019、OPEN-PLATFORM-REGISTRATION-014 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-014；增加唯一合成标识只读核验，证明平台接受且审核链路仅有一条申请。 | 已关闭 |
 
-| MRR-REQ2-001 | 需求一致性评审 | 资料明确立即使用跳转登录和登录/注册两条入口路径，但 RULE-NAV-001 与 LOGIN-001 只选择任一入口，单一路径正常即可通过。 | 资料明确的设计缺口 | REQ-NAV-001、RULE-NAV-001、RULE-NAV-002、OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-REGISTRATION-020 | 中 | 自动演进 | LOGIN-001 独立验证官网“立即使用”进入登录页；REGISTRATION-020 独立从官网“登录/注册”进入注册页并验证返回登录，RULE-NAV-001、002 分开映射。 | 已关闭 |
-| MRR-REQ2-002 | 需求一致性评审 | 需求和注册原型明确企业标识常驻提示请输入3-6位小写字母或数字，用作产品Model组成部分；现有 REQ、RULE 和用例未断言该提示。 | 需求覆盖缺口 | REQ-REG-004、RULE-REG-009、OPEN-PLATFORM-REGISTRATION-007、OPEN-PLATFORM-REGISTRATION-020 | 低 | 自动演进 | REQ-REG-004、RULE-REG-009 与 REGISTRATION-007 已写入完整常驻提示及其作为产品 Model 组成部分的语义，并断言持续可见。 | 已关闭 |
-| MRR-REQ2-003 | 需求一致性评审 | 需求明确申请人姓名为账号名称，空值提示为请输入联系人名称；当前仅覆盖必填、长度、字符与管理员角色，缺少精确提示和姓名到账户名称的后置一致性。 | 需求覆盖缺口 | REQ-REG-006、RULE-REG-013、RULE-REG-017、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-017 | 中 | 自动演进 | REGISTRATION-010 已精确断言空值提示“请输入联系人名称”；REGISTRATION-017 在审核通过只读分支核验申请人姓名成为账号名称且联系方式成为管理员账号。 | 已关闭 |
+| MRR-REQ2-001 | 需求一致性评审 | 资料明确立即使用跳转登录和登录/注册两条入口路径，但 RULE-NAV-001 与 LOGIN-001 只选择任一入口，单一路径正常即可通过。 | 资料明确的设计缺口 | REQ-NAV-001、RULE-NAV-001、RULE-NAV-002、OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-REGISTRATION-020 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-REGISTRATION-020；两条官网入口路径分开验证。 | 已关闭 |
+| MRR-REQ2-002 | 需求一致性评审 | 需求和注册原型明确企业标识常驻提示请输入3-6位小写字母或数字，用作产品Model组成部分；现有 REQ、RULE 和用例未断言该提示。 | 需求覆盖缺口 | REQ-REG-004、RULE-REG-009、OPEN-PLATFORM-REGISTRATION-007、OPEN-PLATFORM-REGISTRATION-020 | 低 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-007；写入并断言完整常驻提示及产品 Model 组成部分语义。 | 已关闭 |
+| MRR-REQ2-003 | 需求一致性评审 | 需求明确申请人姓名为账号名称，空值提示为请输入联系人名称；当前仅覆盖必填、长度、字符与管理员角色，缺少精确提示和姓名到账户名称的后置一致性。 | 需求覆盖缺口 | REQ-REG-006、RULE-REG-013、RULE-REG-017、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-017 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-017；覆盖精确空值提示和姓名到账户名称的一致性。 | 已关闭 |
 
-| MRR-UX2-001 | 交互与状态专项评审 | REGISTRATION-031、032、033 依赖证照内容审核，但既有只读隔离状态未与各合成输入精确绑定，缺少可观察的通过或失败判据。 | 资料明确的设计缺口 | REQ-REG-001、REQ-REG-002、REQ-REG-005、RULE-REG-028、RULE-REG-032、RULE-REG-033、OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033 | 高 | 自动演进 | 三个证照用例均绑定相互隔离的不可变审核记录、合成输入摘要和脱敏结果证据，不额外上传或提交；证据链不完整即不能通过。 | 已关闭 |
-| MRR-UX2-002 | 交互与状态专项评审 | 审核通过与驳回两种互斥结果未分别绑定隔离资源和短信通知事实；驳回分支的短信反馈缺少覆盖。 | 需求覆盖缺口 | REQ-REG-011、REQ-REG-012、RULE-REG-021、RULE-REG-022、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-026 | 中 | 自动演进 | REGISTRATION-026 独立绑定审核通过申请和通知事实；新增 REGISTRATION-034 独立绑定审核驳回申请和通知事实，二者不得共用资源且只保留脱敏送达证据。 | 已关闭 |
+| MRR-UX2-001 | 交互与状态专项评审 | REGISTRATION-031、032、033 依赖证照内容审核，但既有只读隔离状态未与各合成输入精确绑定，缺少可观察的通过或失败判据。 | 资料明确的设计缺口 | REQ-REG-001、REQ-REG-002、REQ-REG-005、RULE-REG-028、RULE-REG-032、RULE-REG-033、OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033；绑定互斥审核记录、输入摘要和脱敏结果证据。 | 已关闭 |
+| MRR-UX2-002 | 交互与状态专项评审 | 审核通过与驳回两种互斥结果未分别绑定隔离资源和短信通知事实；驳回分支的短信反馈缺少覆盖。 | 需求覆盖缺口 | REQ-REG-011、REQ-REG-012、RULE-REG-021、RULE-REG-022、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-026 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-026、OPEN-PLATFORM-REGISTRATION-034；通过与驳回通知分别绑定隔离资源。 | 已关闭 |
 
-| MRR-CHG2-001 | 变更影响评审 | 变更影响行遗漏部分受影响 REQ，演进摘要仍为旧计数，工程层待办仍写待阶段二生成，导致来源到 REQ、caseId、工程输入和复测范围不一致。 | 资料明确的设计缺口 | IMP-20260727-001、REQ-LOGIN-002、REQ-LOGIN-003、REQ-REG-003、REQ-REG-004、plan.md#用例集评审与演进、plan.md#工程层 | 高 | 自动演进 | IMP-20260727-001 已逐条列出 19 项 REQ 和 40 条 caseId；演进摘要、工程输入、场景组和证据策略均改用当前实际用例范围。 | 已关闭 |
-| MRR-CHG2-002 | 变更影响评审 | LOGIN-003 步骤包含验证码登录提交，但执行清单只允许一次验证码请求不登录；REGISTRATION-017、018、028 也建立登录会话却未登记认证副作用和退出策略。 | 资料明确的设计缺口 | REQ-LOGIN-002、REQ-REG-001、REQ-REG-006、REQ-REG-007、REQ-REG-009、REQ-REG-012、OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-018、OPEN-PLATFORM-REGISTRATION-028 | 高 | 自动演进 | LOGIN-003 限定为表单与单次验证码请求且不提交登录；REGISTRATION-016、017、018、028 均使用独立认证授权与会话，并在结束时退出或关闭上下文。 | 已关闭 |
-| MRR-CHG2-003 | 变更影响评审 | REGISTRATION-031、032、033 的证照审核判定与 no_write、数量0和未登记互斥资源矛盾，可能产生未授权申请或无法判定。 | 资料明确的设计缺口 | REQ-REG-001、REQ-REG-002、REQ-REG-005、OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033 | 高 | 自动演进 | 三个用例明确为预登记互斥审核资源的只读核验，不上传、不提交、不迁移状态；未绑定输入摘要和审核结果时阻塞对应 caseId。 | 已关闭 |
-| MRR-CHG2-004 | 变更影响评审 | REGISTRATION-013、014、023、025 依赖手机号验证与文件选择，但副作用清单未说明如何独立建立、复用或恢复这些状态。 | 资料明确的设计缺口 | REQ-REG-010、RULE-REG-018、RULE-REG-025、RULE-REG-026、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-025 | 高 | 自动演进 | 负向决策用例逐条绑定预登记、彼此隔离且可复位的有效表单夹具；REGISTRATION-014 单独绑定各 1 次短信、上传、提交及 CreateIntent 恢复，不复用前例残留。 | 已关闭 |
-| MRR-CHG2-005 | 变更影响评审 | 用例包和风险摘要仍称最多一条申请，但计划允许首次申请1和驳回重提1，包级总预算与分类型预算不一致。 | 资料明确的设计缺口 | OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-016、cases-registration.md#包信息、plan.md#测试数据策略与残留台账、plan.md#风险与审核事项 | 中 | 自动演进 | 计划、注册包与风险摘要统一为首次提交最多 1、重提最多 1 且待单独确认、总上限 2；两类写入不得同批，各自台账、授权、恢复和 72 小时复核。 | 已关闭 |
+| MRR-CHG2-001 | 变更影响评审 | 变更影响行遗漏部分受影响 REQ，演进摘要仍为旧计数，工程层待办仍写待阶段二生成，导致来源到 REQ、caseId、工程输入和复测范围不一致。 | 资料明确的设计缺口 | IMP-20260727-001、REQ-LOGIN-002、REQ-LOGIN-003、REQ-REG-003、REQ-REG-004、plan.md#用例集评审与演进、plan.md#工程层 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-003；IMP-20260727-001 已列出 19 项 REQ 和 40 条 caseId，并同步工程输入与复测范围。 | 已关闭 |
+| MRR-CHG2-002 | 变更影响评审 | LOGIN-003 步骤包含验证码登录提交，但执行清单只允许一次验证码请求不登录；REGISTRATION-017、018、028 也建立登录会话却未登记认证副作用和退出策略。 | 资料明确的设计缺口 | REQ-LOGIN-002、REQ-REG-001、REQ-REG-006、REQ-REG-007、REQ-REG-009、REQ-REG-012、OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-018、OPEN-PLATFORM-REGISTRATION-028 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-003、OPEN-PLATFORM-REGISTRATION-016、OPEN-PLATFORM-REGISTRATION-017、OPEN-PLATFORM-REGISTRATION-018、OPEN-PLATFORM-REGISTRATION-028；会话独立并在结束时关闭。 | 已关闭 |
+| MRR-CHG2-003 | 变更影响评审 | REGISTRATION-031、032、033 的证照审核判定与 no_write、数量0和未登记互斥资源矛盾，可能产生未授权申请或无法判定。 | 资料明确的设计缺口 | REQ-REG-001、REQ-REG-002、REQ-REG-005、OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-031、OPEN-PLATFORM-REGISTRATION-032、OPEN-PLATFORM-REGISTRATION-033；限定预登记互斥资源只读核验。 | 已关闭 |
+| MRR-CHG2-004 | 变更影响评审 | REGISTRATION-013、014、023、025 依赖手机号验证与文件选择，但副作用清单未说明如何独立建立、复用或恢复这些状态。 | 资料明确的设计缺口 | REQ-REG-010、RULE-REG-018、RULE-REG-025、RULE-REG-026、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-025 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-025；逐条绑定隔离且可复位的有效表单夹具。 | 已关闭 |
+| MRR-CHG2-005 | 变更影响评审 | 用例包和风险摘要仍称最多一条申请，但计划允许首次申请1和驳回重提1，包级总预算与分类型预算不一致。 | 资料明确的设计缺口 | OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-016、cases-registration.md#包信息、plan.md#测试数据策略与残留台账、plan.md#风险与审核事项 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-016；统一为首次提交最多 1、重提最多 1、总上限 2。 | 已关闭 |
 
 #### 沉淀判定
 
 | 发现项编号 | 归属类型 | 目标位置 | 证据状态 | 处理结果 |
 | --- | --- | --- | --- | --- |
-| MRR-TRA2-001 | 测试资产设计 | plan.md 的数据与执行范围映射 | 当前计划和只读解析已验证 | 仅修订正式计划资产 |
-| MRR-TRA2-002 | 测试资产追溯统计 | plan.md#用例集评审与演进 | 当前用例包、规则台账和只读检查已验证 | 同步正式计划派生统计 |
+| 无 | 无 | 无 | 无 | 无 |
 <!-- review-batch:REV-20260727-ACCOUNT-02:end -->
 
 <!-- review-batch:REV-20260727-ACCOUNT-03:start -->
@@ -544,10 +574,10 @@
 
 | 角色 | 执行方式 | Agent 任务标识 | 隔离方式 | 输入基线 | 执行状态 | 结论 | 发现项编号 | 处置状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 需求一致性评审 | 真实子智能体 | /root/req_review_r3 | fork_turns=none | sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-REQ3-001 | 自动演进 |
+| 需求一致性评审 | 真实子智能体 | /root/req_review_r3 | fork_turns=none | sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-REQ3-001 | 已关闭 |
 | 测试设计评审 | 真实子智能体 | /root/design_review_r3 | fork_turns=none | docs/testing/testcase-guideline.md；sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
 | 追溯审计 | 真实子智能体 | /root/trace_review_r3 | fork_turns=none | sources/manifest.yaml；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
-| 交互与状态专项评审 | 真实子智能体 | /root/interaction_review_r3 | fork_turns=none | sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/requirements/open-platform/AIoT平台项目.docx；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-UX3-001、MRR-UX3-002、MRR-UX3-003 | 自动演进 |
+| 交互与状态专项评审 | 真实子智能体 | /root/interaction_review_r3 | fork_turns=none | sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/requirements/open-platform/AIoT平台项目.docx；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 需演进 | MRR-UX3-001、MRR-UX3-002、MRR-UX3-003 | 已关闭 |
 | 变更影响评审 | 真实子智能体 | /root/impact_review_r3 | fork_turns=none | sources/manifest.yaml；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
 
 #### 发现项
@@ -555,20 +585,17 @@
 | 发现项编号 | 角色 | 证据 | 发现项分类 | 受影响 REQ/caseId | 严重度 | 处置方式 | 修订/裁决证据 | 关闭状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
-| MRR-REQ3-001 | 需求一致性评审 | AIoT平台项目.docx仅规定企业信用代码必填；帮助文档物理第8页及注册原型仅以0/18计数器证明最多18字符，未定义必须恰好18字符。当前REQ-REG-002、RULE-REG-031和REGISTRATION-030却断言17字符无效、仅18字符有效；REGISTRATION-003的missingInfo同时仍称长度未定义，资产内部亦不一致。 | 资料明确的设计缺口 | REQ-REG-002、RULE-REG-031、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-030 | 中 | 自动演进 | REQ-REG-002、RULE-REG-031、规则设计矩阵与 REGISTRATION-030 已修正为“最多 18 字符”的 18/19 上边界；REGISTRATION-003 明确最小长度、字符集和校验位未定义，不再拒绝 17 字符。 | 已关闭 |
+| MRR-REQ3-001 | 需求一致性评审 | AIoT平台项目.docx仅规定企业信用代码必填；帮助文档物理第8页及注册原型仅以0/18计数器证明最多18字符，未定义必须恰好18字符。当前REQ-REG-002、RULE-REG-031和REGISTRATION-030却断言17字符无效、仅18字符有效；REGISTRATION-003的missingInfo同时仍称长度未定义，资产内部亦不一致。 | 资料明确的设计缺口 | REQ-REG-002、RULE-REG-031、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-030 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-030；统一为最多 18 字符的 18/19 上边界。 | 已关闭 |
 
-| MRR-UX3-001 | 交互与状态专项评审 | REGISTRATION-020 声明支持登录与注册表单切换及返回登录，但步骤仅从官网登录/注册进入注册表单并检查字段，没有执行返回登录页签或断言登录字段组恢复；原型明确展示两个可切换页签。 | 资料明确的设计缺口 | RULE-NAV-002、OPEN-PLATFORM-REGISTRATION-020 | 中 | 自动演进 | REGISTRATION-020 第 4 步明确从注册表单选择登录页签或入口，并断言登录字段组出现、注册字段组退出当前激活态。 | 已关闭 |
-| MRR-UX3-002 | 交互与状态专项评审 | REGISTRATION-013、023、024、025 将单项失败预期写成阻止注册，但步骤既未尝试提交也未检查 disabled 等提交前状态，存在未执行提交即可通过的空验证。帮助文档明确全部信息、手机号验证和协议满足后才能点击注册。 | 资料明确的设计缺口 | RULE-REG-018、RULE-REG-025、RULE-REG-026、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025 | 高 | 自动演进 | 四个负向决策用例均增加提交入口不可激活且没有注册提交请求的稳定判据；RULE-REG-018、025、026 与设计矩阵同步，仍保持零申请。 | 已关闭 |
-| MRR-UX3-003 | 交互与状态专项评审 | plan.md 的副作用清单、执行映射和 login-auth 场景组均要求有效登录用例结束时退出或关闭隔离上下文，但 LOGIN-004 在进入控制台后结束，没有会话收尾步骤。 | 资料明确的设计缺口 | RULE-LOGIN-004、RULE-LOGIN-005、OPEN-PLATFORM-LOGIN-004 | 高 | 自动演进 | LOGIN-004 增加退出登录或关闭隔离浏览器上下文步骤，并断言后续 caseId 不复用当前认证会话。 | 已关闭 |
+| MRR-UX3-001 | 交互与状态专项评审 | REGISTRATION-020 声明支持登录与注册表单切换及返回登录，但步骤仅从官网登录/注册进入注册表单并检查字段，没有执行返回登录页签或断言登录字段组恢复；原型明确展示两个可切换页签。 | 资料明确的设计缺口 | RULE-NAV-002、OPEN-PLATFORM-REGISTRATION-020 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-020；第 4 步增加返回登录和字段组激活态断言。 | 已关闭 |
+| MRR-UX3-002 | 交互与状态专项评审 | REGISTRATION-013、023、024、025 将单项失败预期写成阻止注册，但步骤既未尝试提交也未检查 disabled 等提交前状态，存在未执行提交即可通过的空验证。帮助文档明确全部信息、手机号验证和协议满足后才能点击注册。 | 资料明确的设计缺口 | RULE-REG-018、RULE-REG-025、RULE-REG-026、OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025；增加提交入口不可激活且无注册请求的判据。 | 已关闭 |
+| MRR-UX3-003 | 交互与状态专项评审 | plan.md 的副作用清单、执行映射和 login-auth 场景组均要求有效登录用例结束时退出或关闭隔离上下文，但 LOGIN-004 在进入控制台后结束，没有会话收尾步骤。 | 资料明确的设计缺口 | RULE-LOGIN-004、RULE-LOGIN-005、OPEN-PLATFORM-LOGIN-004 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-004；增加退出登录或关闭隔离上下文并禁止后续复用会话。 | 已关闭 |
 
 #### 沉淀判定
 
 | 发现项编号 | 归属类型 | 目标位置 | 证据状态 | 处理结果 |
 | --- | --- | --- | --- | --- |
-| MRR-REQ3-001 | 需求事实 | REQ-REG-002 → RULE-REG-031 → OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-030 | 资料已确认 | 已回链当前正式资产 |
-| MRR-UX3-001 | 需求与交互设计 | REQ-NAV-001 → RULE-NAV-002 → OPEN-PLATFORM-REGISTRATION-020 | 原型与当前计划已确认 | 已回链当前正式资产，不沉淀项目经验 |
-| MRR-UX3-002 | 需求与测试设计 | REQ-REG-010、REQ-REG-013 → RULE-REG-018、RULE-REG-025、RULE-REG-026 → 四个负向决策 caseId | 帮助文档与当前决策表已确认 | 已回链当前正式资产，不沉淀项目经验 |
-| MRR-UX3-003 | 测试请求会话隔离设计 | plan.md 会话隔离约束 → OPEN-PLATFORM-LOGIN-004 | 当前计划已确认 | 已修订当前用例，不新增项目知识 |
+| 无 | 无 | 无 | 无 | 无 |
 <!-- review-batch:REV-20260727-ACCOUNT-03:end -->
 
 <!-- review-batch:REV-20260727-ACCOUNT-04:start -->
@@ -581,21 +608,23 @@
 | 输入基线版本 | sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md |
 | 隔离规则 | fork_turns=none |
 | 自动演进轮次 | 3 |
-| 综合结论 | 评审中 |
-| 收敛状态 | 等待 reviewer |
+| 综合结论 | 可提交确认 |
+| 收敛状态 | 已收敛 |
 | 人工确认状态 | 未请求 |
 
 #### reviewer 执行记录
 
 | 角色 | 执行方式 | Agent 任务标识 | 隔离方式 | 输入基线 | 执行状态 | 结论 | 发现项编号 | 处置状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 需求一致性评审 | 真实子智能体 | /root/req_review_r4 | fork_turns=none | sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已启动 | 评审中 | 无 | 等待 reviewer |
-| 测试设计评审 | 真实子智能体 | /root/design_review_r4 | fork_turns=none | docs/testing/testcase-guideline.md；sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已启动 | 评审中 | 无 | 等待 reviewer |
-| 追溯审计 | 真实子智能体 | /root/trace_review_r4 | fork_turns=none | sources/manifest.yaml；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已启动 | 评审中 | 无 | 等待 reviewer |
-| 交互与状态专项评审 | 真实子智能体 | — | fork_turns=none | 等待资源 | 等待资源 | 评审中 | 无 | 等待 reviewer |
-| 变更影响评审 | 真实子智能体 | — | fork_turns=none | 等待资源 | 等待资源 | 评审中 | 无 | 等待 reviewer |
+| 需求一致性评审 | 真实子智能体 | /root/req_review_r4 | fork_turns=none | sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
+| 测试设计评审 | 真实子智能体 | /root/design_review_r4 | fork_turns=none | docs/testing/testcase-guideline.md；sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
+| 追溯审计 | 真实子智能体 | /root/trace_review_r4 | fork_turns=none | sources/manifest.yaml；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
+| 交互与状态专项评审 | 真实子智能体 | /root/interaction_review_r4 | fork_turns=none | sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/requirements/open-platform/AIoT平台项目.docx；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
+| 变更影响评审 | 真实子智能体 | /root/impact_review_r4 | fork_turns=none | sources/manifest.yaml；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
 
 #### 发现项
+
+- 前批次演进复审证据：已复审 `MRR-REQ3-001`、`MRR-UX3-001`、`MRR-UX3-002`、`MRR-UX3-003` 对 `OPEN-PLATFORM-REGISTRATION-030`、`OPEN-PLATFORM-REGISTRATION-020`、`OPEN-PLATFORM-REGISTRATION-013`、`OPEN-PLATFORM-REGISTRATION-023`、`OPEN-PLATFORM-REGISTRATION-024`、`OPEN-PLATFORM-REGISTRATION-025`、`OPEN-PLATFORM-LOGIN-004` 的修订，五角色均确认通过。
 
 | 发现项编号 | 角色 | 证据 | 发现项分类 | 受影响 REQ/caseId | 严重度 | 处置方式 | 修订/裁决证据 | 关闭状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -607,6 +636,91 @@
 | 无 | 无 | 无 | 无 | 无 |
 <!-- review-batch:REV-20260727-ACCOUNT-04:end -->
 
+<!-- review-batch:REV-20260727-ACCOUNT-05:start -->
+### 评审批次：REV-20260727-ACCOUNT-05
+
+| 字段 | 内容 |
+| --- | --- |
+| 批次类型 | 最终复审 |
+| 触发类型 | 用户裁决后复审 |
+| 输入基线版本 | sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md |
+| 隔离规则 | fork_turns=none |
+| 自动演进轮次 | 3 |
+| 综合结论 | 可提交确认 |
+| 收敛状态 | 已收敛 |
+| 人工确认状态 | 未请求 |
+
+#### reviewer 执行记录
+
+| 角色 | 执行方式 | Agent 任务标识 | 隔离方式 | 输入基线 | 执行状态 | 结论 | 发现项编号 | 处置状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 需求一致性评审 | 真实子智能体 | /root/req_review_r5 | fork_turns=none | sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | MRR-REQ-008 | 已关闭 |
+| 测试设计评审 | 真实子智能体 | /root/design_review_r5 | fork_turns=none | docs/testing/testcase-guideline.md；sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/knowledge-base/open-platform/iot平台帮助文档.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
+| 追溯审计 | 真实子智能体 | /root/trace_review_r5 | fork_turns=none | sources/manifest.yaml；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | MRR-TRA-005 | 已关闭 |
+| 交互与状态专项评审 | 真实子智能体 | /root/interaction_review_r5 | fork_turns=none | sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；sources/requirements/open-platform/AIoT平台项目.docx；sources/requirements/open-platform/开放平台用户帮助手册.pdf；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | MRR-UX-005 | 已关闭 |
+| 变更影响评审 | 真实子智能体 | /root/impact_review_r5 | fork_turns=none | sources/manifest.yaml；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | MRR-IMP-006 | 已关闭 |
+
+#### 发现项
+
+| 发现项编号 | 角色 | 证据 | 发现项分类 | 受影响 REQ/caseId | 严重度 | 处置方式 | 修订/裁决证据 | 关闭状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+| MRR-TRA-005 | 追溯审计 | cases-login.md 的 OPEN-PLATFORM-LOGIN-005 已写入用户确认的无效凭据登录失败且展示可见失败反馈，并关联 REQ-LOGIN-003 → RULE-LOGIN-007；但 plan.md 中 RULE-LOGIN-007 仍称业务验收结果待用户裁决，评审回链仍为待用户裁决。 | 资料明确的设计缺口 | REQ-LOGIN-003 → RULE-LOGIN-007 → OPEN-PLATFORM-LOGIN-005 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-005；已更新 RULE-LOGIN-007、覆盖矩阵和 caseId 回链为用户已确认的正式验收、待最终复审；失败提示精确文案、错误次数、锁定阈值、恢复方式和会话策略继续保留为未定义。 | 已关闭 |
+
+| MRR-REQ-008 | 需求一致性评审 | plan.md 的 RULE-LOGIN-007 仍写业务验收结果待用户裁决，且 OPEN-PLATFORM-LOGIN-005 的回链仍标记待用户裁决；同一计划和用例正文已采用用户确认的失败反馈断言。 | 资料明确的设计缺口 | REQ-LOGIN-003、RULE-LOGIN-007、OPEN-PLATFORM-LOGIN-005 | 中 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-005；已将 RULE-LOGIN-007 的来源和裁决状态同步为已确认用户业务口径，并将 OPEN-PLATFORM-LOGIN-005 的关闭状态改为待最终复审；保留单次失败、不进入控制台和可见反馈，不固定文案或组件。 | 已关闭 |
+
+| MRR-UX-005 | 交互与状态专项评审 | cases-login.md 的 LOGIN-005 已将无效凭据登录失败、不得进入控制台、展示可见失败反馈作为断言，且明确不固定文案或反馈组件；但 plan.md 的 RULE-LOGIN-007 仍写业务验收结果待用户裁决，覆盖矩阵也仍标记 LOGIN-005 待裁决。这使正式 RULE 与用例、场景组中的会话隔离要求不一致。REGISTRATION-016 已独立绑定驳回资源、认证上下文、CreateIntent、台账和单次待确认重提预算，未发现写入预算混用。 | 资料明确的设计缺口 | REQ-LOGIN-003、RULE-LOGIN-007、OPEN-PLATFORM-LOGIN-005 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-005；已将 RULE-LOGIN-007 的适用性和可观察预期同步为已确认的无效凭据失败、不得进入控制台及存在等价可见失败反馈；保留不固定提示文案、反馈组件、失败次数、锁定阈值与会话策略。 | 已关闭 |
+
+| MRR-IMP-006 | 变更影响评审 | cases-login.md 中 OPEN-PLATFORM-LOGIN-005 已将无效凭据登录失败且展示可见失败反馈作为用户确认的正式断言，并限定单次认证、独立授权及不复用会话；plan.md 仍在覆盖矩阵标记 LOGIN-005 待裁决，且 RULE-LOGIN-007/该 case 的评审回链仍保留待用户裁决。 | 资料明确的设计缺口 | REQ-LOGIN-003、RULE-LOGIN-007、OPEN-PLATFORM-LOGIN-005 | 高 | 自动演进 | 资料证据已回链；已修订 caseId：OPEN-PLATFORM-LOGIN-005；已将 RULE-LOGIN-007、覆盖矩阵及 LOGIN-005 回链统一为用户已确认的正式验收，待最终复审；保留失败提示精确文案、组件形态、错误次数、锁定阈值、恢复方式和会话策略为未定义。单次无效凭据提交仍须独立执行授权。REGISTRATION-016 的单次重提预算待用户确认，独立台账、独立批次与独立授权。 | 已关闭 |
+
+#### 沉淀判定
+
+| 发现项编号 | 归属类型 | 目标位置 | 证据状态 | 处理结果 |
+| --- | --- | --- | --- | --- |
+| MRR-TRA-005 | 需求事实 | REQ-LOGIN-003 → RULE-LOGIN-007 → OPEN-PLATFORM-LOGIN-005 | 资料已确认：用户确认已落入 caseId，但正式 RULE 和回链状态未同步 | 已回链 |
+| MRR-REQ-008 | 需求事实 | REQ-LOGIN-003 → RULE-LOGIN-007 → OPEN-PLATFORM-LOGIN-005 | 资料已确认：用户确认口径已同步至正式 RULE | 已回链 |
+| MRR-UX-005 | 需求事实 | REQ-LOGIN-003 → RULE-LOGIN-007 → OPEN-PLATFORM-LOGIN-005 | 资料已确认：可见反馈不限定组件或文案 | 已回链 |
+| MRR-IMP-006 | 通用规则 | plan.md#数据策略与执行边界 | 资料已确认：业务裁决未扩大执行授权 | 已引用 |
+<!-- review-batch:REV-20260727-ACCOUNT-05:end -->
+
+<!-- review-batch:REV-20260727-ACCOUNT-06:start -->
+### 评审批次：REV-20260727-ACCOUNT-06
+
+| 字段 | 内容 |
+| --- | --- |
+| 批次类型 | 最终复审 |
+| 触发类型 | 恢复复审 |
+| 输入基线版本 | sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md |
+| 隔离规则 | fork_turns=none |
+| 自动演进轮次 | 3 |
+| 综合结论 | 可提交确认 |
+| 收敛状态 | 已收敛 |
+| 人工确认状态 | 未请求 |
+
+> 复审范围：MRR-TRA-005、MRR-REQ-008、MRR-UX-005、MRR-IMP-006 的已修订 LOGIN-005 追溯与执行边界。
+
+#### reviewer 执行记录
+
+| 角色 | 执行方式 | Agent 任务标识 | 隔离方式 | 输入基线 | 执行状态 | 结论 | 发现项编号 | 处置状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 需求一致性评审 | 真实子智能体 | /root/req_review_r6 | fork_turns=none | sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
+| 测试设计评审 | 真实子智能体 | /root/design_review_r6 | fork_turns=none | docs/testing/testcase-guideline.md；sources/requirements/open-platform/AIoT平台项目.docx；sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
+| 追溯审计 | 真实子智能体 | /root/trace_review_r6 | fork_turns=none | sources/manifest.yaml；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
+| 交互与状态专项评审 | 真实子智能体 | /root/interaction_review_r6 | fork_turns=none | sources/prototypes/open-platform/登录页面.html；sources/prototypes/open-platform/注册页面.html；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
+| 变更影响评审 | 真实子智能体 | /root/impact_review_r6 | fork_turns=none | sources/manifest.yaml；testcases/web/open-platform/account-access-20260727-2/plan.md；testcases/web/open-platform/account-access-20260727-2/cases-login.md；testcases/web/open-platform/account-access-20260727-2/cases-registration.md | 已完成 | 通过 | 无 | 已关闭 |
+
+#### 发现项
+
+| 发现项编号 | 角色 | 证据 | 发现项分类 | 受影响 REQ/caseId | 严重度 | 处置方式 | 修订/裁决证据 | 关闭状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+#### 沉淀判定
+
+| 发现项编号 | 归属类型 | 目标位置 | 证据状态 | 处理结果 |
+| --- | --- | --- | --- | --- |
+| 无 | 无 | 无 | 无 | 无 |
+<!-- review-batch:REV-20260727-ACCOUNT-06:end -->
+
 ## 用例集评审与演进
 
 - 需求追溯统计：19 项 REQ 均至少关联 1 条实际 caseId。
@@ -614,36 +728,36 @@
 - 覆盖域复核：业务、输入、状态、数据一致性、身份、安全、集成和交互等适用域均已回填原子用例；资料未定义项保持适用待补充。
 - 覆盖基准与拆分复核：`cases-login.md` 6 条、`cases-registration.md` 34 条，包级清单与 40 条实际 caseId 一致。
 - 测试设计技术复核：决策表、状态迁移、等价类与边界、场景法均已关联实际 caseId。
-- 变更影响复核：新测试请求，无活跃既有正式脚本迁移；两轮演进影响已由 `IMP-20260727-001` 回链到 19 项 REQ、40 条 caseId、数据授权边界与后续工程输入。
-- 多角色评审复核：`REV-20260727-ACCOUNT-01` 初审和 `REV-20260727-ACCOUNT-02` 最终复审均已由五个真实隔离 reviewer 完成。
-- 发现的缺口与演进：两轮资料明确缺口已自动修订并关闭；新增 REGISTRATION-034 拆分审核驳回短信分支，当前等待下一轮最终复审验证收敛。
-- 评审结论：需演进。
+- 变更影响复核：新测试请求，无活跃既有正式脚本迁移；三轮演进影响已由 `IMP-20260727-001` 回链到 19 项 REQ、40 条 caseId、数据授权边界与后续工程输入。
+- 多角色评审复核：`REV-20260727-ACCOUNT-01` 至 `REV-20260727-ACCOUNT-04` 均已由五个真实隔离 reviewer 完成；第四批次五角色全部通过。
+- 发现的缺口与演进：三轮资料明确缺口已自动修订并关闭；第四批次已复核上一批次发现项及相关 caseId，未发现新增阻塞缺口。
+- 评审结论：可提交确认。
 
 ## 工程层：代码定位与自动化设计
 
 | 项目 | 内容 |
 | --- | --- |
-| 工程层状态 | 未开始 |
-| 代码仓库 | 待用例确认后从 `.local/repositories/` 唯一定位 |
-| 仓库确认依据 | 待用例确认后使用已确认项目、URL 和需求定位 |
-| 分支/提交标识 | 未获取；业务层禁止提前读取源码 |
-| Graphify 图谱 | 未检查；待用例确认后在读取源码前检查 |
-| 图谱新鲜度 | 无法判断；尚未进入工程层 |
-| 源码确认范围 | 用例确认后仅围绕当前 40 条实际 caseId 定位登录、注册、路由、认证、短信、上传、审核查询及其直接依赖 |
+| 工程层状态 | 已完成静态设计；等待脚本评审与独立执行授权 |
+| 代码仓库 | `.local/repositories/web-open-platform`（仅工程定位，不作为业务需求来源） |
+| 仓库确认依据 | 已确认 open-platform Web 请求与仓库 `web-service` 的 session、注册和 AIoT 控制台实现相符 |
+| 分支/提交标识 | `307a959f962b164c5bf288f18b94a0734a9d651f` |
+| Graphify 图谱 | `graphify-out/GRAPH_REPORT.md`，构建提交 `307a959f` |
+| 图谱新鲜度 | 当前 `HEAD` 与图谱构建提交一致 |
+| 源码确认范围 | `src/pages/session/components/LoginForm.vue`、`RegisterForm.vue`、`Pending.vue` 及直接 API/路由依赖；未读取或执行敏感配置 |
 
 | caseId | 需求追溯编号 | 源码路径与定位依据 | 可复用能力 | 自动化结论 | 脚本与断言方案 | 数据/环境前置条件 | 风险或待确认项 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `cases-login.md` 所列 6 条与 `cases-registration.md` 所列 34 条实际 caseId | REQ-NAV-001、REQ-LOGIN-001、REQ-LOGIN-002、REQ-LOGIN-003、REQ-LOGIN-004、REQ-LOGIN-005、REQ-REG-001、REQ-REG-002、REQ-REG-003、REQ-REG-004、REQ-REG-005、REQ-REG-006、REQ-REG-007、REQ-REG-008、REQ-REG-009、REQ-REG-010、REQ-REG-011、REQ-REG-012、REQ-REG-013 | 待用例确认后逐 caseId 定位 | 待检查现有 action、fixture、support 和正式 Runner | 待工程设计 | Playwright 脚本与断言待可见探索证据卡，并按下方场景组和副作用清单拆分 | test 配置、专用账号、合成数据、受控验证码、预登记隔离夹具和独立写入授权 | 认证会话缺失；注册残留、审核链路、稳定只读入口与重提预算待确认 |
+| `cases-login.md` 所列 6 条与 `cases-registration.md` 所列 34 条实际 caseId | REQ-NAV-001、REQ-LOGIN-001、REQ-LOGIN-002、REQ-LOGIN-003、REQ-LOGIN-004、REQ-LOGIN-005、REQ-REG-001 至 REQ-REG-013 | 登录组件提供密码/验证码模式、失败 `ElMessage` 与控制台路由；注册组件调用 `companyRegisterApply` 并跳转审核中页 | 复用现有 Playwright 生命周期、受管 Inspector、脱敏 support；不复用应用代码为测试依据 | 需先以 Inspector 建立可见语义定位；认证、验证码、上传、首次申请与重提保持独立场景组 | 登录失败断言观察可见消息且不进入 `console-home`；注册提交观察 `register-pending`；其余按既定 RULE 与场景组拆分 | test、专用账号、合成资料、预登记隔离夹具；写入按已确认预算但仍需独立执行授权 | 实际 URL、稳定定位、审核驳回夹具、短信/上传能力与清理结果待受控探索确认 |
 
 ### 规范差异与用户告知
 
 | 差异编号 | 问题类别 | 具体事实与证据 | 受影响 caseId | 自动化影响 | 最小处理建议或待确认项 | 自动化结论 | 用户已告知 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 无 | 不适用 | 尚未进入工程层，未读取代码或正式页面证据 | 当前 40 条实际 caseId | 无工程结论 | 用例确认后再进行零写入可见探索 | 待工程设计 | 是；本计划明确阶段边界 |
+| ENG-20260727-001 | 工程可行性待验证 | 静态代码显示密码失败走 `ElMessage.error`，成功才保存 token 并路由 `console-home`；注册成功跳转 `register-pending` | OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005、OPEN-PLATFORM-REGISTRATION-014、OPEN-PLATFORM-REGISTRATION-016 | 需通过受管 Inspector 验证页面语义和真实响应表现，不以源码代替业务验收 | 脚本阶段先建立零写入探索证据卡；涉及认证或写入时再申请独立授权 | 受控执行 | 是；源码仅作定位与可行性证据 |
 
 ### 脚本与证据方案
 
-- 拟修改或新增文件：待工程设计确定。
+- 拟修改或新增文件：`tests/web/open-platform/account-access-20260727-2/*.spec.ts`、同目录执行清单；创建前需完成 Inspector 证据卡和脚本评审。
 - 执行命令与目标环境：正式入口拟使用 `npm run test:web:execute -- --request web/open-platform/account-access-20260727-2`；目标环境 test，尚未授权。
 - 可见探索：用例确认后先运行 Inspector 门禁；探索业务写入预算固定为 0。
 - 预期报告位置与逐用例证据：`artifacts/` 下的 Playwright HTML、Allure、Trace、视频和中文摘要；具体策略待工程设计。
@@ -655,7 +769,7 @@
 | --- | --- | --- | --- | --- | --- |
 | login-readonly | 官网与登录页 | OPEN-PLATFORM-LOGIN-001、OPEN-PLATFORM-LOGIN-002、OPEN-PLATFORM-LOGIN-006 | 每例新上下文并恢复登录模式 | 纯导航、模式与恢复入口不混入认证副作用 | 可并行只读 |
 | login-sms | 登录页验证码模式 | OPEN-PLATFORM-LOGIN-003 | 独立上下文；单次请求后关闭 | 短信预算和敏感采集独立 | 独立授权后执行 |
-| login-auth | 登录页账号模式与控制台 | OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005 | 每例独立凭据引用和上下文，结束退出或关闭 | 有效、无效认证互不复用；LOGIN-005 还需业务裁决 | 分别授权、串行执行 |
+| login-auth | 登录页账号模式与控制台 | OPEN-PLATFORM-LOGIN-004、OPEN-PLATFORM-LOGIN-005 | 每例独立凭据引用和上下文，结束退出或关闭 | 有效、无效认证互不复用；LOGIN-005 断言失败且有可见反馈 | 分别授权、串行执行 |
 | registration-local | 官网注册入口与注册表单 | OPEN-PLATFORM-REGISTRATION-001、OPEN-PLATFORM-REGISTRATION-002、OPEN-PLATFORM-REGISTRATION-003、OPEN-PLATFORM-REGISTRATION-004、OPEN-PLATFORM-REGISTRATION-005、OPEN-PLATFORM-REGISTRATION-007、OPEN-PLATFORM-REGISTRATION-008、OPEN-PLATFORM-REGISTRATION-010、OPEN-PLATFORM-REGISTRATION-012、OPEN-PLATFORM-REGISTRATION-020、OPEN-PLATFORM-REGISTRATION-021、OPEN-PLATFORM-REGISTRATION-022、OPEN-PLATFORM-REGISTRATION-030 | 每例恢复空白表单、页签和协议基线 | 输入、唯一性与导航场景不发送短信、不上传、不认证、不提交申请 | 异常、边界、正常 |
 | registration-decision-fixtures | 注册表单 | OPEN-PLATFORM-REGISTRATION-013、OPEN-PLATFORM-REGISTRATION-023、OPEN-PLATFORM-REGISTRATION-024、OPEN-PLATFORM-REGISTRATION-025 | 每例绑定并复位彼此隔离的预登记有效表单夹具 | 每例只改变一个决策条件，不依赖前例残留 | 独立恢复后执行 |
 | registration-upload | 注册表单证照字段 | OPEN-PLATFORM-REGISTRATION-009 | 独立上下文和合成文件等价类 | 临时上传与产物脱敏单独授权 | 独立授权后执行 |

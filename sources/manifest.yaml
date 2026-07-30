@@ -188,6 +188,8 @@ materials:
     reference_scopes:
       - platform-overview
       - account-management
+      - account-registration
+      - account-login
       - enterprise-membership
       - product-development
     status: active
