@@ -1,17 +1,43 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
 import { loadFormalExecutionManifest } from "../src/support/formal-execution/manifest.js";
 import { FormalExecutionStore } from "../src/support/formal-execution/formalExecutionStore.js";
-import { loadConfirmedExecutionAuthorization } from "../src/support/task-state/executionAuthorization.js";
+import {
+  assertCurrentAuthorizedScripts,
+  loadConfirmedExecutionAuthorization
+} from "../src/support/formal-execution/authorization.js";
+import {
+  assertFormalSpecSources,
+  formalWorkerCount
+} from "../src/support/formal-execution/runnerPolicy.js";
+import { DurableWorkflowManager } from "../src/support/task-workflow/workflowManager.js";
 
 const { requestId, resume } = parseArgs(process.argv.slice(2));
+const snapshot = await loadConfirmedExecutionAuthorization(requestId);
+const relativeRequest = requestId.replace(/^web\//, "");
+const requestDirectory = resolve(process.cwd(), "tests/web", relativeRequest);
+const manifestPath = `tests/web/${relativeRequest}/execution.manifest.ts`;
+const formalSpecPaths = (await readdir(requestDirectory))
+  .filter((name) => name.endsWith(".formal.spec.ts"))
+  .sort()
+  .map((name) => `tests/web/${relativeRequest}/${name}`);
+if (!formalSpecPaths.length) {
+  throw new Error(`Formal Runner found no *.formal.spec.ts files for ${requestId}.`);
+}
+assertCurrentAuthorizedScripts(snapshot, [manifestPath, ...formalSpecPaths]);
+assertFormalSpecSources(
+  await Promise.all(formalSpecPaths.map(async (path) => ({
+    path,
+    source: await readFile(resolve(process.cwd(), path), "utf8")
+  }))),
+  snapshot.caseIds
+);
 const manifest = await loadFormalExecutionManifest(requestId);
-const snapshot = await loadConfirmedExecutionAuthorization(requestId, manifest.environment);
-const manifestPath = `tests/web/${requestId.replace(/^web\//, "")}/execution.manifest.ts`;
-if (!snapshot.scriptDigests.some((item) => item.path === manifestPath)) {
-  throw new Error("The immutable authorization does not include the formal execution manifest.");
+if (snapshot.environment !== manifest.environment) {
+  throw new Error("Execution environment differs from the confirmed authorization.");
 }
 const authorized = [...snapshot.caseIds].sort();
 const declared = manifest.cases.map((item) => item.caseId).sort();
@@ -26,6 +52,8 @@ if (existing && !resume) {
 if (!existing && resume) {
   throw new Error("--resume requires an existing formal run for the same authorization.");
 }
+const workflow = new DurableWorkflowManager(requestId);
+const workers = formalWorkerCount(await workflow.projection(), snapshot);
 
 const executable = resolve(process.cwd(), "node_modules/.bin/playwright");
 if (!existsSync(executable)) throw new Error("The local Playwright executable is unavailable.");
@@ -44,6 +72,7 @@ try {
     ...process.env,
     AUTOMATION_REQUEST_ID: requestId,
     FORMAL_EXECUTION_RESUME: resume ? "1" : "0",
+    PLAYWRIGHT_FORMAL_WORKERS: String(workers),
     PLAYWRIGHT_FORMAL_BROWSER_WS_ENDPOINT: browserServer.wsEndpoint()
   });
 } finally {

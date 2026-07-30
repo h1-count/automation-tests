@@ -1,6 +1,6 @@
 import { expect, test } from "../../../src/fixtures/formalWebFixture.js";
 import { resolveTestEnvironment } from "../../../src/env/testEnvironment.js";
-import { loadConfirmedExecutionAuthorization } from "../../../src/support/task-state/executionAuthorization.js";
+import { loadConfirmedExecutionAuthorization } from "../../../src/support/formal-execution/authorization.js";
 import { loadFormalExecutionManifest } from "../../../src/support/formal-execution/manifest.js";
 import {
   findTestAsset,

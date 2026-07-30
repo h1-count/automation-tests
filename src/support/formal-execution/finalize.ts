@@ -1,12 +1,15 @@
 import { FormalExecutionStore } from "./formalExecutionStore.js";
 import { loadFormalExecutionManifest } from "./manifest.js";
-import { loadConfirmedExecutionAuthorization } from "../task-state/executionAuthorization.js";
+import { loadConfirmedExecutionAuthorization } from "./authorization.js";
 import { TestDataManager } from "../test-data/testDataManager.js";
 import type { FormalExecutionSummary } from "./types.js";
 
 export async function finalizeFormalExecution(requestId: string): Promise<FormalExecutionSummary> {
+  const snapshot = await loadConfirmedExecutionAuthorization(requestId);
   const manifest = await loadFormalExecutionManifest(requestId);
-  const snapshot = await loadConfirmedExecutionAuthorization(requestId, manifest.environment);
+  if (snapshot.environment !== manifest.environment) {
+    throw new Error("Execution environment differs from the confirmed authorization.");
+  }
   const store = new FormalExecutionStore();
   await store.reconcileOpenAttempts(
     snapshot.digest,

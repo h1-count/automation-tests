@@ -11,6 +11,19 @@ import {
 import { resolveFormalCompletion } from "../../../src/support/formal-execution/formalCase.js";
 import type { FormalExecutionManifest } from "../../../src/support/formal-execution/types.js";
 import { inspectFormalSpecSource } from "../../../src/support/formal-execution/sourceGate.js";
+import {
+  assertFormalSpecSources,
+  formalWorkerCount,
+  parseFormalWorkerCount
+} from "../../../src/support/formal-execution/runnerPolicy.js";
+import {
+  activitiesExpandedPayload,
+  buildWorkflowDefinition,
+  workflowStartedPayload
+} from "../../../src/support/task-workflow/definition.js";
+import { reduceWorkflow } from "../../../src/support/task-workflow/reducer.js";
+import type { WorkflowEvent } from "../../../src/support/task-workflow/types.js";
+import { calculateEventDigest, GENESIS_DIGEST } from "../../../src/support/task-workflow/historyStore.js";
 
 function manifest(): FormalExecutionManifest {
   return {
@@ -180,3 +193,119 @@ test("formal source gate rejects serial, aggregate, skip, duplicate and incomple
   assert.match(inspection.issues.join("\n"), /test\.skip/);
   assert.match(inspection.issues.join("\n"), /scope differs/);
 });
+
+test("formal Runner applies the source gate to the complete discovered script set", () => {
+  assert.doesNotThrow(() => assertFormalSpecSources([
+    {
+      path: "tests/web/example/one.formal.spec.ts",
+      source: 'formalCase("APP-CASE-001", "one", async () => {});'
+    },
+    {
+      path: "tests/web/example/two.formal.spec.ts",
+      source: 'formalCase("APP-CASE-002", "two", async () => {});'
+    }
+  ], ["APP-CASE-001", "APP-CASE-002"]));
+  assert.throws(
+    () => assertFormalSpecSources([{
+      path: "tests/web/example/one.formal.spec.ts",
+      source: 'test.skip(); formalCase("APP-CASE-001", "one", async () => {});'
+    }], ["APP-CASE-001"]),
+    /Formal source gate failed.*test\.skip/
+  );
+});
+
+test("formal Runner uses two workers only for a pinned isolated no-write definition", () => {
+  const isolated = workflowProjection({
+    writesData: false,
+    executionIsolation: {
+      contexts: true,
+      accounts: true,
+      data: true,
+      sharedAccount: false
+    }
+  });
+  const shared = workflowProjection({
+    writesData: false,
+    executionIsolation: {
+      contexts: true,
+      accounts: true,
+      data: true,
+      sharedAccount: true
+    }
+  });
+  assert.equal(formalWorkerCount(isolated, { dataWritePolicy: "no_write" }), 2);
+  assert.equal(formalWorkerCount(shared, { dataWritePolicy: "no_write" }), 1);
+  assert.equal(formalWorkerCount(isolated, { dataWritePolicy: "managed_cleanup" }), 1);
+  assert.equal(parseFormalWorkerCount(undefined), 1);
+  assert.equal(parseFormalWorkerCount("2"), 2);
+  assert.throws(() => parseFormalWorkerCount("3"), /must be 1 or 2/);
+});
+
+function workflowProjection(input: {
+  writesData: boolean;
+  executionIsolation: {
+    contexts: boolean;
+    accounts: boolean;
+    data: boolean;
+    sharedAccount?: boolean;
+  };
+}) {
+  const definition = buildWorkflowDefinition({
+    requestId: "web/example/runner-policy",
+    planDigest: "a".repeat(64),
+    capabilities: ["web"],
+    writesData: input.writesData,
+    casePackages: ["cases-core.md"],
+    reviewerRoles: ["requirements"],
+    executionIsolation: input.executionIsolation
+  });
+  const identity = {
+    runId: "runner-policy",
+    requestId: definition.requestId,
+    definitionId: definition.definitionId,
+    definitionVersion: definition.definitionVersion
+  };
+  let previous = GENESIS_DIGEST;
+  const events = [
+    event({
+      ...identity,
+      type: "WorkflowStarted",
+      idempotencyKey: "runner-policy-started",
+      payload: workflowStartedPayload(definition)
+    }, 1, previous),
+    undefined as WorkflowEvent | undefined
+  ];
+  previous = events[0]!.digest;
+  events[1] = event({
+    ...identity,
+    type: "ActivitiesExpanded",
+    idempotencyKey: "runner-policy-expanded",
+    payload: activitiesExpandedPayload(definition)
+  }, 2, previous);
+  return reduceWorkflow(events as WorkflowEvent[]);
+}
+
+function event(
+  input: {
+    runId: string;
+    requestId: string;
+    definitionId: string;
+    definitionVersion: string;
+    type: WorkflowEvent["type"];
+    idempotencyKey: string;
+    payload: WorkflowEvent["payload"];
+  },
+  seq: number,
+  prevDigest: string
+): WorkflowEvent {
+  const unsigned: Omit<WorkflowEvent, "digest"> = {
+    schemaVersion: "test-workflow-event-v1",
+    eventId: `runner-policy-${seq}`,
+    seq,
+    ...input,
+    occurredAt: `2026-07-29T00:00:0${seq}.000Z`,
+    actorType: "system",
+    prevDigest
+  };
+  return { ...unsigned, digest: calculateEventDigest(unsigned) };
+}

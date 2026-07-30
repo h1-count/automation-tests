@@ -1,4 +1,4 @@
-import type { ExecutionAuthorizationSnapshot } from "../task-state/types.js";
+import type { ExecutionAuthorizationSnapshot } from "./authorization.js";
 import type { TestDataManager } from "../test-data/testDataManager.js";
 
 export type FormalCaseStatus = "passed" | "failed" | "blocked" | "skipped" | "unknown";

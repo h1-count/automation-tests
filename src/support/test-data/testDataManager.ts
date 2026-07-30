@@ -123,6 +123,18 @@ export class TestDataManager {
         if (JSON.stringify([...existing.caseIds].sort()) !== JSON.stringify(expectedCaseIds)) {
           throw new Error("The stored formal run case scope differs from the confirmed authorization.");
         }
+        const expectedPolicy = input.dataWritePolicy ?? "managed_cleanup";
+        const expectedBudget = input.writeBudget ?? {};
+        const expectedResidualTtlHours = input.residualTtlHours ?? 72;
+        if (
+          existing.dataWritePolicy !== expectedPolicy
+          || !sameWriteBudget(existing.writeBudget, expectedBudget)
+          || existing.residualTtlHours !== expectedResidualTtlHours
+        ) {
+          throw new Error(
+            "The stored formal run write policy, budget, or residual TTL differs from the confirmed authorization."
+          );
+        }
         if (existing.status !== "passed") {
           existing.status = "running";
           existing.functionalStatus = undefined;
@@ -659,6 +671,16 @@ export class TestDataManager {
     }
     assertNonProductionEnvironment(envId);
   }
+}
+
+function sameWriteBudget(
+  left: TestRunRecord["writeBudget"],
+  right: TestRunRecord["writeBudget"]
+): boolean {
+  const entries = (value: TestRunRecord["writeBudget"]) => Object.entries(value)
+    .filter((entry): entry is [string, number] => typeof entry[1] === "number")
+    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
+  return JSON.stringify(entries(left)) === JSON.stringify(entries(right));
 }
 
 function createRunId(): string {

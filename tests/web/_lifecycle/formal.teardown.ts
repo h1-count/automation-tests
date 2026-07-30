@@ -1,5 +1,5 @@
 import { expect, test } from "../../../src/fixtures/formalWebFixture.js";
-import { loadConfirmedExecutionAuthorization } from "../../../src/support/task-state/executionAuthorization.js";
+import { loadConfirmedExecutionAuthorization } from "../../../src/support/formal-execution/authorization.js";
 import { finalizeFormalExecution } from "../../../src/support/formal-execution/finalize.js";
 
 test("正式执行 teardown：核验清单并生成原子结果摘要", async () => {

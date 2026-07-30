@@ -1,6 +1,6 @@
 import type { Browser, BrowserContext, Page, TestInfo } from "@playwright/test";
 import { expect, test } from "../../fixtures/formalWebFixture.js";
-import { loadConfirmedExecutionAuthorization } from "../task-state/executionAuthorization.js";
+import { loadConfirmedExecutionAuthorization } from "./authorization.js";
 import { TestDataManager } from "../test-data/testDataManager.js";
 import type { TestResourceType } from "../test-data/types.js";
 import { FormalExecutionStore } from "./formalExecutionStore.js";

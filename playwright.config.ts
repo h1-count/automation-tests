@@ -1,12 +1,16 @@
 import "dotenv/config";
 import { defineConfig, devices } from "@playwright/test";
 import { resolveTestEnvironment } from "./src/env/testEnvironment";
+import { parseFormalWorkerCount } from "./src/support/formal-execution/runnerPolicy";
 
 process.env.ALLURE_RESULTS_DIR ??= "artifacts/allure-results";
 const testEnvironment = resolveTestEnvironment();
 const visibleLocalRun = !process.env.CI;
 const formalLifecycleEnabled = Boolean(process.env.AUTOMATION_REQUEST_ID?.trim());
 const formalRequestMatch = process.env.AUTOMATION_REQUEST_ID?.trim().replace(/^web\//, "");
+const formalWorkers = formalLifecycleEnabled
+  ? parseFormalWorkerCount(process.env.PLAYWRIGHT_FORMAL_WORKERS)
+  : 1;
 
 export default defineConfig({
   metadata: { automationMode: "execute" },
@@ -17,7 +21,7 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
-  workers: formalLifecycleEnabled ? 1 : process.env.CI ? 1 : undefined,
+  workers: formalLifecycleEnabled ? formalWorkers : process.env.CI ? 1 : undefined,
   maxFailures: 0,
   reporter: [
     ["list"],

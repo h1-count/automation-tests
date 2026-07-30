@@ -88,6 +88,35 @@ test("resumes the same authorized run without resetting resources or budgets", a
   assert.deepEqual(second.writeBudget, { product: 1 });
 });
 
+test("refuses to resume an authorized run with drifted write constraints", async (context) => {
+  const { root, manager } = await createHarness();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const input = {
+    projectId,
+    envId,
+    suiteId: "web/open-platform/registration",
+    caseIds: [caseId],
+    dataWritePolicy: "managed_cleanup" as const,
+    authorizationDigest: "e".repeat(64),
+    writeBudget: { product: 1 },
+    residualTtlHours: 24
+  };
+  await manager.startOrResumeAuthorizedRun(input);
+
+  await assert.rejects(
+    () => manager.startOrResumeAuthorizedRun({ ...input, writeBudget: { product: 2 } }),
+    /write policy, budget, or residual TTL/
+  );
+  await assert.rejects(
+    () => manager.startOrResumeAuthorizedRun({ ...input, dataWritePolicy: "tracked_residual" }),
+    /write policy, budget, or residual TTL/
+  );
+  await assert.rejects(
+    () => manager.startOrResumeAuthorizedRun({ ...input, residualTtlHours: 48 }),
+    /write policy, budget, or residual TTL/
+  );
+});
+
 test("registers a created resource as a local reusable record", async (context) => {
   const { root, manager } = await createHarness();
   context.after(() => rm(root, { recursive: true, force: true }));
