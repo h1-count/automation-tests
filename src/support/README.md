@@ -10,4 +10,4 @@
 | `cleanup/` | 测试数据清理与恢复工具。 |
 | `testcase/` | 与业务无关的测试用例治理校验，例如评审发现项的沉淀判定；只校验结构和归属，不读取需求正文、项目经验或敏感配置。 |
 | `test-data/` | 本机测试数据生命周期：只管理本机 Runner 已登记的非生产资源；包含运行、复用、清理、恢复和脱敏摘要能力。 |
-| `task-state/` | 测试请求的本机实时任务状态：维护任务清单的完成情况、待办、依赖、阻塞、确认、真实 reviewer 子智能体执行记录与恢复；状态快照写入 Git 忽略的 `.local/test-task-state/`，不保存敏感数据或充当正式执行证据。`TASK-04` 仅在适用 reviewer 以 `fork_turns=none` 真实完成、发现项闭环并完成最终复审后关闭。 |
+| `task-workflow/` | Durable Workflow：请求级事件历史、定义 DAG、纯 reducer、Activity 租约、原子产物发布、callback、评审策略、CLI 与派生门禁。业务运行状态只来自请求目录中的 `workflow-history.ndjson`；`.local/test-task-runtime/` 只保存可丢弃的本机句柄。 |

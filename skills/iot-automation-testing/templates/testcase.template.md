@@ -1,6 +1,6 @@
 <!-- 使用真实 Markdown 换行；禁止输出转义形式的换行标记或将整个用例序列化为单行字符串。 -->
 
-> 字段和追溯关系按 [用例规范](../../../docs/testing/testcase-guideline.md) 填写；数据策略按 [环境规范](../../../docs/testing/environment-guideline.md) 填写。“用例编号”由作者分配，是本用例身份来源；“规则覆盖编号”由 `testcases:sync-relations` 从 `plan.md` 的 RULE 关系源生成，请勿手工编辑。
+> 字段和追溯关系按 [用例规范](../../../docs/testing/testcase-guideline.md) 填写；数据策略按 [环境规范](../../../docs/testing/environment-guideline.md) 填写。“用例编号”由作者分配，是本用例身份来源；“规则覆盖编号”由 `testcases:sync-relations` 从 `plan.md` 的 RULE 关系源生成，请勿手工编辑。“状态”是有效用例确认 callback 与 `plan.md` 正式决定的派生元数据，不得手工推进。
 ## 测试用例：<用例标题>
 
 ## 基本信息

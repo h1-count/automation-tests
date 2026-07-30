@@ -1,86 +1,97 @@
 ---
 name: iot-automation-testing
-description: 在本仓库中规划、设计、维护或分析 Web、H5、App、API、MQTT 和 IoT 链路自动化测试。用于处理需求、截图、URL、接口资料、物模型、测试结果和失败证据。
+description: 在本仓库中规划、设计、维护或分析 Web、H5、App、WebView、API、MQTT 和 IoT 链路自动化测试。用于处理需求、截图、URL、接口资料、物模型、测试结果和失败证据。
 ---
 
 # IoT 自动化测试工作流
 
-本 Skill 只定义 Codex 的任务阅读顺序和阶段输出。强制门禁以 [AGENTS.md](../../AGENTS.md) 为准；规则正文以 [测试规范索引](../../docs/testing/README.md) 指向的责任文件为准。
+本 Skill 只定义 Codex 的阅读顺序、命令编排、reviewer 提示卡和宿主续跑适配。安全边界以 [AGENTS.md](../../AGENTS.md) 为准；状态机、测试设计、环境、定位和报告规则只引用[测试规范索引](../../docs/testing/README.md)中的责任文件。
 
-## 开始前
+## 开始与恢复
 
-0. 用户提出“清理”“重置”“归档”或“恢复”时，先读取 `package.json` 的 scripts 与 `scripts/README.md`，并按[流程规范的维护命令门禁](../../docs/testing/automation-guideline.md#311-本机维护命令发现与执行)选择已登记命令；范围不完整时只允许先执行 `--dry-run`，不得扫描目录后自行删除。
-1. 阅读 `.local/testing-memory.md` 和当前请求的本机任务状态（如存在），再阅读 `AGENTS.md` 与相关资产；若状态已存在，先运行 `npm run task:resume -- --request <type/project/request>` 获取全生命周期唯一下一动作，再用 `task:manage transaction-claim` 领取并在产物与校验提交后用 `transaction-commit` 关闭该短事务。具体恢复规则见 [automation-guideline.md](../../docs/testing/automation-guideline.md)。
-2. 按流程规范识别项目、筛选 `sources/manifest.yaml` 与受控章节索引，并只读取本次实际需要的原始资料；随后查询 `test-assets/manifest.yaml` 的 `active` 候选资产。将资料引用和资产选择分别记录到 `plan.md`。
-3. 按任务类型阅读对应规范：
-   - 流程、探索、阻碍恢复：[automation-guideline.md](../../docs/testing/automation-guideline.md)
-   - 环境、凭据、认证和数据：[environment-guideline.md](../../docs/testing/environment-guideline.md)
-   - 计划与用例：[testcase-guideline.md](../../docs/testing/testcase-guideline.md)
-   - 定位：[selector-guideline.md](../../docs/testing/selector-guideline.md)
+1. 用户提出独立本机维护（清理、重置、归档或测试数据恢复）时，先读取 `package.json` 与 `scripts/README.md`，使用已登记命令；范围不完整时只执行 `--dry-run`。恢复完整测试 workflow 不属于本条维护请求。
+2. 阅读 `AGENTS.md`、`.local/testing-memory.md`（如存在）和当前请求的 `workflow-history.ndjson`（如存在）。识别项目后只读取对应项目经验库，并确定稳定的 `<type/project/request>`；无法唯一确定时先请求最小必要信息，不猜测 request ID。
+3. 完整自动化测试请求在运行任何 workflow 命令前，先阅读[流程规范的 Goal 生命周期](../../docs/testing/automation-guideline.md#314-durable-workflow生命周期与恢复)，再依次调用宿主 `get_goal` 与必要的 `create_goal`：同一 request ID 复用；绑定不同请求或无法确认归属时不得替换、清除或改写，只请求最小用户选择。状态查询、只读诊断和独立维护请求跳过此步。能力不可用或预检失败时不执行 `task:initialize`/`task:resume`，只提供一次 `/goal` 回退及规范中的 objective 文本。
+4. Goal 预检通过后，有 history 时运行 `npm run task:resume -- --request <type/project/request>`；没有时使用 `task:initialize`。不得从 `plan.md`、runtime 或文件时间猜测运行状态。
+5. 先扫描 `sources/` 目录结构和 `sources/manifest.yaml`，再按范围读取命中的受控章节；随后按需选择 `test-assets/manifest.yaml` 中的静态资产。
+6. 按任务打开唯一责任规范：
+
+   - 生命周期、事件与恢复：[automation-guideline.md](../../docs/testing/automation-guideline.md)
+   - 环境、并发、认证和数据：[environment-guideline.md](../../docs/testing/environment-guideline.md)
+   - 计划、用例完整度和评审业务标准：[testcase-guideline.md](../../docs/testing/testcase-guideline.md)
+   - Inspector 风险和 selector：[selector-guideline.md](../../docs/testing/selector-guideline.md)
    - 报告与失败：[report-guideline.md](../../docs/testing/report-guideline.md)、[failure-classification.md](../../docs/testing/failure-classification.md)
-4. 用例确认后才进入工程层：以 `.local/repositories/` 为代码仓库根目录定位对应仓库；扫描源码前先检查 Graphify 图谱，再在现有 `plan.md` 中补充代码定位、可行性、数据和脚本方案。不得将代码仓库或图谱登记到 `sources/manifest.yaml`，也不得将其作为业务需求依据。详细规则见 [automation-guideline.md](../../docs/testing/automation-guideline.md#6-阶段三自动化可行性脚本设计与代码定位)。
-5. 复用已有 action、fixture、client、support 和模板；脚本必须基于已确认用例和已确认的计划工程层设计生成，不要为单一任务新增框架或平行实现。
-6. 当前请求没有活跃 `plan.md` 时，按当前用户需求建立新计划；`testcases/archive/` 仅在用户明确要求时读取，不能作为新任务的范围、确认状态或阻塞原因。
 
-## 审核式阶段
+当前没有活跃 `plan.md` 时按用户需求创建新请求；`testcases/archive/` 默认不参与上下文加载。用例确认后才定位 `.local/repositories/`、Graphify 和源码，并把工程设计补入同一 `plan.md`。
 
-| 阶段 | Codex 产出 | 进入下一阶段的条件 |
-| --- | --- | --- |
-| 测试计划 | 范围、资料、环境候选、推断、缺失项、风险和交付物。 | 按流程规范获得用户确认。 |
-| 测试用例 | 依用例规范生成完整用例包、追溯和覆盖资产；仅在 RULE 台账维护 `RULE → caseId`，随后运行 `npm run testcases:sync-relations -- <测试请求目录>` 与 `npm run check:rule-design -- <plan.md>` 生成并校验派生视图和规则设计矩阵。 | 完成评审与草案演进后提交用户确认。 |
-| 用例集评审与演进 | 真实子智能体的需求、设计、追溯评审（高风险/变更时追加影响评审）、按证据自动修订草案与完整复审结论。 | 全部适用 reviewer 真实完成且用户确认用例。 |
-| 自动化可行性与脚本设计 | `plan.md` 中的代码/图谱定位、`caseId` 映射、数据策略引用与风险。 | 自动校验通过。 |
-| 正式脚本 | 已确认用例和设计关联的脚本 diff、静态检查及脚本评审。 | 生成统一执行清单并获得一次确认。 |
-| 正式执行 | 使用清单绑定的 Runner 完整执行 setup、test 与 teardown。 | 运行结束并保留正式产物。 |
-| 报告与分析 | 范围完成判定、用户摘要、失败分类、复盘结论和改进建议。 | 用户确认后才改正式资产或复测。 |
+## Activity 操作
 
-按 [automation-guideline.md](../../docs/testing/automation-guideline.md) 初始化和更新任务执行清单及本机状态。每次回复按下表输出完整、简短的阶段进度卡片：
+公开入口只有 `task:initialize`、`task:resume`、`task:status`、`task:gate` 和 `task:manage`。
 
-| 阶段 | 任务 | 状态 | 当前结论 / 需要动作 |
-| --- | --- | --- | --- |
-| <阶段> | <任务> | <流程规范定义的状态> | <结论；无则写“无”；需要用户动作时写最小问题与下一步> |
+1. 从 gate 读取 ready Activity，使用稳定 owner 执行 `task:manage activity-start`。
+2. 文件先写入 runtime 暂存区，完成相应校验后再原子发布；关系同步也只修改该暂存副本，不直接改最终请求目录。只有最终文件 digest 匹配才执行 `activity-succeed`。
+3. 失败、callback、阻塞、恢复、核对和 history 校验都使用 `task:manage` 对应子命令，不手工改 history。
+4. 外部写操作先记录 intent。lease 过期不证明操作未发生；结果未知时查询后置状态并进入 reconciliation，不盲目重试。
+5. 每次状态变化后重新运行 gate，并严格执行流程规范定义的 `continuation` 与 `reply`：`continue_now` 仅要求在当前可用回合继续；等待已启动 reviewer、工具或外部结果时只等待本回合可取得的事件；`wait_until` 只是一次性退避时间，不创建定时器；只有 gate 放行时才能请求用户动作或结束。用户主动索要状态时，可只读复述 gate/status，不得把该摘要当成完成或后台续跑承诺。
+6. 用户对 callback 作出决定后，在 runtime 暂存候选 `plan.md`，其“正式用户决定”表记录相同决定类型、`subjectDigest` 与结果，再执行 `callback-resolve --plan-source <暂存 plan.md>`；CLI 负责原子发布计划并追加解析事件，不得直接改最终计划、仅改 history 或把等待状态写成正式决定。
 
-完整任务清单和状态基线在 `plan.md`，本机状态用于恢复；两者均不替代正式资产状态。
+请求用户动作、结束当前测试工作回合或输出完成/失败结论前运行：
 
-### 续跑命令
+```bash
+npm run task:gate -- --request <type/project/request> --assert-safe-reply
+```
 
-初始化后为当前 Codex 任务创建一个 thread heartbeat，提示使用 [`templates/thread-heartbeat.prompt.md`](templates/thread-heartbeat.prompt.md)，再用 `task:manage host-bind --automation <id> --session <当前 Codex session id>` 登记去重绑定。若 Hook 未获信任、组织策略禁用或 heartbeat 创建失败，调用 `task:manage host-block --session <id> --reason <原因>`，不得宣称仍会后台续跑。每次动作前读取 `task:gate --json`，用稳定 owner 调用 `transaction-claim` 并保存返回的 claim token；执行期间用 `transaction-renew` 续租，提交、重试或阻塞时传回该 token。最终回复前调用 `task:gate --assert-final`。状态含义和宿主处理只引用[流程规范](../../docs/testing/automation-guideline.md#43-短事务闭环与生命周期恢复)。
+## Codex Goal 与 Stop Hook
 
-生成或批量更新 `plan.md`、用例包后，先运行 `npm run check:markdown -- <实际文件路径>`，再运行 `npm run check:architecture`。若仅分隔行列数不一致，可运行 `npm run check:markdown -- --fix <实际文件路径>` 后复检；数据行列数不一致或字面量反斜杠加字母 n、r 必须修订生成正文。两项检查通过前，不得称计划/草案已生成，也不得请求用户确认。
+用户已通过本仓库规则授权：完整自动化测试请求默认创建或复用一个宿主 Goal，无需每次再次输入 `/goal`。完整请求包括新建或恢复后的规划、评审、工程、执行、工作流内 cleanup/reconcile 和报告；独立状态查询、只读诊断、规则或代码维护、清理、重置、归档和测试数据恢复不创建 Goal。Goal objective、冲突处理和完成条件只按[流程规范](../../docs/testing/automation-guideline.md#314-durable-workflow生命周期与恢复)生成。
 
-新建或重新打开执行范围的 Web/H5 正式脚本，先运行 `npm run test:web:inspect -- <spec>`；需要保留跨失败现场时，先启动受管探索会话，再运行 `npm run test:web:explore:reuse:inspect -- <spec>`。确认专用 Chrome 与 Inspector 同时可见后，按[定位规范](../../docs/testing/selector-guideline.md#8-codex-生成与修复-selector-的流程)完成探索证据卡，再生成最小脚本 diff；`test:web:explore` 只用于该门禁后的确定性重放。不得以源码推断替代页面语义探索；不使用 Browser、Computer Use 或个人 Chrome 会话。正式 Web 执行调用 `npm run test:web:execute -- --request <type/project/request>`；恢复同一授权时追加 `--resume`，结束后生成 Playwright HTML/Allure 和中文摘要。阶段门禁、原子覆盖、会话分组和证据资格分别引用[流程规范](../../docs/testing/automation-guideline.md)、[用例规范](../../docs/testing/testcase-guideline.md)、[环境规范](../../docs/testing/environment-guideline.md)与[报告规范](../../docs/testing/report-guideline.md)，本 Skill 不复述。安全挑战只请求用户完成最小操作，随后自动恢复确定性步骤。
+操作顺序固定为：稳定 request ID → `get_goal` → 无未完成 Goal 时 `create_goal` / 同请求复用 / 不同请求请求最小用户选择 → `task:initialize` 或 `task:resume`。Goal 能力缺失或调用失败时不得声称已启用，也不得先创建 history；只提示一次手动 `/goal` 并附 objective。Goal 的 ID、状态、预算和使用记录只属于宿主，不得写入 runtime、history、`plan.md` 或其他仓库文件。
+
+Goal 运行中，`continue_now`、reconcile、reviewer 派发/重试、自动演进和复审必须继续执行。`await_event`/`wait_until` 保持 Goal active 并等待已登记事件；等待窗口或墙钟时长本身不是 reviewer 失败依据，不得因此中断 reviewer 或发送最终回复。`WAITING_HUMAN` 只暂停同一 Goal，不调用 `update_goal`，callback 解析后恢复；workflow `BLOCKED` 也只暂停，真实条件满足并执行 `task:manage blocker-resolve` 后恢复，不把它标记为 Goal `blocked`。只有 workflow `SUCCEEDED` 且 `task:gate --assert-safe-reply` 通过后才调用 `update_goal(complete)`；产品结果为 failed/mixed 不阻止完成。不可恢复 `FAILED` 达到宿主连续阻塞阈值后调用 `update_goal(blocked)`，`CANCELLED` 由用户清除 Goal。
+
+Stop Hook 只通过可丢弃的 session binding 定位请求并调用 gate。它不领取 Activity、不执行副作用、不写事件，也不调用 `get_goal`、`create_goal`、`update_goal` 或保存 Goal 字段；`decision: "block"` 由宿主最多生成一次 continuation prompt，`stop_hook_active=true` 表示该回合已由 Stop 续跑，`continue: false` 优先且第二次必须明确保持非终态。无 binding、无 session 或 gate 失败时，Hook 不请求 continuation、不改 history，也不承诺后台运行。启用前使用 `/hooks` 检查受信任工作区中的 `.codex/hooks.json` 命令路径、当前文件 hash 与信任状态；修改 Hook 后必须重新检查并信任。
+
+## 阶段操作顺序
+
+1. 资料筛选和计划校验，发布 `plan.md`。
+2. 请求计划确认 callback；`accepted` 后立即继续用例包生成，不等待用户再发送“继续”。
+3. 并行生成适用用例包，运行关系同步和首稿 readiness：一次检查计划必填标记、包完整度、RULE 设计矩阵、关系投影、来源 manifest id/`sectionId`/SHA-256，并一次汇总写入安全 warnings。硬缺口先自动修订并复检；warnings 不单独创建 callback。
+4. 按用例规范选择最小风险 reviewer 集合：`light = combined`、`standard = requirements + design`、`strict = requirements + design + impact`；业务数据写入始终强制 `impact`。完成初审、证据驱动演进和定向复审，直至收敛。
+5. 对最终收敛的用例集请求一次用例确认；确认后自动完成工程设计、脚本生成和脚本评审。
+6. `script-review` 使用 `execution-authorization-publish` 原子发布不可变执行清单，再以清单摘要请求一次确认。
+7. 运行 setup、execute、verify、cleanup/reconcile，随后生成报告并闭合工作流。
+
+计划确认的 `subjectDigest` 只按流程规范的 `plan-confirmation-subject-v2` 从现有计划区块内部计算，不向计划添加“计划确认边界”表。顶层业务流程、测试类型/目标环境、高层数据写入类别和权限/安全上限未变化时，`REQ/RULE/caseId`、断言、追溯或 reviewer 记录的自动演进不得重开计划确认。只有 manager 判定为需要修订计划，或存在资料冲突、未定义验收时，才请求最小用户决定。
+
+计划、用例包或关系文件更新后，依次运行：
+
+```bash
+npm run check:markdown -- <实际 Markdown 文件>
+npm run check:architecture
+```
+
+只有定位规范判定 Web/H5 存在页面语义、状态、唯一性或证据风险时，才运行 `test:web:inspect` 或 `test:web:explore:reuse:inspect` 并生成探索证据卡；已有可校验证据时复用，不把 Web 类型本身作为 Inspector 门禁。
 
 ## 多角色隔离评审提示卡
 
-作者完成完整用例草案后，按下列提示卡实际启动只读、隔离 reviewer。每张卡只提供表中最小资料路径，不提供作者推理、历史结论或写入指令。角色、触发条件、记录字段和闭环标准以 [testcase-guideline.md](../../docs/testing/testcase-guideline.md#510-用例集评审与草案演进) 为准；结论和发现项正文只写入 `plan.md`，本机任务状态只登记运行事实及正式记录定位/摘要；阻塞与阶段进入条件以 [automation-guideline.md](../../docs/testing/automation-guideline.md#51-多角色隔离评审) 为准。
+作者完成完整草案且 readiness 没有硬缺口后，为 `ReviewPolicy.requiredRoles` 中的每个角色启动只读、隔离 reviewer。风险档固定为 `light = combined`、`standard = requirements + design`、`strict = requirements + design + impact`，写数据时无条件包含 `impact`；不再为简单只读请求机械启动三组 reviewer。输入只包含冻结的原始资料、当前 `plan.md`、用例包和该角色提示卡，不提供作者推理或其他 reviewer 结论。运行事实写 history，任务标识写 runtime，正式结论和发现项写 `plan.md`。
 
-| 角色提示卡 | 允许输入 | 禁止上下文与限制 | 检查重点 | 固定输出字段与结论 |
-| --- | --- | --- | --- | --- |
-| 需求一致性评审 | 原始需求/验收资料、当前 `plan.md`（含规则设计矩阵）、用例包、本卡 | 不接收作者推理、自评或其他结论；只读 | 先核对矩阵遗漏，再核对范围、验收规则、`REQ`、`RULE`、缺失项与不适用依据 | `MRR-REQ-序号`、证据、受影响 REQ/RULE/`caseId`、严重度、**发现项分类**、**处置方式**、处理建议；结论：通过 / 需演进 / 阻塞 |
-| 测试设计评审 | 原始需求/验收资料、当前 `plan.md`（含规则设计矩阵）、用例包、本卡 | 不接收作者推理、自评或其他结论；只读 | 先核对矩阵中的必填/选填、边界、前置与可观察预期，再核对决策表、状态迁移、权限、主成功/失败/回退/重试 | `MRR-DES-序号`、证据、受影响 REQ/`caseId`、严重度、**发现项分类**、**处置方式**、处理建议；结论：通过 / 需演进 / 阻塞 |
-| 追溯审计 | 原始需求资料、当前 `plan.md`、用例包、架构检查结果、本卡 | 不接收作者推理、自评或其他结论；只读 | `REQ ↔ RULE ↔ caseId`、用例包、覆盖关联、重复或孤儿编号 | `MRR-TRA-序号`、证据、受影响 REQ/RULE/`caseId`、严重度、**发现项分类**、**处置方式**、处理建议；结论：通过 / 需演进 / 阻塞 |
-| 交互与状态专项评审（适用时追加） | 原型/需求、当前 `plan.md`、用例包、本卡 | 不接收作者推理、自评或其他结论；只读 | 跳转、返回、禁用态、焦点、反馈、确认/取消、自动提交与状态迁移的可观察断言 | `MRR-UX-序号`、证据、受影响 RULE/`caseId`、严重度、**发现项分类**、**处置方式**、处理建议；结论：通过 / 需演进 / 阻塞 |
-| 变更影响评审（高风险/变更时追加） | 变更来源及版本、当前 `plan.md`、用例包、关联脚本/工程设计清单、本卡 | 不接收作者推理、自评或其他结论；只读 | 变更来源 → REQ → `caseId` → 脚本/工程设计 → 复测范围 | `MRR-CHG-序号`、证据、受影响 REQ/`caseId`、严重度、**发现项分类**、**处置方式**、处理建议；结论：通过 / 需演进 / 阻塞 |
+reviewer 派发、提交或 `task:resume` 发现输入漂移时，不得提交旧结果或手工复用旧摘要；manager 会失效旧批次并启动确定性新批次。gate 出现 `reviewer-rebind:<batch>:<activity>:<role>` 时，为该 Activity 取得当前 reviewer 工具句柄后，使用同一 `reviewer-dispatch --batch ... --activity ... --role ... --agent-task ...` 补建 runtime 绑定；该命令必须复用 durable 派发而不是再次派发 reviewer。没有可用工具句柄时保持真实非终态，不伪造绑定、失败或完成。
 
-主 Agent 为发现项追加唯一分类与处置方式：`需求覆盖缺口`、`资料明确的设计缺口`必须采用`自动演进`并在复审后关闭；`业务裁决/资料冲突`采用`用户裁决`并限定受影响场景；`质量建议`采用`风险登记`且标记“非本次验收阻塞”。发现项状态只允许为“待处理”“待用户裁决”“已关闭”或“不适用”；综合结论为“可提交确认”时不得存在待处理的自动演进项或范围未界定的用户裁决项。高风险争议或需要独立人类留痕时，改用独立任务或外部测试管理平台；无论 reviewer 结论如何，用户/测试负责人仍是唯一最终业务确认人。
+自动演进后的批次优先定向复审：scope 必须绑定 `affectedRefs`、`baseBatchId`、复审原因、明确排除引用，以及每个未重审角色的原批次、输入摘要和正式计划证据摘要。缺少可复用证据时不跳过该角色；只有跨业务域、共享规则邻域、数据/执行边界或安全影响时才扩大 scope。reviewer 先按 `affectedRefs` 精读对应 `REQ/RULE/caseId` 和来源 `sectionId`、页码或标题定位，再读取必要直接邻域；冻结快照中的完整 PDF、Word 和其他源文件只是权威回退，不要求每轮全量精读，也不扫描未被计划引用的整个知识库。
 
-当 reviewer 仅报告“需演进”而没有证据分类时，主 Agent 不得直接把该项写成用户待确认；应回读允许输入中的资料并补充分类。资料能证明的遗漏必须自动修订；修改后原评审批次失效，必须以新输入基线重新启动全部适用 reviewer 完成最终复审。只有冲突或缺失验收才向用户提最小裁决问题。
+定向批次通过 `task:manage review-batch-start` 的重复 `--activity`、`--affected-ref`、`--excluded-ref` 以及 `--base-batch`、`--reason` 参数登记；未传 `--activity` 时保持初审的完整 scope。未重审角色的证据由 manager 从 history 派生，调用方不得手工提供摘要。
 
-完成每个评审批次后，按用例规范在同一 `plan.md` 填写“沉淀判定”：需求事实回链 `REQ → RULE → caseId`，通用规则只引用其责任规范，未验证项目观察登记到本地候选队列且计划只引用 `CAND-<编号>`，未验证推断仅作风险登记或裁决上下文。已验证项目经验可直接写入项目经验库；报告阶段只复盘候选状态，Skill 不维护这四类规则的正文。
+收集 reviewer 后，`case-review-resolution` 的候选计划只能更新 reviewer 正式结论和发现项，夹带测试范围、`REQ/RULE`、设计矩阵、关系、用例或工程内容时不得发布。结论为“需演进”时，由 `case-review-evolution` 在已确认计划范围内修改草案、同步关系并自动启动适用复审；若候选修改使 `plan-confirmation-subject-v2` 实质变化，则停止自动发布并进入计划修订决定。
 
-执行连续自动演进时，按提示卡并行 `spawn_agent`，固定使用 `fork_turns=none`；每个返回结果立即用 `review-agent-submit` 提交。随后按用例规范复核规则邻域并运行关系同步、规则设计预检与静态检查。轮次和交互语义只引用[流程规范](../../docs/testing/automation-guideline.md#连续自动演进与收敛)。
+| 角色 | 允许输入 | 检查重点 | 固定输出 |
+| --- | --- | --- | --- |
+| 轻量综合 | 受控需求、当前计划、用例包、readiness 摘要 | 同时核对需求一致性、设计完整性与 `REQ ↔ RULE ↔ caseId`；只用于 `light` | `MRR-COM-*`、证据、受影响引用、严重度、分类、处置、结论 |
+| 需求一致性 | 原始需求、当前计划、用例包 | 范围、验收规则、`REQ/RULE`、遗漏与不适用依据 | `MRR-REQ-*`、证据、受影响引用、严重度、分类、处置、结论 |
+| 测试设计 | 原始需求、当前计划、用例包 | 决策表、状态迁移、边界、权限、成功/失败/恢复路径 | `MRR-DES-*`、证据、受影响引用、严重度、分类、处置、结论 |
+| 变更影响 | 变更来源、当前计划、用例包、关联设计/脚本 | 来源到需求、用例、脚本和复测范围的影响链 | `MRR-CHG-*`、证据、受影响引用、严重度、分类、处置、结论 |
 
-计划获用户确认后先执行 `npm run task:confirm-plan -- --request <type/project/request>`，再进入用例评审。每次恢复评审先执行 `task:resume` 返回的唯一动作，并让 `task:review` 同步同一 `REV-*` 正式区块；该区块必须唯一位于 `## 多角色评审记录` 内。不得手工新建平行“最终复审”标题或重复角色结论表。普通同步、补登记和下一轮复审均自动执行，只有真实阻塞才向用户提问。脚本评审通过后使用 `execution-authorization-request` 生成统一清单；范围变化只使用 `execution-scope-reopen`，不手工改本机状态。
-
-### 评审编排不可跳过顺序
-
-1. 完成全部用例包、`REQ → RULE → caseId` 同步和 `TASK-03` 状态更新。
-2. 在启动 reviewer 前登记初审批次、`TASK-04`、输入基线和 `plan.md` 中的适用 reviewer 行。
-3. 每个 reviewer 启动成功后立刻登记其真实 Agent 任务标识；并发槽不足时将未启动角色标为“等待资源”，待资源释放后再启动。
-4. 收齐所有适用 reviewer 后，一次性回填角色结论、发现项、唯一分类、处置方式、沉淀判定和初审综合结论。
-5. 对资料明确的缺口自动演进，登记修订产物和关系同步结果，使初审批次失效。
-6. 使用新输入基线登记并启动全部适用 reviewer 的最终复审；仅最终复审可以形成“可提交确认”。
-7. 只有最终复审收敛、正式记录与本机状态一致时，才输出用例确认请求。
+角色适用性、发现项分类和收敛标准只按[用例规范](../../docs/testing/testcase-guideline.md#510-用例集评审与草案演进)判断；并发、重试和无进展停止条件只按[流程规范](../../docs/testing/automation-guideline.md#314-durable-workflow生命周期与恢复)执行。资料明确的缺口自动修订；资料冲突或未定义验收才请求最小业务裁决。
 
 ## 资源
 
@@ -92,7 +103,3 @@ description: 在本仓库中规划、设计、维护或分析 Web、H5、App、A
 | MQTT/IoT 链路 | mqtt.js 与已确认的组合 Runner；`templates/iot-chain.spec.template.ts` |
 
 `templates/` 只提供结构，`examples/` 只作参考；两者都不等同于已验证测试资产。
-
-## 每次回复的最小信息
-
-先输出完整的简短任务进度卡片，紧接着输出“本轮产出卡”：固定附当前 `plan.md` 的可点击预览入口，并列出本轮新增或更新的安全持久化文件及其预览方式；无文件时写“本轮无持久化文件变更”。先用 `npm run task:output` 登记产出；不得链接 `sources/`、`test-assets/`、`.env`、`.auth/`、`.local/`、归档或敏感文件。随后说明当前阶段、本轮实际引用资料、已确认内容、推断与缺失项、风险、改动文件（如有）和等待用户审核事项；已选静态资产另以“本轮测试资产引用”列出可点击路径，不计入产出卡。Appium、设备或 App 元数据缺失只影响工程设计与执行，不能阻塞用例生成。用例生成或更新时，在产出卡后继续按用例包展示完整“编号 + 概括标题”清单。涉及写入测试时，说明环境规范要求的脱敏数据结论和残留风险；无法继续时，说明阻塞原因、未验证范围和最小补充信息。

@@ -63,6 +63,8 @@ npm run check:knowledge-index
 # 完整重置 / 清除所有测试数据 / 从头测试：先预演，确认完整范围后再执行
 npm run reset:full-test-state -- --dry-run
 npm run reset:full-test-state
+# 验证重置与统一归档规则（不访问业务系统）
+npm run test:maintenance
 
 # 仅恢复本机已登记的 test 环境资源；不扫描业务数据
 npm run test-data:recover
@@ -70,10 +72,14 @@ npm run test-data:recover
 # 验证本机台账能力（使用模拟清理适配器，不访问业务系统）
 npm run test:test-data
 
-# 初始化或查看当前测试请求的本机任务进度（不读取 .env 或业务数据）
+# 初始化或查看 Durable Workflow（history 纳入 Git；runtime 可丢弃）
 npm run task:initialize -- --request web/<project>/<test-request> --plan testcases/web/<project>/<test-request>/plan.md
 npm run task:status -- --request web/<project>/<test-request>
-npm run task:output -- --request web/<project>/<test-request> --task TASK-01 --change 更新 --file testcases/web/<project>/<test-request>/plan.md
+npm run task:gate -- --request web/<project>/<test-request> --json
+# 仅在请求用户动作、结束当前测试工作回合或输出完成/失败结论前断言
+npm run task:gate -- --request web/<project>/<test-request> --assert-safe-reply
+npm run task:resume -- --request web/<project>/<test-request>
+npm run task:manage -- --help
 
 # 按范围与关键词检索开放平台章节（不读取全部原文）
 npm run knowledge:search -- --project open-platform --scope account-login --query '账号登录 企业成员'
@@ -118,6 +124,8 @@ npm run report:allure
 
 创建新测试时，先按 `plan.md → 用例确认 → 工程设计与脚本评审 → 统一执行清单` 门禁生成资产，再使用对应 Runner。
 
+完整自动化测试请求按[生命周期规范](docs/testing/automation-guideline.md#314-durable-workflow生命周期与恢复)默认创建或复用一个宿主 Codex Goal；状态查询、只读诊断和独立维护请求不创建。Goal 不写入仓库，也不扩大测试授权。项目 Stop Hook 仅在受信任工作区、且当前 Hook 文件 hash 已通过 `/hooks` 检查和信任时运行；修改 Hook 后必须重新检查，不能把 Hook 配置存在视为后台续跑保证。
+
 ## 目录概览
 
 ```text
@@ -127,13 +135,18 @@ automation-tests/
 ├── skills/iot-automation-testing/ # Codex 工作流、模板与示例
 ├── sources/                   # 原始测试资料
 ├── test-assets/               # 可复用静态测试资产
-├── testcases/                 # 测试计划和结构化用例
+├── testcases/                 # 计划、结构化用例与请求级 workflow-history.ndjson
 ├── tests/                     # 可执行测试脚本
 ├── src/                       # action、client、fixture、env、support
 ├── scripts/                   # 工程脚本
-├── archive/automation/        # 只读历史测试专用实现，不参与默认运行
 ├── artifacts/                 # Git 忽略的执行产物
 ├── .auth/                     # Git 忽略的本地认证会话
-├── .local/repositories/       # Git 忽略的本机被测代码仓库
-└── .local/testing-memory.md   # Git 忽略的本机复盘记忆
+└── .local/                    # Git 忽略的本机元数据、偏好与台账；不是 workflow 事实源
+    ├── repositories/          # 本机被测代码仓库
+    ├── project-knowledge-candidates/ # 未验证的项目经验候选
+    ├── test-task-runtime/     # 可丢弃的租约、session/reviewer 绑定与暂存引用；不保存 Goal 状态
+    ├── test-ledger/           # 测试运行与受管资源台账
+    └── testing-memory.md      # 当前用户的长期协作偏好
 ```
+
+各目录的完整职责、提交边界和敏感数据约束以 [AGENTS.md 的“目录边界”](./AGENTS.md#目录边界) 为准。

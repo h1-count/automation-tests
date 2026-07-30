@@ -1,194 +1,708 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
+import {
+  inspectPublicTaskCommands,
+  PUBLIC_TASK_COMMANDS
+} from "../../scripts/public-task-command-contract.js";
+import {
+  inspectRuleResponsibilities,
+  RULE_OWNER_PATHS
+} from "../../scripts/rule-responsibility-contract.js";
 
 const root = resolve(import.meta.dirname, "../..");
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
-
 const agents = read("AGENTS.md");
-const automation = read("docs/testing/automation-guideline.md");
-const testcase = read("docs/testing/testcase-guideline.md");
-const selector = read("docs/testing/selector-guideline.md");
-const skill = read("skills/iot-automation-testing/SKILL.md");
-const template = read("skills/iot-automation-testing/templates/test-plan.template.md");
-const playwrightTemplate = read("skills/iot-automation-testing/templates/playwright.spec.template.ts");
-const scriptsReadme = read("scripts/README.md");
+const automationGuideline = read("docs/testing/automation-guideline.md");
+const testcaseGuideline = read("docs/testing/testcase-guideline.md");
 const docsIndex = read("docs/testing/README.md");
+const skill = read("skills/iot-automation-testing/SKILL.md");
+const planTemplate = read("skills/iot-automation-testing/templates/test-plan.template.md");
 const hook = read("scripts/codex-stop-stage-envelope.mjs");
-const hookConfig = read(".codex/hooks.json");
-const taskTypes = read("src/support/task-state/types.ts");
-const gate = read("src/support/task-state/gate.ts");
-const environment = read("docs/testing/environment-guideline.md");
-const report = read("docs/testing/report-guideline.md");
-const automationMode = read("src/support/web/automationMode.ts");
-const testDataTypes = read("src/support/test-data/types.ts");
-const taskManager = read("src/support/task-state/testTaskStateManager.ts");
-const playwrightConfig = read("playwright.config.ts");
-const playwrightDebugConfig = read("playwright.debug.config.ts");
+const hookPath = resolve(root, "scripts/codex-stop-stage-envelope.mjs");
+const hookConfigText = read(".codex/hooks.json");
+const hookConfig = JSON.parse(hookConfigText) as {
+  hooks?: { Stop?: Array<{ hooks?: Array<{ command?: string }> }> };
+};
+const goalIdentifierPattern = /goal/i;
+const hookSchedulingPattern =
+  /\b(?:heartbeat|wake)\b|automationId|workflowState|checkpoint\?\.safe/;
 
-test("workflow lifecycle has one normative owner", () => {
-  assert.match(automation, /owns: automation\.lifecycle/);
-  assert.match(automation, /\| `active` \|[\s\S]*\| `cancelled` \|/);
-  assert.doesNotMatch(testcase, /\| `active` \|/);
-  assert.doesNotMatch(skill, /只有 `waiting_confirmation`/);
-  assert.doesNotMatch(template, /stage-run-envelope-v1|终止回复资格|wake 契约/);
-});
+function readTypeScriptTree(relativeDirectory: string): string {
+  const files: string[] = [];
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = resolve(directory, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else if (entry.isFile() && entry.name.endsWith(".ts")) files.push(path);
+    }
+  };
+  visit(resolve(root, relativeDirectory));
+  return files.sort().map((path) => readFileSync(path, "utf8")).join("\n");
+}
 
-test("global and skill entrypoints use the executable final gate", () => {
-  assert.match(agents, /task:gate[\s\S]*--assert-final/);
-  assert.match(skill, /task:gate --assert-final/);
-  assert.match(gate, /executionEnvelope/);
-  assert.match(gate, /process\.exitCode = 2/);
-});
+function lineContainingAll(
+  document: string,
+  markers: string[],
+  label: string
+): string {
+  const line = document.split("\n").find((candidate) =>
+    markers.every((marker) => candidate.includes(marker))
+  );
+  assert.ok(line, `${label} must contain one line with: ${markers.join(", ")}`);
+  return line;
+}
 
-test("runtime owns the six states and host continuation contract", () => {
-  for (const state of ["active", "internal_wait", "waiting_confirmation", "blocked", "completed", "cancelled"]) {
-    assert.match(taskTypes, new RegExp(`"${state}"`));
+function fencedBlockAfter(document: string, marker: string): string {
+  const markerIndex = document.indexOf(marker);
+  assert.notEqual(markerIndex, -1, `missing block marker: ${marker}`);
+  const start = document.indexOf("```text\n", markerIndex);
+  assert.notEqual(start, -1, `missing text fence after: ${marker}`);
+  const contentStart = start + "```text\n".length;
+  const end = document.indexOf("\n```", contentStart);
+  assert.notEqual(end, -1, `missing closing fence after: ${marker}`);
+  return document.slice(contentStart, end);
+}
+
+function mutateDelegation(
+  content: string,
+  ownerDeclaration: string,
+  mutate: (summary: string) => string
+): string {
+  const startMarker = `<!-- delegates: ${ownerDeclaration} -->`;
+  const endMarker = "<!-- end-delegates -->";
+  const start = content.indexOf(startMarker);
+  assert.notEqual(start, -1, `missing ${startMarker}`);
+  const summaryStart = start + startMarker.length;
+  const end = content.indexOf(endMarker, summaryStart);
+  assert.notEqual(end, -1, `missing ${endMarker}`);
+  return `${content.slice(0, summaryStart)}${mutate(content.slice(summaryStart, end))}${content.slice(end)}`;
+}
+
+interface HarnessOptions {
+  gateOutput?: Record<string, unknown> | string;
+  gateExitCode?: number;
+  requestId?: string;
+  sessionId?: string;
+  runtimeOverrides?: Record<string, unknown>;
+}
+
+function createStopHookHarness(options: HarnessOptions = {}) {
+  const sandbox = mkdtempSync(resolve(tmpdir(), "stop-gate-adapter-"));
+  const git = spawnSync("git", ["init", "-q"], { cwd: sandbox, encoding: "utf8" });
+  assert.equal(git.status, 0, git.stderr);
+
+  const runtimeDirectory = resolve(sandbox, ".local/test-task-runtime/web/project/request");
+  const loaderDirectory = resolve(sandbox, "node_modules/tsx/dist");
+  const gateDirectory = resolve(sandbox, "src/support/task-workflow/cli");
+  const historyDirectory = resolve(sandbox, "testcases/web/project/request");
+  const historyPath = resolve(historyDirectory, "workflow-history.ndjson");
+  const outputPath = resolve(sandbox, "gate-output.txt");
+  const argsPath = resolve(sandbox, "gate-args.json");
+  mkdirSync(runtimeDirectory, { recursive: true });
+  mkdirSync(loaderDirectory, { recursive: true });
+  mkdirSync(gateDirectory, { recursive: true });
+  mkdirSync(historyDirectory, { recursive: true });
+  writeFileSync(historyPath, "{\"seq\":1,\"type\":\"WorkflowStarted\"}\n", "utf8");
+
+  const rawGateOutput = typeof options.gateOutput === "string"
+    ? options.gateOutput
+    : JSON.stringify(options.gateOutput ?? {});
+  writeFileSync(outputPath, rawGateOutput, "utf8");
+
+  writeFileSync(
+    resolve(loaderDirectory, "loader.mjs"),
+    `import { register } from "node:module";
+register("./hooks.mjs", import.meta.url);
+`,
+    "utf8"
+  );
+  writeFileSync(
+    resolve(loaderDirectory, "hooks.mjs"),
+    `import { readFile } from "node:fs/promises";
+export async function load(url, context, nextLoad) {
+  if (url.endsWith(".ts")) {
+    return {
+      format: "module",
+      shortCircuit: true,
+      source: await readFile(new URL(url), "utf8")
+    };
   }
-  assert.match(taskTypes, /ExecutionEnvelope/);
-  assert.match(taskTypes, /HostContinuationBinding/);
+  return nextLoad(url, context);
+}
+`,
+    "utf8"
+  );
+  writeFileSync(
+    resolve(gateDirectory, "gate.ts"),
+    `import { readFileSync, writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));
+process.stdout.write(readFileSync(${JSON.stringify(outputPath)}, "utf8"));
+process.exitCode = ${options.gateExitCode ?? 0};
+`,
+    "utf8"
+  );
+
+  const runtimePath = resolve(runtimeDirectory, "runtime.json");
+  writeFileSync(runtimePath, JSON.stringify({
+    schemaVersion: "test-workflow-runtime-v2",
+    revision: 1,
+    requestId: options.requestId ?? "web/project/request",
+    sessionBinding: {
+      sessionId: options.sessionId ?? "session-test",
+      boundAt: "2026-07-29T00:00:00.000Z",
+      updatedAt: "2026-07-29T00:00:00.000Z"
+    },
+    ...options.runtimeOverrides
+  }), "utf8");
+
+  return {
+    runtimePath,
+    historyPath,
+    runHook(input: Record<string, unknown>) {
+      const result = spawnSync(process.execPath, [hookPath], {
+        cwd: sandbox,
+        input: JSON.stringify(input),
+        encoding: "utf8"
+      });
+      assert.equal(result.status, 0, result.stderr);
+      return JSON.parse(result.stdout.trim()) as Record<string, unknown>;
+    },
+    gateArgs() {
+      return JSON.parse(readFileSync(argsPath, "utf8")) as string[];
+    },
+    gateWasCalled() {
+      return existsSync(argsPath);
+    },
+    cleanup() {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  };
+}
+
+test("workflow responsibility markers have exactly one owner", () => {
+  const documents = Object.values(RULE_OWNER_PATHS).map((path) => ({
+    path,
+    content: read(path)
+  }));
+  const current = inspectRuleResponsibilities(documents);
+  assert.deepEqual(current, {
+    ownerViolations: [],
+    delegationViolations: []
+  });
+
+  const duplicateOwner = inspectRuleResponsibilities([
+    ...documents,
+    {
+      path: "docs/testing/extra.md",
+      content: "<!-- owns: automation.environment -->"
+    }
+  ]);
+  assert.ok(
+    duplicateOwner.ownerViolations.some((violation) =>
+      violation.includes("automation.environment")
+      && violation.includes("docs/testing/extra.md")
+    )
+  );
+
+  const automation = documents.find(
+    (document) => document.path === RULE_OWNER_PATHS["task.lifecycle"]
+  )!;
+  const missingLink = inspectRuleResponsibilities(documents.map((document) =>
+    document === automation
+      ? {
+          ...document,
+          content: mutateDelegation(
+            document.content,
+            "automation.testcases",
+            (summary) => summary.replace(/\]\([^)]+\)/g, "]")
+          )
+        }
+      : document
+  ));
+  assert.ok(
+    missingLink.delegationViolations.some((violation) =>
+      violation.includes("automation.testcases")
+      && violation.includes("must link")
+    )
+  );
+
+  const inflated = inspectRuleResponsibilities(documents.map((document) =>
+    document === automation
+      ? {
+          ...document,
+          content: mutateDelegation(
+            document.content,
+            "automation.testcases",
+            (summary) => `${summary}${"x".repeat(601)}`
+          )
+        }
+      : document
+  ));
+  assert.ok(
+    inflated.delegationViolations.some((violation) =>
+      violation.includes("exceeds one paragraph")
+    )
+  );
+
+  const nestedHeading = inspectRuleResponsibilities(documents.map((document) =>
+    document === automation
+      ? {
+          ...document,
+          content: mutateDelegation(
+            document.content,
+            "automation.testcases",
+            (summary) => `${summary}\n#### expanded rules\n`
+          )
+        }
+      : document
+  ));
+  assert.ok(
+    nestedHeading.delegationViolations.some((violation) =>
+      violation.includes("contains a heading")
+    )
+  );
 });
 
-test("Codex Stop hook delegates to the gate instead of duplicating lifecycle rules", () => {
-  assert.match(hookConfig, /"Stop"/);
-  assert.match(hook, /gate\.ts/);
-  assert.match(hook, /--assert-final/);
-  assert.match(hook, /decision: "block"/);
-  assert.doesNotMatch(hook, /continue: false/);
-  assert.match(hook, /session_id/);
-  assert.doesNotMatch(hook, /waiting_confirmation|internal_wait|cancelled/);
+test("public task commands are an exact allowlist", () => {
+  const packageJson = JSON.parse(read("package.json")) as {
+    scripts?: Record<string, string>;
+  };
+  const scripts = packageJson.scripts ?? {};
+
+  assert.deepEqual(inspectPublicTaskCommands(scripts), {
+    mismatches: [],
+    unexpected: []
+  });
+  assert.deepEqual(
+    Object.keys(PUBLIC_TASK_COMMANDS).sort(),
+    ["task:gate", "task:initialize", "task:manage", "task:resume", "task:status"]
+  );
+
+  assert.deepEqual(
+    inspectPublicTaskCommands({
+      ...scripts,
+      "task:legacy": "tsx src/support/task-state/legacy.ts"
+    }).unexpected,
+    ["task:legacy"]
+  );
+  assert.deepEqual(
+    inspectPublicTaskCommands({
+      ...scripts,
+      "task:gate": "tsx scripts/other-gate.ts"
+    }).mismatches,
+    ["task:gate must be tsx src/support/task-workflow/cli/gate.ts"]
+  );
 });
 
-test("the skill uses a deduplicated thread heartbeat prompt", () => {
-  assert.match(skill, /thread-heartbeat\.prompt\.md/);
-  assert.match(skill, /host-bind/);
-  const prompt = read("skills/iot-automation-testing/templates/thread-heartbeat.prompt.md");
-  assert.match(prompt, /<request-id>/);
-  assert.match(prompt, /task:gate/);
-  assert.doesNotMatch(prompt, /REQ-|RULE-|caseId/);
+test("confirmation lifecycle keeps plan acceptance stable through automatic case evolution", () => {
+  lineContainingAll(
+    automationGuideline,
+    [
+      "顶层阶段固定为",
+      "一次计划确认 callback",
+      "证据驱动演进与复审，直至收敛",
+      "一次用例确认 callback",
+      "一次不可变执行清单 callback",
+      "报告"
+    ],
+    "fixed three-confirmation lifecycle"
+  );
+  lineContainingAll(
+    agents,
+    [
+      "计划确认一旦 `accepted`",
+      "顶层业务范围",
+      "自动演进与复审",
+      "不得单独触发重复计划确认"
+    ],
+    "AGENTS stable plan confirmation"
+  );
+  lineContainingAll(
+    automationGuideline,
+    [
+      "`plan-confirmation-subject-v2`",
+      "`plan.md` 文件 digest 分离",
+      "顶层包含/排除业务流程",
+      "数据策略",
+      "权限上限"
+    ],
+    "plan confirmation projection"
+  );
+  lineContainingAll(
+    automationGuideline,
+    [
+      "删除无依据断言",
+      "拆分原子用例",
+      "不得失效计划确认",
+      "需要修订计划"
+    ],
+    "automatic evolution versus material plan revision"
+  );
+  lineContainingAll(
+    testcaseGuideline,
+    [
+      "测试范围",
+      "只写",
+      "顶层业务流程",
+      "字段规则",
+      "`caseId`"
+    ],
+    "top-level test scope boundary"
+  );
+  lineContainingAll(
+    skill,
+    [
+      "`case-review-resolution`",
+      "reviewer 正式结论和发现项",
+      "`case-review-evolution`",
+      "修改草案"
+    ],
+    "review activity ownership"
+  );
+  assert.match(
+    automationGuideline,
+    /`case-review-resolution` 只登记 reviewer 正式结论和发现项[\s\S]*`case-review-evolution`[\s\S]*自动修订/
+  );
+  assert.match(
+    automationGuideline,
+    /用例确认与执行授权保持独立 subject/
+  );
+  assert.match(
+    automationGuideline,
+    /`PlanConfirmationCarriedForward`[\s\S]*不得伪造 `CallbackResolved`[\s\S]*重复 resume 必须幂等/
+  );
+  assert.doesNotMatch(
+    planTemplate,
+    /计划确认边界|plan-confirmation-subject-v2/
+  );
 });
 
-test("environment guideline exclusively owns explore, execute, and data lifecycle semantics", () => {
-  assert.match(environment, /业务写入预算[\s\S]*`explore`/);
-  assert.match(environment, /`execute`[\s\S]*唯一可见 BrowserServer[\s\S]*PageSessionGroup/);
-  assert.match(environment, /CreateIntent[\s\S]*creation_unknown → reconciled/);
-  assert.match(automationMode, /AutomationMode = "explore" \| "execute"/);
-  assert.match(testDataTypes, /DataWritePolicy = "no_write" \| "managed_cleanup" \| "tracked_residual"/);
-  assert.doesNotMatch(automation, /type DataWritePolicy/);
-  assert.doesNotMatch(testcase, /planned → creating/);
-  assert.doesNotMatch(skill, /planned → creating/);
+test("complete automation requests establish or reuse one host Goal before workflow initialization", () => {
+  const agentsPreflight = lineContainingAll(
+    agents,
+    ["完整自动化测试请求", "task:initialize", "task:resume", "get_goal", "create_goal"],
+    "AGENTS Goal preflight"
+  );
+  assert.match(
+    agentsPreflight,
+    /必须在执行 `task:initialize` 或 `task:resume` 前调用宿主 `get_goal`/
+  );
+  assert.match(agentsPreflight, /没有未完成 Goal 时调用 `create_goal`/);
+
+  const lifecyclePreflight = lineContainingAll(
+    automationGuideline,
+    ["稳定 `requestId`", "task:initialize", "task:resume", "get_goal", "create_goal"],
+    "lifecycle Goal preflight"
+  );
+  assert.match(
+    lifecyclePreflight,
+    /执行 `task:initialize` 或 `task:resume` 前，Agent 必须先调用宿主 `get_goal`/
+  );
+  assert.match(lifecyclePreflight, /没有未完成 Goal 时调用 `create_goal`/);
+
+  const skillPreflight = lineContainingAll(
+    skill,
+    ["完整自动化测试请求", "task:initialize", "task:resume", "get_goal", "create_goal"],
+    "Skill Goal preflight"
+  );
+  assert.match(
+    skillPreflight,
+    /在运行任何 workflow 命令前[\s\S]*`get_goal` 与必要的 `create_goal`/
+  );
+  lineContainingAll(
+    agents,
+    ["Goal 接管预检", "稳定 `requestId` 的最小解析", "最小必要信息"],
+    "AGENTS requestId preflight exception"
+  );
+  lineContainingAll(
+    automationGuideline,
+    ["稳定 `requestId` 的最小解析", "Goal 接管预检", "最小必要信息"],
+    "lifecycle requestId preflight exception"
+  );
+  lineContainingAll(
+    skill,
+    ["独立本机维护", "清理", "重置", "归档", "测试数据恢复", "恢复完整测试 workflow 不属于"],
+    "Skill maintenance versus workflow recovery"
+  );
+
+  for (const [name, document] of [
+    ["AGENTS", agents],
+    ["lifecycle", automationGuideline],
+    ["Skill", skill]
+  ] as const) {
+    const shortTaskRule = lineContainingAll(
+      document,
+      ["状态查询", "只读诊断", "规则或代码维护", "清理", "重置", "归档", "恢复", "Goal"],
+      `${name} short-task exclusion`
+    );
+    assert.match(shortTaskRule, /不(?:得)?创建 Goal/);
+    const conflictRule = lineContainingAll(
+      document,
+      ["同一", "复用", "不同", "替换", "清除", "改写", "最小"],
+      `${name} active-Goal conflict rule`
+    );
+    assert.match(conflictRule, /不得(?:静默)?替换、清除或改写/);
+  }
 });
 
-test("formal execution is bound to an immutable authorization and project lifecycle", () => {
-  assert.match(taskTypes, /ExecutionAuthorizationSnapshot/);
-  assert.match(taskTypes, /test-task-state-v10/);
-  assert.match(taskManager, /createExecutionAuthorization/);
-  assert.match(taskManager, /reopenExecutionScope/);
-  assert.match(playwrightConfig, /formal-setup[\s\S]*dependencies: \["formal-setup"\][\s\S]*formal-teardown/);
-  assert.match(playwrightConfig, /"\*\*\/\*\.formal\.spec\.ts"/);
-  assert.match(playwrightConfig, /maxFailures: 0/);
-  assert.match(playwrightDebugConfig, /testIgnore: \[[^\]]*"\*\*\/\*\.formal\.spec\.ts"/);
-});
-
-test("reports preserve separate functional and data hygiene conclusions", () => {
-  assert.match(environment, /功能结论与数据卫生结论[\s\S]*报告规范/);
-  assert.match(report, /functionalStatus/);
-  assert.match(report, /dataHygieneStatus/);
-});
-
-test("mature Web automation rules have one owner per concern", () => {
-  const ownerDocuments = [automation, environment, testcase, selector, report];
-  for (const marker of [
-    "owns: automation.lifecycle",
-    "owns: automation.environment",
-    "owns: automation.testcases",
-    "owns: automation.selectors",
-    "owns: automation.reporting"
+test("host Goal lifecycle follows workflow gate without replacing it", () => {
+  const objective = fencedBlockAfter(
+    automationGuideline,
+    "新建 Goal 使用以下 objective 结构"
+  );
+  for (const objectiveElement of [
+    "完成自动化测试请求 <type/project/request>",
+    "隔离评审与自动演进",
+    "生产环境、业务数据写入、设备动作、安全挑战、凭据和审批边界",
+    "仅在有效人工 callback、审批、安全挑战、业务裁决或真实 blocker",
+    "workflowState=SUCCEEDED",
+    "task:gate -- --request <type/project/request> --assert-safe-reply"
   ]) {
-    const count = ownerDocuments.reduce((total, document) => total + document.split(marker).length - 1, 0);
-    assert.equal(count, 1, `${marker} must have exactly one normative owner`);
+    assert.ok(
+      objective.includes(objectiveElement),
+      `Goal objective must include: ${objectiveElement}`
+    );
   }
-  assert.match(docsIndex, /Inspector\/ARIA 探索/);
-  assert.match(docsIndex, /PageSessionGroup/);
-  assert.match(docsIndex, /CaseEvidenceBundle/);
+
+  lineContainingAll(
+    automationGuideline,
+    ["| `continue_now`", "reviewer 派发/重试", "保持 Goal `active` 并立即继续"],
+    "continue_now Goal action"
+  );
+  lineContainingAll(
+    automationGuideline,
+    ["| `await_event` 或 `wait_until`", "保持 Goal `active`", "墙钟时长", "不得据此中断 reviewer", "发送最终回复"],
+    "await_event Goal action"
+  );
+  lineContainingAll(
+    automationGuideline,
+    ["| `WAITING_HUMAN`", "只暂停宿主 Goal", "callback 解析后恢复同一 Goal"],
+    "WAITING_HUMAN Goal action"
+  );
+  lineContainingAll(
+    automationGuideline,
+    ["| workflow `BLOCKED`", "task:manage blocker-resolve", "不把 workflow blocker 等同于 Goal `blocked`"],
+    "BLOCKED Goal action"
+  );
+  const succeededRule = lineContainingAll(
+    automationGuideline,
+    ["| `SUCCEEDED`", "task:gate --assert-safe-reply", "update_goal", "complete"],
+    "SUCCEEDED Goal action"
+  );
+  assert.match(
+    succeededRule,
+    /^\| `SUCCEEDED`[^|]*\| 调用 `update_goal` 将 Goal 标记为 `complete`。/
+  );
+  assert.doesNotMatch(succeededRule, /不得调用/);
+  lineContainingAll(
+    automationGuideline,
+    ["| `SUCCEEDED`", "产品测试结果为 `failed`、`mixed` 或 `inconclusive`", "不改变该判断", "报告均已闭环"],
+    "product outcome versus workflow success"
+  );
+  const failedRule = lineContainingAll(
+    automationGuideline,
+    ["| 不可恢复的 workflow `FAILED`", "update_goal", "blocked", "至少连续 3 个 Goal 回合"],
+    "FAILED Goal action"
+  );
+  assert.match(
+    failedRule,
+    /达到宿主规定的连续阻塞审计阈值后，才调用 `update_goal` 标记 `blocked`/
+  );
+  lineContainingAll(
+    automationGuideline,
+    ["| workflow `CANCELLED`", "Goal 清除由用户控制"],
+    "CANCELLED Goal action"
+  );
+  lineContainingAll(
+    skill,
+    ["`await_event`/`wait_until`", "等待窗口或墙钟时长本身不是 reviewer 失败依据", "task:manage blocker-resolve"],
+    "Skill waiting and blocker recovery"
+  );
 });
 
-test("visible Inspector and ARIA exploration gates formal Web script generation", () => {
-  assert.match(automation, /新建或重新打开执行范围的 Web\/H5 请求/);
-  assert.match(automation, /正式脚本阶段保持关闭/);
-  assert.match(selector, /专用 Chrome 与 Playwright Inspector/);
-  assert.match(selector, /DOM、ARIA 无障碍树/);
-  assert.match(selector, /候选 locator、匹配数量/);
-  assert.match(selector, /未解决问题和零写入结论/);
-  assert.match(skill, /test:web:inspect/);
-  assert.match(skill, /test:web:explore:reuse:inspect/);
-  assert.match(skill, /test:web:explore` 只用于该门禁后的确定性重放/);
-  assert.match(scriptsReadme, /test:web:inspect/);
-  assert.match(scriptsReadme, /test:web:explore:reuse:inspect/);
+test("Goal remains host-only and unavailable capability fails closed", () => {
+  assert.match(
+    agents,
+    /宿主 Goal 能力不存在、`get_goal` 失败或 `create_goal` 失败[\s\S]*不得启动或恢复工作流[\s\S]*一次手动 `\/goal` 回退/
+  );
+  assert.match(
+    automationGuideline,
+    /宿主缺少 `get_goal`、`create_goal` 或必要续跑能力[\s\S]*不得启动\/恢复完整工作流[\s\S]*一次手动 `\/goal` 回退/
+  );
+  assert.match(
+    automationGuideline,
+    /只有 Goal 能力恢复，且 Goal 接管预检确认已有或新建的活动 Goal 明确绑定同一 `requestId`，才重新读取 history 并运行 `task:resume`/
+  );
+  assert.match(
+    skill,
+    /Goal 能力缺失或调用失败时不得声称已启用[\s\S]*不得先创建 history[\s\S]*一次手动 `\/goal`/
+  );
+  assert.match(docsIndex, /宿主 Goal 生命周期、Stop Hook 边界/);
+
+  for (const [name, document] of [
+    ["AGENTS", agents],
+    ["lifecycle", automationGuideline],
+    ["Skill", skill]
+  ] as const) {
+    const persistenceRule = lineContainingAll(
+      document,
+      ["Goal", "ID", "状态", "预算", "使用记录", "runtime", "history", "plan.md"],
+      `${name} Goal persistence boundary`
+    );
+    assert.match(persistenceRule, /不(?:得)?写入/);
+    assert.match(persistenceRule, /只属于宿主/);
+  }
+  assert.doesNotMatch(
+    readTypeScriptTree("src/support/task-workflow"),
+    goalIdentifierPattern
+  );
 });
 
-test("PageSessionGroup reuses one BrowserServer and isolates only stateful scenarios", () => {
-  for (const field of [
-    "sessionGroupId",
-    "targetRoute",
-    "caseIds",
-    "resetStrategy",
-    "isolationReason",
-    "executionOrder"
+test("Stop Hook is a thin session-to-gate adapter", () => {
+  const configuredCommand = hookConfig.hooks?.Stop?.[0]?.hooks?.[0]?.command ?? "";
+  assert.match(configuredCommand, /scripts\/codex-stop-stage-envelope\.mjs/);
+  assert.match(hook, /src\/support\/task-workflow\/cli\/gate\.ts/);
+  assert.match(hook, /"--hook"/);
+  assert.match(hook, /"--stop-hook-active"/);
+  assert.match(hook, /process\.execPath/);
+  assert.match(hook, /node_modules\/tsx\/dist\/loader\.mjs/);
+  assert.match(hook, /sessionBinding\?\.sessionId/);
+  assert.match(hook, /\.local\/test-task-runtime/);
+  assert.doesNotMatch(hook, /node_modules\/\.bin\/tsx/);
+  assert.doesNotMatch(hook, /src\/support\/task-state/);
+  assert.doesNotMatch(hook, hookSchedulingPattern);
+  assert.doesNotMatch(hookConfigText, hookSchedulingPattern);
+  assert.doesNotMatch(hook, /WorkflowSuspended|task:manage/);
+  assert.doesNotMatch(hook, goalIdentifierPattern);
+  assert.doesNotMatch(hookConfigText, goalIdentifierPattern);
+});
+
+test("Stop Hook forwards gate output without interpreting workflow fields", () => {
+  const expected = {
+    decision: "block",
+    reason: "continue the ready activity"
+  };
+  const harness = createStopHookHarness({ gateOutput: expected, gateExitCode: 2 });
+  try {
+    assert.deepEqual(harness.runHook({ session_id: "session-test" }), expected);
+    assert.deepEqual(harness.gateArgs(), [
+      "--request",
+      "web/project/request",
+      "--json",
+      "--hook",
+      "--stop-hook-active",
+      "false"
+    ]);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("Stop Hook delegates recursive invocations to gate with the active flag", () => {
+  const expected = {
+    continue: false,
+    stopReason: "continuation already used"
+  };
+  const harness = createStopHookHarness({ gateOutput: expected });
+  try {
+    assert.deepEqual(
+      harness.runHook({ session_id: "session-test", stop_hook_active: true }),
+      expected
+    );
+    assert.equal(harness.gateArgs().at(-1), "true");
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("Stop Hook ignores deleted or unrelated disposable bindings", () => {
+  const harness = createStopHookHarness();
+  try {
+    const historyBefore = readFileSync(harness.historyPath, "utf8");
+    rmSync(harness.runtimePath);
+    assert.match(
+      String(harness.runHook({ session_id: "session-test" }).systemMessage),
+      /no matching disposable request binding; no continuation was requested and workflow history was not changed/
+    );
+    assert.equal(readFileSync(harness.historyPath, "utf8"), historyBefore);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("Stop Hook ignores v1 runtime bindings and does not call gate", () => {
+  const harness = createStopHookHarness({
+    runtimeOverrides: { schemaVersion: "test-workflow-runtime-v1" }
+  });
+  try {
+    assert.match(
+      String(harness.runHook({ session_id: "session-test" }).systemMessage),
+      /no matching disposable request binding; no continuation was requested and workflow history was not changed/
+    );
+    assert.equal(harness.gateWasCalled(), false);
+    assert.equal(readFileSync(harness.historyPath, "utf8"), "{\"seq\":1,\"type\":\"WorkflowStarted\"}\n");
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("Stop Hook refuses continuation when gate output is unavailable or malformed", () => {
+  for (const options of [
+    { gateOutput: "", gateExitCode: 1 },
+    { gateOutput: "not-json", gateExitCode: 0 }
   ]) {
-    assert.match(environment, new RegExp(field));
-    assert.match(template, new RegExp(field));
-  }
-  assert.match(environment, /异常 → 边界 → 正常/);
-  assert.match(environment, /重建 Context\/Page/);
-  assert.match(environment, /不得重启 Chrome/);
-  assert.match(environment, /远端写入、认证或验证码[\s\S]*新的 Context\/Page[\s\S]*同一个 BrowserServer/);
-  assert.match(testcase, /每个正式 `caseId` 恰好映射一个[\s\S]*PageSessionGroup/);
-  assert.match(testcase, /单 case 场景组/);
-  assert.match(template, /结构版本：page-session-group-v1/);
-  assert.match(template, /#### 页面场景组映射/);
-  for (const document of [automation, testcase, selector, report, skill, scriptsReadme]) {
-    assert.doesNotMatch(document, /sessionGroupId|targetRoute|resetStrategy|isolationReason|executionOrder/);
-  }
-});
-
-test("formal coverage remains atomic and cannot silently omit an applicable case", () => {
-  assert.match(testcase, /正式执行清单和正式脚本中恰好出现一次/);
-  assert.match(testcase, /不得成为静默省略依据/);
-  assert.match(testcase, /每个 case 必须独立建立前置、复位和断言边界/);
-  assert.match(playwrightTemplate, /formalCase\(/);
-});
-
-test("CaseEvidenceBundle controls passed, failed, unknown, and redacted evidence", () => {
-  for (const field of [
-    "caseId",
-    "startedAt / endedAt",
-    "businessSteps",
-    "assertionResults",
-    "checkpointScreenshots",
-    "videoReference",
-    "traceReference",
-    "sanitizedNetworkSummary",
-    "sanitizedConsoleSummary",
-    "redactionStatus"
-  ]) {
-    assert.match(report, new RegExp(field.replace("/", "\\/")));
-  }
-  assert.match(report, /`passed` \| 所有已定义断言通过，证据包完整且脱敏状态有效/);
-  assert.match(report, /failed`、`blocked`、`unknown`[\s\S]*非敏感采集区间的完整 Trace/);
-  assert.match(report, /证据不足时状态只能为 `unknown`/);
-  assert.match(report, /安全替代证据/);
-  assert.match(template, /结构版本：case-evidence-policy-v1/);
-  assert.match(template, /#### 证据策略映射/);
-  assert.match(playwrightTemplate, /test\.step/);
-  assert.match(playwrightTemplate, /testInfo\.attach/);
-  for (const document of [automation, environment, testcase, selector, skill, scriptsReadme, template]) {
-    assert.doesNotMatch(document, /checkpointScreenshots|sanitizedConsoleSummary|redactionStatus/);
+    const harness = createStopHookHarness(options);
+    try {
+      const runtimeBefore = readFileSync(harness.runtimePath, "utf8");
+      const historyBefore = readFileSync(harness.historyPath, "utf8");
+      const result = harness.runHook({ session_id: "session-test" });
+      assert.equal(result.continue, false);
+      assert.match(String(result.stopReason), /Workflow gate.*no continuation was requested and workflow history was not changed/);
+      assert.equal(readFileSync(harness.runtimePath, "utf8"), runtimeBefore);
+      assert.equal(readFileSync(harness.historyPath, "utf8"), historyBefore);
+    } finally {
+      harness.cleanup();
+    }
   }
 });
 
-test("mature Web rules are opt-in for new or reopened execution scope", () => {
-  assert.match(automation, /成熟化规则不迁移或改写生效前已有的计划、用例、脚本、运行记录与本机台账/);
-  assert.match(template, /结构版本：web-script-governance-v1/);
+test("Stop Hook does not promise continuation without a Codex session id", () => {
+  const harness = createStopHookHarness();
+  try {
+    const before = readFileSync(harness.runtimePath, "utf8");
+    const historyBefore = readFileSync(harness.historyPath, "utf8");
+    const result = harness.runHook({});
+    assert.match(String(result.systemMessage), /no continuation was requested and workflow history was not changed/);
+    assert.equal(readFileSync(harness.runtimePath, "utf8"), before);
+    assert.equal(readFileSync(harness.historyPath, "utf8"), historyBefore);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("Stop Hook reports malformed input without changing workflow history", () => {
+  const sandbox = mkdtempSync(resolve(tmpdir(), "stop-gate-invalid-input-"));
+  try {
+    const result = spawnSync(process.execPath, [hookPath], {
+      cwd: sandbox,
+      input: "{",
+      encoding: "utf8"
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /could not parse its Codex input/);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
 });

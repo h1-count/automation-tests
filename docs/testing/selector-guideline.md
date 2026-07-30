@@ -137,18 +137,19 @@ const submitButton = page.locator(
 ## 8. Codex 生成与修复 selector 的流程
 
 1. 先读取已有 action、Page Object、fixture 和相似测试，优先复用现有稳定 selector。
-2. Web/H5 正式脚本生成前，按[流程规范的可见探索门禁](./automation-guideline.md#33-受控探索与缺失信息补全)同时显示专用 Chrome 与 Playwright Inspector；在 Inspector 中实际读取目标区域的 DOM、ARIA 无障碍树和脱敏网络摘要，并从 role/name/state、label 和可见语义生成候选 selector。App 使用 Appium Inspector 信息。
-3. 对每个候选 selector 验证唯一匹配、可操作性和业务语义。脱敏探索证据卡固定记录探索时间、页面路径与状态、目标区域的 ARIA `role/name/state/label` 摘要、候选 locator、匹配数量、稳定性限制、网络方法/路径/状态摘要、关联 `caseId`、未解决问题和零写入结论；敏感信息与采集边界按[环境规范](./environment-guideline.md#61-运行模式)处理。无法显示 Inspector 与受管 Chrome、未读取目标区域 ARIA，或未证明候选唯一时，不得把探索标为完成或生成正式 selector。
-4. Web/H5 缺少唯一语义时，优先收敛到稳定的 `data-testid`；仍无法唯一定位时才使用唯一文本或受限 XPath，并记录补充 ARIA 或 `data-testid` 的改进项。不得仅因此长期跳过用例。
-5. 只有页面不可访问、候选定位均不唯一且无法通过业务容器收敛，或探索会触发未经确认的外部操作时，才请求人工补充信息或决策。
-6. 将 selector、接口契约或可测试性缺口回链到 `plan.md` 工程层区块中的 `caseId` 映射；候选 selector 必须保留其可访问性语义、唯一性结果和稳定性限制。生成或修复脚本后，先输出 diff、影响用例和风险，待用户审核后再执行。
+2. 对 Web/H5 先做风险判定。页面语义或状态变化尚未观察、目标 locator 唯一性不足、旧 selector/脚本与当前页面证据不一致，或现有证据不足以支持稳定实现时，必须展开可见探索；同版本、同页面状态且已有可校验证据时可以复用并记录依据。测试类型本身不能触发通用 Inspector 门禁。
+3. 需要探索时，同时显示专用 Chrome 与 Playwright Inspector，在 Inspector 中读取目标区域的 DOM、ARIA 无障碍树和必要的脱敏网络摘要，并从 role/name/state、label 和可见语义生成候选 selector。App 使用 Appium Inspector 信息。
+4. 对每个候选 selector 验证唯一匹配、可操作性和业务语义。脱敏探索证据卡记录探索时间、页面路径与状态、目标区域的 ARIA 摘要、候选 locator、匹配数量、稳定性限制、必要的网络方法/路径/状态摘要、关联 `caseId`、未解决问题和零写入结论；敏感信息与采集边界按[环境规范](./environment-guideline.md#61-运行模式)处理。风险触发后无法显示 Inspector 与受管 Chrome、未读取所需语义或未证明候选唯一时，不得把探索标为完成。
+5. Web/H5 缺少唯一语义时，优先收敛到稳定的 `data-testid`；仍无法唯一定位时才使用唯一文本或受限 XPath，并记录补充 ARIA 或 `data-testid` 的改进项。不得仅因此长期跳过用例。
+6. 只有页面不可访问、候选定位均不唯一且无法通过业务容器收敛，或探索会触发未经确认的外部操作时，才请求人工补充信息或决策。
+7. 将 selector、接口契约或可测试性缺口回链到 `plan.md` 工程层区块中的 `caseId` 映射；候选 selector 必须保留其可访问性语义、唯一性结果和稳定性限制。生成或修复脚本后，先输出 diff、影响用例和风险，待用户审核后再执行。
 
 ## 9. 审核清单
 
 审核新增或修改 selector 时，确认：
 
 - Web/H5 是否优先使用 `role/name/state > label > data-testid > text > XPath`；App 是否优先使用 accessibility ID。
-- Web/H5 正式 selector 是否具有可见 Inspector 探索证据，并能回链到目标区域的脱敏 ARIA 摘要和唯一性结果。
+- Web/H5 是否完成风险判定；风险触发时，正式 selector 是否具有可见 Inspector 探索证据，并能回链到目标区域的脱敏 ARIA 摘要和唯一性结果。
 - 是否唯一匹配目标元素，且不依赖位置、坐标、动态 class 或列表索引。
 - 是否与业务动作或断言语义一致。
 - 是否复用了已有 action 或已有稳定 selector。

@@ -5,29 +5,19 @@
 本仓库用于 Web、H5、App、WebView、API、MQTT 和 IoT 链路自动化测试。
 
 - 用户当前明确要求优先于本文件；涉及生产、数据写入、设备动作或安全挑战时，仍须遵守安全边界。
-- 本文件只定义所有任务必须遵守的门禁和安全边界。流程细节、模板和专项规则以 `docs/testing/` 中的唯一责任文件为准，不在本文件重复维护。
-- 每次测试任务开始时必须读取 `.local/testing-memory.md`（如存在），使当前用户偏好覆盖本次测试全部阶段；识别出被测项目后，再只读取该项目对应的项目测试经验库文件 `docs/testing/knowledge/<project>-testing-knowledge.md`（如存在）。同时阅读本文件、`skills/iot-automation-testing/SKILL.md` 和相关专项规范。
-- 在读取 `sources/` 中的原始资料前，必须先扫描其目录结构并读取 `sources/manifest.yaml` 的元数据；项目存在受控章节索引时，再读取该索引选择命中文档与章节。只读取与当前测试需求相关、已登记或由用户直接指定的资料，不得全量阅读原始资料库。具体选择、补登和追溯规则由 `automation-guideline.md` 负责。
+- 本文件只定义所有任务必须遵守的安全边界、事实所有权和最终回复门禁。流程细节、模板和专项规则以 `docs/testing/` 中的唯一责任文件为准，不在本文件重复维护。
+- 规范唯一职责见[测试规范索引](docs/testing/README.md)，实际操作顺序见 [IoT 自动化测试 Skill](skills/iot-automation-testing/SKILL.md)。
 
-## 规则与文档职责
+## 事实所有权与回复门禁
 
-唯一职责映射见[测试规范索引](docs/testing/README.md)。规则只在责任文件中维护；本文件不复制专项正文。
-
-## 自动评审硬门禁
-
-- 已引用资料能够明确证明的用例缺口必须自动修订并复审，不得以“继续”“是否修订”等形式要求用户逐项许可。
-- 只有资料冲突、未定义验收、范围/环境/写入/执行授权、安全挑战、真实 reviewer 不可用或自动演进未收敛时，才能阻塞用例确认；具体循环、轮次和记录规则仅由 `automation-guideline.md` 与 `testcase-guideline.md` 定义。
-- 未由已引用资料定义的行为不得作为通过/失败断言；只可按用例规范登记为质量建议或最小业务裁决。需求事实不得写入项目经验库，项目经验必须具有受控探索或正式执行验证证据。
-- 用户明确且可跨任务复用的协作偏好应即时写入本机偏好并立即生效；未验证项目观察进入 Git 忽略的项目候选队列，已验证项目经验可直接提升到项目经验库，报告阶段只复盘与清理；不得把模型推断或单次需求事实沉淀为经验。
-- 评审、自动演进和复审中的普通恢复、正式记录同步与缺失 reviewer 派发必须自动续跑，不得反复要求用户“继续”；只有资料冲突、未定义验收、范围/环境/写入授权、安全挑战或 reviewer 真实失败/超时时才能等待用户。
-- 测试任务输出最终回复前必须通过 `npm run task:gate -- --request <type/project/request> --assert-final`；完整状态语义仅见[流程规范](docs/testing/automation-guideline.md#43-短事务闭环与生命周期恢复)。
-
-## 本机维护命令硬门禁
-
-- 用户提出“清理”“重置”“归档”“恢复”本机测试状态时，必须先读取 `package.json` 的 scripts 和 `scripts/README.md`，优先使用已登记的工程命令；不得先扫描目录后自行决定删除范围。
-- 范围表述为“本地测试数据”等但未明确是否包含计划、脚本、会话、产物或台账时，只能先运行对应命令的 `--dry-run` 并说明影响；不得直接执行删除或归档。
-- 用户明确要求“完整重置”“清除所有测试数据”或“从头测试”时，使用唯一完整入口 `npm run reset:full-test-state`；`npm run test-data:recover` 只用于已登记资源的恢复，不得作为清理或重置命令。
-- 没有匹配的已登记命令、命令预演不包含用户明确范围或命令失败时，停止自动删除，简短说明缺少的安全入口和最小需要的用户指示；不得以手工目录清理替代命令。
+- `plan.md` 唯一维护范围、需求依据、正式用户决定、reviewer 结论和发现项；请求目录中的 `workflow-history.ndjson` 唯一维护 Activity、重试、等待、阻塞、恢复和工作流终态。
+- `.local/test-task-runtime/` 只保存可丢弃的宿主执行元数据；任务、阶段、整体进度和用例完整度必须从事件与真实产物计算，不能另行写入 `plan.md` 或本机状态文件。
+- 已引用资料能够证明的缺口按[用例规范](docs/testing/testcase-guideline.md)自动修订和复审；资料未定义的行为不得作为通过/失败断言。
+- 计划确认一旦 `accepted`，在顶层业务范围、测试类型与目标环境、高层数据写入类别和权限/安全上限不变时，必须贯穿后续用例生成、隔离评审、自动演进与复审。`plan.md` 正文、`REQ/RULE/caseId`、断言、追溯关系或 reviewer 记录的证据驱动变化不得单独触发重复计划确认；只有上述确认事项发生实质变化，或出现资料冲突、未定义验收，才允许请求计划修订或最小业务裁决。
+- 完整自动化测试请求（新建或恢复，范围覆盖规划、评审、工程、执行、清理和报告）一旦确定稳定 `requestId`，必须在执行 `task:initialize` 或 `task:resume` 前调用宿主 `get_goal`：没有未完成 Goal 时调用 `create_goal`；现有未完成 Goal 绑定同一 `requestId` 时复用，绑定不同请求或无法判定归属时不得静默替换、清除或改写，必须请求最小用户选择。状态查询、只读诊断、规则或代码维护以及清理、重置、归档、恢复等独立维护请求不得创建 Goal。
+- 完整请求的 Goal 接管预检包括稳定 `requestId` 的最小解析和宿主 Goal 检查；`requestId` 无法唯一确定时只请求最小必要信息。宿主 Goal 能力不存在、`get_goal` 失败或 `create_goal` 失败时，不得启动或恢复工作流，也不得声称 Goal 已启用；只提供一次手动 `/goal` 回退和应使用的 objective 文本。该预检发生在 workflow history 创建或恢复之前，是下述安全回复 gate 的唯一前置例外；Goal 的生命周期、完成和阻塞规则见[流程规范](docs/testing/automation-guideline.md#314-durable-workflow生命周期与恢复)。
+- 存在 `continue_now` 的 Activity 时，Agent 必须在当前可用回合继续执行，不得要求用户发送“继续”或把它表述为后台已续跑。只有流程规范定义的人工决定、真实阻塞或显式挂起才能结束为 `action_required`；只有工作流终态才能结束为 `final`。
+- 请求用户动作、结束当前测试工作回合或输出完成/失败结论前，必须运行 `npm run task:gate -- --request <type/project/request> --assert-safe-reply`。用户主动索要的只读状态答复可直接复述 gate/status 的已派生字段，但不得宣称完成、承诺后台续跑、重复索取已有决定或写入任何事件；完整语义只见[流程规范](docs/testing/automation-guideline.md#314-durable-workflow生命周期与恢复)。
 
 ## 安全与数据边界
 
@@ -35,14 +25,9 @@
 - 禁止绕过、破解、模拟或伪造滑块、验证码、人机验证、权限控制和设备确认。安全挑战仅允许最小人工接管，后续确定性步骤由 Codex 自动恢复。
 - 禁止提交未获确认的业务数据，删除真实数据或设备，批量操作，修改配置，控制硬件、断网、刷固件或其他高风险设备动作。
 - 禁止在代码、测试用例、日志、报告、截图、Trace、视频、Git 或回复中记录、回显或提交密码、验证码、Token、密钥、Cookie、会话、真实用户信息或敏感业务数据。
+- 环境变量和敏感配置只能来自本地 `.env`、环境专用文件或 CI Secret；`.env.example` 只能保存变量名、非敏感样例和说明。
+- 清理、重置、归档和恢复必须使用 `package.json` 与 `scripts/README.md` 登记的入口；范围不明确时只允许 `--dry-run`。完整重置使用 `npm run reset:full-test-state`，未处理台账、预演范围冲突或命令失败时必须停止，不能手工扩大删除范围。
 - 所有正式变更必须可审查；不得自动合并、发布或扩大已确认的测试范围。
-
-## 工程约束
-
-- Web/H5 使用 Playwright；App/WebView 使用 Appium + WebdriverIO；API 使用 TypeScript API Client；MQTT 使用 mqtt.js Client。脚本优先使用 TypeScript。
-- 不为单一场景引入新框架或依赖。确有必要时先说明原因、影响和替代方案，获得确认后再变更。
-- 环境变量和敏感配置只能来自本地 `.env`、环境专用文件或 CI Secret；`.env.example` 只保存变量名、非敏感样例和说明。
-- 修改前阅读相关用例、脚本、公共能力和配置；修改后运行最相关的静态检查、测试或构建。无法运行时说明原因、未验证范围和风险。
 
 ## 目录边界
 
@@ -51,11 +36,12 @@
 - `src/actions/`：业务级公共动作；`src/clients/`：协议访问；`src/fixtures/`：测试引用与数据初始化；`src/env/`：环境解析；`src/support/`：断言、轮询、脱敏和清理。
 - `scripts/`：环境检查、数据准备/清理、认证初始化和报告脚本；`artifacts/`：被 Git 忽略的执行产物。
 - `test-assets/`：纳入 Git 的可复用静态测试资产，例如 App 安装包、测试固件和视觉基准；`test-assets/manifest.yaml` 是资产身份、完整性和可选择范围的唯一清单，不属于原始需求资料，也不混入 `sources/manifest.yaml`；不存放运行产物或敏感配置。
-- `archive/automation/`：纳入 Git 的只读历史测试专用实现，按 `<test-request>-archived-<YYYYMMDD-HHmmss>/` 分目录保留原相对路径；不参与默认上下文加载、测试发现、编译、执行或复用，不存放需求资料、运行产物、凭据或被测代码仓库。
 - `.auth/`：被 Git 忽略的本地认证会话。
 - `.local/repositories/`：本机被测代码仓库根目录；每个直接子目录为一个候选仓库，不提交测试工程。仓库、Graphify 图谱和源码定位只在用例确认后的 `plan.md` 工程层记录，不得登记到 `sources/manifest.yaml` 或充当业务需求资料。
 - `.local/testing-memory.md`：被 Git 忽略的当前用户长期协作与行为偏好，不记录项目测试经验。
 - `.local/project-knowledge-candidates/`：被 Git 忽略的按项目候选队列，保存未验证但可复用的项目级观察；不得存放需求事实、正式评审正文、凭据或敏感数据。
-- `.local/test-task-state/`：被 Git 忽略的本机测试请求实时任务状态、待办、阻塞关系与恢复信息；reviewer 仅保存运行事实及 `plan.md` 正式评审记录定位/摘要，不作为业务资料、发现项正文、正式评审证据或 Git 资产。历史测试请求不强制迁移，首次继续、修改或重新执行时才初始化其本机状态。
+- `testcases/<type>/<project>/<test-request>/workflow-history.ndjson`：纳入 Git 的请求级运行事件历史，是 Activity 完成、重试、等待、阻塞、恢复和工作流终态的唯一事实源；只保存可回放的脱敏语义事件，不保存凭据、线程标识、claim token、租约或真实用户数据。
+- `.local/test-task-runtime/`：被 Git 忽略且可丢弃的本机执行元数据，只保存 claim/fencing、lease、session/reviewer 工具绑定、暂存路径和未收口工具句柄；Codex Goal 及其 ID、状态、预算和使用记录只属于宿主，不写入此目录、`plan.md` 或 workflow history。删除 runtime 不得改变或丢失业务状态。
 - `.local/test-ledger/`：被 Git 忽略的本机测试数据台账；其创建、复用、清理与恢复规则由 `docs/testing/environment-guideline.md` 定义。
 - `docs/testing/knowledge/<project>-testing-knowledge.md`：纳入 Git 的项目测试经验库；按被测项目分别维护，只沉淀已验证的测试策略，不替代或复制原始资料、正式规则、用例、报告或执行证据。
+- `testcases/archive/`：纳入 Git 的只读历史测试证据；请求专属历史脚本统一放在对应归档请求的 `automation/` 子目录，不另建平行归档根。

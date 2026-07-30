@@ -1,6 +1,6 @@
 # AI 自动化测试工作流规范
 
-<!-- owns: automation.lifecycle -->
+<!-- owns: task.lifecycle -->
 
 ## 1. 目的与适用范围
 
@@ -8,7 +8,7 @@
 
 目标是将用户输入的资料转化为可审核、可追溯、可重复执行的测试资产，避免 AI 基于未确认信息直接生成、执行或修改正式测试脚本。
 
-项目强制规则以 [AGENTS.md](../../AGENTS.md) 为准。本文是生命周期、任务执行清单、受控探索和工程层进入条件的唯一正文来源；测试设计与评审标准见 [testcase-guideline.md](./testcase-guideline.md)，环境与数据生命周期见 [environment-guideline.md](./environment-guideline.md)，运行结果见 [report-guideline.md](./report-guideline.md)。
+项目强制规则以 [AGENTS.md](../../AGENTS.md) 为准。本文是生命周期、事件状态机、阶段编排和工程层进入条件的唯一正文来源；测试设计与评审标准见 [testcase-guideline.md](./testcase-guideline.md)，环境与数据生命周期见 [environment-guideline.md](./environment-guideline.md)，运行结果见 [report-guideline.md](./report-guideline.md)。
 
 ## 2. 角色与职责
 
@@ -29,22 +29,20 @@ Codex 不自动合并、不自动发布、不默认访问生产环境，也不�
   ↓
 上下文加载：读取用户偏好 → 按测试需求确认被测项目 → 读取项目测试经验库 → manifest 与章节索引筛选 → 读取命中原始资料
   ↓
-业务层：资料输入 → 测试计划草案 → 用户确认 → 测试用例草案 → 用例集评审与演进 → 用户确认
+业务层：资料输入 → 测试计划草案 → 用户确认 → 测试用例草案 → 首稿 readiness → 风险分级评审与定向演进 → 用户确认
   ↓
 工程层：定位代码仓库 → 检查 Graphify 图谱 → 自动化可行性与脚本设计
   ↓
-Web/H5：可见 Chrome + Playwright Inspector 受控探索 → 探索证据卡
+Web/H5（存在页面语义、状态变化、定位或证据风险时）：可见探索 → 探索证据卡
   ↓
 正式脚本 diff → 静态检查与脚本评审
   ↓ 一次确认不可变执行清单
 setup → 正式测试 → teardown → 报告
   ↓
-范围完成判定、失败分析、修复建议与改进项
-  ↓ 用户审核确认
-下一轮脚本修改或重新执行
+范围完成判定、失败分析与 WorkflowCompleted
 ```
 
-每个阶段的输出都是下一阶段的输入。任何草案、候选环境或合理推断均不得绕过审核直接用于正式脚本或测试执行。
+报告后的资产修改、缺陷修复或重新执行必须由用户另行提出，或进入相应的条件性决定流程；它们不是第四个固定确认门禁。每个阶段的输出都是下一阶段的输入，任何草案、候选环境或合理推断均不得绕过三项固定 callback 或适用的条件性决定直接用于正式执行。
 
 ### 3.1 测试上下文加载
 
@@ -75,64 +73,148 @@ setup → 正式测试 → teardown → 报告
 
 命令失败、预演结果与用户范围不一致，或涉及远端资源、凭据、生产环境时，保持不执行状态并报告原因。维护请求的产出仅记录命令、脱敏类别和结果；不得把 `.local`、`.auth` 或台账内容作为可预览产出链接。
 
-### 3.1.2 测试请求任务执行清单与进度
+### 3.1.2 动态状态与产出
 
-测试计划形成时，Codex 必须在同一测试请求的 `plan.md` 建立“任务执行清单”。它是本次请求的跨阶段基线，说明需要经过哪些适用任务、各自的进入条件和完成标志；不是新的流程文档，也不替代测试计划、用例集、工程设计、脚本或执行结果已有的状态字段。
+请求级 `testcases/<type>/<project>/<test-request>/workflow-history.ndjson` 是唯一运行事实。`.local/test-task-runtime/<type>/<project>/<test-request>/` 仅保存可丢弃的 claim token、lease、session/reviewer 工具绑定、暂存路径与在途操作引用；Codex Goal 是宿主实时状态，不写入 runtime、history 或计划。删除 runtime 不得改变 Activity、阶段、确认、阻塞或整体结果。`plan.md` 只保存范围、需求依据、正式用户决定、reviewer 结论和发现项，不保存任务表、阶段进度、用例生成进度或 history head。
 
-任务清单至少包含：资料、静态资产与环境预检；计划确认；用例生成与追溯；评审、自动演进与复审；用例确认；工程设计；脚本、执行与报告。按本次范围裁剪：不适用任务写为“跳过”并说明依据；写入型测试增加“数据策略/清理或残留台账确认”；App 工程设计增加“资产元数据、Appium 与设备验证”子任务；Web、API、MQTT 或 IoT 链路按需增加受控探索、设备准备、认证挑战或集成验证子任务。后续新增任务必须记录原因、受影响范围和完成标志。
+`task:status` 从 history、工作流定义和真实产物即时渲染任务、阶段、完整度、等待项与下一动作。面向用户只投影 `planning`、`cases`、`review`、`engineering`、`execution`、`reporting` 六个稳定阶段，并以`待开始`、`进行中`、`已完成`、`等待确认`、`阻塞`和`跳过`说明当前阶段；该视图不新增确认，也不删除或改写底层 Activity、workflow state 和恢复事件。每次开始或恢复任务时先验证 history 哈希链，再执行 gate 返回的可自动动作。
 
-任务状态只允许为：`待开始`、`进行中`、`已完成`、`等待确认`、`阻塞`、`跳过`。`等待确认` 不等于阻塞：前者只等待用户作出最小业务、环境、写入或执行授权决定；后者必须说明缺少的具体条件、受影响任务和解除条件。`已完成` 必须关联计划区块、用例包、工程设计、脚本、报告或其他实际输出；不得以推测或仅打开文件标记完成。
-
-实时状态、待办、依赖关系、阻塞和恢复信息保存在 Git 忽略的 `.local/test-task-state/<type>/<project>/<test-request>/`。每次开始或恢复任务时先读取该状态；每次实质工作完成、阶段变化、阻塞变化或请求确认时先更新本机状态，再在同轮对话中输出完整的简短阶段进度表。表中必须始终列出本次全部适用任务；用户无需打开 `plan.md` 才能知道当前阶段、所需资料、阻断原因、最小确认项和下一步。不得在本机状态或对话卡片记录 `.env` 值、账号、密码、Token、验证码、资源 ID、真实用户信息或敏感业务数据。
-
-每轮进度表后必须输出“本轮产出卡”。产出卡固定提供当前 `plan.md` 的可点击预览入口，并仅列本轮新增或更新的持久化、已存在且可安全展示的文件；没有文件变更时明确写“本轮无持久化文件变更”。产出按 Markdown、图片、视频、HTML 报告、Trace 和普通文件标注预览方式。先使用 `npm run task:output -- --request <type/project/request> --task <TASK-xx> --change 新增|更新|引用 --file <仓库相对路径>` 登记多个文件；没有文件时使用 `--none`。严禁登记 `sources/`、`test-assets/`、`.env`、`.auth/`、`.local/`、归档、工作区外路径或任何敏感文件；链接只指向实际输出，不把输入资料、内部推理或空白文件伪装为交付物。选择了静态资产时，在产出卡后另列“本轮测试资产引用”及可点击路径；它是输入候选，不是本轮产出。
-
-默认对话卡片如下；无阻断或无用户动作时明确填写“无”：
+安全产物引用随对应 `ActivitySucceeded.outputRefs` 和 digest 写入事件；用户需要状态时，可以从 `task:status` 与本轮成功事件生成只读的简短状态和产出摘要。该摘要只能陈述当前六阶段投影、等待、下一动作和已完成产物；底层 `workflowState` 与 `phase` 仅作为诊断字段，不得展开成额外用户阶段。摘要不能宣称完成、承诺后台续跑、创建 continuation 或推进 Activity。严禁展示 `sources/`、`.env`、`.auth/`、`.local/`、归档、工作区外路径或敏感文件；静态测试资产是输入引用，不是本轮产出。
 
 ### 3.1.3 阶段交接核验与中断恢复
 
-每次将任务推进到下一阶段、宣告阶段结论或向用户请求确认前，必须完成“阶段交接核验”：本机任务状态、`plan.md` 正式记录和本轮产出三者对同一阶段的状态、证据与下一步一致。任一项缺失、互相矛盾或尚未登记时，不得推进；将受影响任务标为“进行中”或“阻塞”，在本机状态和同轮进度卡写明恢复入口。最终复审必须通过唯一可恢复事务入口 `npm run task:review -- review-transaction-finalize --request <type/project/request> --batch <REV-...> --file <已修订草案>`：它以已登记事务为前提，同步 `RULE → caseId`、登记本轮产出、验证 `plan.md` 正式 reviewer 记录、发现项闭环与本机真实 Agent 事实，并在同一次本机状态提交中关闭 `TASK-04`；任一步失败都只能标为“待恢复”，不得提交最终状态。
+每次推进阶段、宣告阶段结论或请求确认前，必须完成“阶段交接核验”：history 派生的 Activity 事实、`plan.md` 中的正式决定与评审结论、真实产物及其摘要必须在适用对象、证据和下游资格上相互一致。任一项缺失或冲突时，不得推进受影响的 Activity；追加 `ArtifactDriftDetected` 或 `BlockerRaised`，按实际风险进入 `RECONCILING` 或 `BLOCKED`。最终复审仍由唯一可恢复入口完成关系同步、把安全文件引用写入对应 `ActivitySucceeded.outputRefs`、校验 `plan.md` 正式 reviewer 记录与发现项闭环；最终成功只能追加对应 reviewer/Activity 事件，不能直接写父任务状态。
 
-### 4.3 短事务闭环与生命周期恢复
+### 3.1.4 Durable Workflow、生命周期与恢复
 
-生命周期由持久化短事务队列驱动，不依赖模型在单一长回合中连续执行。资料筛选、计划校验、计划确认、用例包生成、关系同步、静态检查、reviewer 派发/收集、自动演进、最终复审、工程设计、脚本评审、执行和报告均为独立短事务。每项必须登记输入摘要、前置条件、唯一执行动作、预期产物、校验方式、重试次数和下游依赖。
+#### 唯一事实源与事件契约
 
-短事务只有在产物已落盘（或明确登记无持久化产物）、校验结果已记录且本机状态已提交后才可标记“已完成”。`task:gate --json` 返回执行信封和唯一下一动作；`transaction-claim --owner <稳定执行者标识>` 返回三分钟租期及 claim token，续租、提交、重试或阻塞必须使用该 token。模型回合结束或用户插话不改变已提交事实。
+`workflow-history.ndjson` 是请求运行事实的唯一来源，采用语义 append-only 事件。追加时必须执行“读取并验证全部事件 → 校验预期 head → 追加事件 → 临时文件写入与 fsync → 原子替换”；每条事件以 `seq`、`prevDigest`、`digest` 构成 SHA-256 hash chain。截断、乱序、重复序号、摘要不匹配或 CAS 冲突必须安全失败，不能从 `plan.md`、runtime 或产物时间戳猜测成功。
 
-#### 阶段执行信封与最终回复门禁
+事件至少包含 `schemaVersion`、`eventId`、`seq`、`runId`、`requestId`、`definitionId`、`definitionVersion`、`type`、`occurredAt`、`actorType`、`idempotencyKey`、`payload`、`prevDigest` 和 `digest`。核心类型包括：
 
-短事务是提交单位，阶段执行信封是对话与编排单位。一个适用阶段从首个短事务被领取起进入同一执行信封；短事务可以依次提交，但在阶段完成、真实阻塞或合法人工门禁前，执行信封不得关闭。每次状态变化后重新运行 `task:gate`；最终回复前必须通过 `task:gate --assert-final`。
+- 工作流：`WorkflowStarted`、`ActivitiesExpanded`、`WorkflowSuspended`、`WorkflowResumed`、`WorkflowCompleted`、`WorkflowCancelled`。历史中已存在的 `LegacyStateImported` 只允许 replay，事件追加和 CLI 均不提供迁移入口。
+- Activity：`ActivityAttemptStarted`、`ActivitySucceeded`、`ActivityFailed`、`RetryScheduled`、`ActivitiesInvalidated`。
+- 产物与副作用：`ArtifactPublishPrepared`、`ArtifactDriftDetected`、`ExternalOperationStarted`、`ExternalOperationReconciled`。
+- 人工与阻塞：`CallbackRequested`、`CallbackResolved`、`PlanConfirmationCarriedForward`、`BlockerRaised`、`BlockerResolved`。
+- 评审：`ReviewBatchStarted`、`ReviewerDispatched`、`ReviewerSubmitted`、`ReviewBatchInvalidated`。
 
-阶段执行信封只允许以下状态：
+事件禁止保存密码、验证码、Cookie、Token、真实用户数据、Codex 任务 ID、reviewer/Agent 任务标识、claim token 与 lease。宿主 reviewer 绑定只写 `.local/test-task-runtime/`；history 只保存角色、Activity、输入摘要和派发/提交语义，`plan.md` 只保存输入基线、角色结论和发现项。定义版本、`graphDigest` 和 `planDigest` 在 run 创建时固定；新 run 只使用 v4，v3、`vnext-1` 和含 `LegacyStateImported` 的旧历史只读 replay，不得继续追加事件。
 
-| 状态 | 含义 | 是否允许最终回复 |
-| --- | --- | --- |
-| `active` | 存在可立即领取和执行的唯一下一动作。 | 否；继续领取、执行和提交。 |
-| `internal_wait` | reviewer 运行、并发槽不足、异步工具未完成、普通重试退避或自动演进等待校验。 | 否；只允许进度更新并继续有界等待。 |
-| `waiting_confirmation` | 到达计划、用例集、写入/高风险执行或报告后正式资产变更的人工确认门禁。 | 是；只提出绑定事务的最小确认问题。 |
-| `blocked` | 资料冲突、未定义验收、环境/权限不可用、安全挑战或 reviewer 真实失败/超时。 | 是；必须给出受影响事务、解除条件和固定恢复选项。 |
-| `completed` | 当前目标全部适用阶段已完成并提交证据。 | 是；输出最终结果。 |
-| `cancelled` | 用户明确取消目标或受控取消分支已正式提交。 | 是；说明取消范围和保留状态。 |
+#### Activity、工作流与测试结果
 
-最终回复资格必须从执行信封状态派生，不得由模型根据“本轮做了不少工作”“reviewer 已派发”或“工具暂时没有返回”自行决定。`active` 和 `internal_wait` 期间只能发送简短进度消息；不得输出“已派发，待返回后继续”“下一步将自动执行”“请回复继续”或其他会结束当前回合、把恢复责任交给用户的交接语。用户询问状态时，先报告当前信封、短事务和内部等待对象，再继续唯一下一动作；除非用户明确取消或替换目标，插话不关闭执行信封。
+Activity 状态仅由事件归约为 `PENDING`、`READY`、`RUNNING`、`SUCCEEDED`、`RETRY_WAIT`、`WAITING_CALLBACK`、`RECONCILING`、`BLOCKED`、`FAILED` 或 `CANCELLED`。工作流状态仅由全部分支归约为：
 
-内部等待必须使用不超过 60 秒的有界等待：等待结束时若有结果，立即提交对应短事务并重新计算下一动作；若无结果，只更新进度并继续下一次有界等待。并发槽不足时，将未启动角色保持为“等待资源”；任一已启动 reviewer 返回后，先原子提交其正式结果，再释放槽位并补派唯一的下一等待角色。全部 reviewer 收齐后直接进入自动演进、校验、下一轮复审或最终提交，不产生中间最终回复。
+| 状态 | 含义 |
+| --- | --- |
+| `RUNNING` | 存在可运行或运行中的 Activity。 |
+| `WAITING_HUMAN` | 只剩绑定有效 subject digest 的人工 callback。 |
+| `WAITING_EXTERNAL` | 等待已登记外部结果，不能盲目重复副作用。 |
+| `RETRY_WAIT` | 等待已登记退避到期。 |
+| `RECONCILING` | 产物或外部副作用结果不确定，必须先核对后置状态。 |
+| `BLOCKED` | 真实解除条件尚未满足，且没有独立可运行分支。 |
+| `SUSPENDED` | 已安全检查点停止，等待显式恢复或宿主能力恢复。 |
+| `SUCCEEDED` | 全部适用流程及报告 Activity 已成功闭环。 |
+| `FAILED` | 工作流出现不可恢复失败。 |
+| `CANCELLED` | 用户或受控取消分支已提交。 |
 
-项目级 `Stop` Hook 调用最终回复门禁；每个活跃请求同时绑定一个按 request ID 去重的 Codex thread heartbeat。heartbeat 每分钟查询执行信封：有效租约存在时不重复领取，租约失效时恢复同一事务；确认或阻塞时暂停，完成或取消时删除。Hook 不可用、未受信任或被组织策略禁用时，必须形成宿主能力阻塞。仓库 wake 仍是通用持久化契约，不替代宿主续跑器。
+父任务、阶段、整体进度和用例完整度都从事件历史与真实产物派生，不再独立持久化。上述 Activity 与 workflow state 是内部恢复契约，必须完整保留；用户可见的六阶段只是只读投影，不能反向驱动状态迁移。无关 blocker、下游确认或 reviewer 容量等待不得冻结仍可运行的独立分支。测试结果与工作流结果分离：产品测试可以为 `failed`、`mixed` 或 `inconclusive`；只要执行、清理/残留登记和报告流程完成，工作流仍可成功闭环。
 
-确认必须绑定唯一短事务：计划确认、用例集确认、执行授权和报告后的正式资产变更确认只能通过该事务的确认记录解除；确认不得开放其他并行阶段。每次可继续的状态提交必须产生去重 wake；Stop Hook 和 heartbeat 只消费执行信封，不保存业务正文。
+#### 阶段 DAG、Activity 命令与恢复
 
-只有计划范围确认、用例集最终确认、脚本评审后的统一执行清单和报告后的正式资产变更可进入确认门禁。资料冲突、未定义验收、环境不可用、安全挑战、权限或超出已确认执行清单等真实阻塞必须绑定受影响短事务，展示且只展示：重试、等待外部恢复、提供资料或裁决、跳过受影响范围、取消。普通格式、追溯和评审遗漏一律自动修订并复检；未关闭阻塞或未通过确认门禁不得推进下游事务。
+顶层阶段固定为：资料筛选与计划校验 → 一次计划确认 callback → 用例包并行生成 → 关系同步、首稿 readiness、隔离评审、证据驱动演进与复审，直至收敛（后续复审优先定向） → 一次用例确认 callback → 按测试类型展开工程 Activity → 脚本生成与评审 → 一次不可变执行清单 callback → setup/execute/verify/cleanup 或 reconcile → 报告 → 完成。Web/H5、App/WebView、API、MQTT、IoT 与写入测试只展开适用节点；文件发布和业务写入保持串行。报告后的正式资产修改属于新的明确决定，不是本工作流的固定确认阶段。
 
-评审阶段的交接顺序固定为：完成 `TASK-03` 与追溯同步 → 创建评审事务并持久化批次、适用角色和派发意图 → 在 `plan.md` 建立该批次的输入基线与 reviewer 行 → 启动 reviewer 并立即登记每个真实 Agent 任务标识 → 收齐结果后回填角色结论、发现项、分类和沉淀判定 → 自动演进、登记修订产物和使初审失效 → 创建并启动最终复审事务 → 最新最终复审收敛后才提交事务并请求用例确认。任何一步未完成时，不得向用户宣告评审完成、用例可确认或阶段结论。
+新 run 固定使用定义 v4、`graphDigest` 与 `planDigest`。manager 按计划结构、能力、用例包规模和数据/安全标记选择最小风险档：`light = combined`、`standard = requirements + design`、`strict = requirements + design + impact`；任何业务数据写入都强制包含 `impact`，显式角色清单也不能移除它。reviewer 最多同时运行 3 个；这是容量限制，不是角色总数或评审轮数限制。每个 run 固定 `ReviewPolicy`：`requiredRoles`、`maxConcurrentReviewers: 3`、`maxAttemptsPerRole: 3`、`maxUnchangedRevisionCycles: 2`。已存在 run 继续回放其固定策略，不为采用新分级迁移 history；不存在全局最大评审轮数，只有资料冲突、单角色重试耗尽，或连续两次输入 digest 和发现项集合均未变化时才阻塞评审子流程。
 
-用户插话不改变执行信封；并发槽不足和 reviewer 尚未返回属于 `internal_wait`，必须在当前阶段内有界等待和自动补派。只有宿主抢占或状态写入失败属于可恢复中断，且都不是评审完成。本机状态是运行事实事件账本：事务、派发、启动、完成、失败、草案修订、正式记录同步和恢复动作必须立即落盘；`TASK-04`、批次和整体终态只能由这些事实及正式记录派生，`plan.md` 不复制宿主抢占、wake 或租约等运行时恢复字段。恢复已有请求时，先运行 `npm run task:resume -- --request <type/project/request>`，并只执行其返回的唯一动作，优先级固定为：修复未同步正式记录、等待并收集已启动 reviewer、派发未启动 reviewer、自动演进、发起最终复审、最终提交。已失效批次不得阻断其后的自动演进或最终复审。未启动的适用 reviewer 在正式记录中标为“等待资源”；已启动但未登记的 reviewer 视为状态不一致。此时 `TASK-04` 必须保持“进行中”或“阻塞”，本机状态至少保存中断事实、未完成 reviewer、唯一恢复动作、受影响任务和禁止推进的下一阶段。不得将未登记 reviewer 视作“未开始”或“已完成”。
+公开入口只有 `task:initialize`、`task:resume`、`task:status`、`task:gate` 和 `task:manage`。Activity、callback、阻塞、恢复、核对与 history 校验都通过 `task:manage` 子命令执行；不提供旧事务别名或旧状态迁移命令。
 
-评审恢复默认自动续跑：补齐正式区块、同步真实 reviewer 运行事实、派发缺失角色、等待已启动角色、自动演进或启动最终复审均为 Codex 的内部动作，不得要求用户逐项确认“继续”。只有资料冲突、验收缺失、范围/环境/写入授权、安全挑战或 reviewer 真实失败/超时才可以暂停并请求最小解除条件。每个 `REV-*` 只能使用一个由事务命令维护的显式边界正式区块；运行状态可为“评审中”，角色结论、发现项和沉淀判定均在该区块内闭环。
+claim、lease 和 fencing token 只写 runtime。lease 过期只说明执行者失联，不能证明 Activity 或副作用未发生；旧 fencing token 永远不能提交新结果。`task:resume` 先验证 history，再按 DAG 返回全部 `readyActivities` 与安全的 `nextActions`；已经成功的 Activity 不重做。
 
-| 阶段 | 任务 | 状态 | 当前结论 / 需要动作 |
-| --- | --- | --- | --- |
-| <阶段> | <任务> | 待开始 / 进行中 / 已完成 / 等待确认 / 阻塞 / 跳过 | <结论；阻塞时写缺少项、影响和解除条件；等待确认时写最小问题和确认后动作> |
+#### 产物发布、外部副作用与人工 callback
+
+计划、用例、关系和评审文件先生成到同文件系统 `.local/test-task-runtime/.../staging/`，完成 Markdown、结构、追溯、敏感信息和专项检查后追加 `ArtifactPublishPrepared`；随后逐个原子 rename 并回读最终文件核对 digest。普通产物 Activity 最后追加 `ActivitySucceeded`；正式 callback 的计划发布则以显式绑定该 publication 的 `CallbackResolved` 作为 durable commit，四种 resolution 都不得再追加 `ActivitySucceeded`。尚未发布可重新生成；全部 digest 匹配可补记对应闭合事件；部分发布或冲突必须进入 `RECONCILING`。用例包完整度必须计算正文数量、必填区块、唯一 `caseId`、关系和 digest，不允许手填“草案完整”推进评审。
+
+外部写操作使用稳定幂等键 `runId/activityId/operationKind/inputDigest`，操作前登记 intent，操作后登记脱敏结果。结果不确定时先查询后置状态或台账，禁止直接重发验证码、重复上传或重复提交。
+
+callback 必须绑定 `callbackId + activityId + subjectDigest`，结果明确区分 `accepted`、`rejected`、`revision_requested` 和 `cancelled`。用户作出决定后，先在 runtime 暂存候选 `plan.md`，其中“正式用户决定”表必须记录相同决定类型、`subjectDigest` 和结果；随后由 `task:manage callback-resolve --plan-source <暂存 plan.md>` 在同一可恢复事务中原子发布计划并追加解析事件，不得直接改最终计划后再单独写 history。callback 的等待、重试和失效只写 history；拒绝不得记录为“已确认”。
+
+计划确认使用 `plan-confirmation-subject-v2`，其 `subjectDigest` 与用于原子发布核对的 `plan.md` 文件 digest 分离。manager 绑定当前 `requestId`，并只从现有计划结构投影和规范化计划标识、顶层包含/排除业务流程、测试类型、目标环境、高层数据策略与资源类别，以及写入、安全、特权、破坏性和生产访问等权限上限；不得在计划中新增“计划确认边界”表或要求用户确认内部投影。字段规则、断言措辞、`REQ/RULE/caseId`、用例拆分、关系投影、资料索引、reviewer 记录、工程设计和执行清单明细不进入该 subject。
+
+计划确认一旦 `accepted`，在上述投影不变时持续覆盖用例生成、评审、自动演进和复审。删除无依据断言、修正有资料依据的预期、拆分原子用例、调整编号或同步追溯，不得失效计划确认或创建重复 callback。只有顶层业务流程、测试类型/目标环境、高层数据写入类别或权限/安全上限发生实质变化时，才判定为需要修订计划并重新请求一次现有 `plan-confirmation` callback；资料冲突或未定义验收使用最小业务裁决 callback，不伪装成普通自动演进。历史事件没有 v2 subject 版本时按其原始 legacy 语义只读回放，不得因升级本身改变既有决定。
+
+恢复历史误开的 legacy 计划 callback 时，只有 `task:resume` 能在内部追加 `PlanConfirmationCarriedForward`，不提供公开 `task:manage` 子命令。manager 必须验证更早的真实用户 `accepted` 决定及正式决定行、冻结旧计划和当前计划的发布 digest、当前待处理 callback、相关 reviewer 提交和自动演进 publication 全部一致，且旧/新 `plan-confirmation-subject-v2` 完全相同、没有业务冲突；任一证据缺失或不符都保持 `WAITING_HUMAN`。该事件只 supersede 误开的 callback 并恢复原确认，不得伪造 `CallbackResolved`、新增正式用户决定行或改写历史；重复 resume 必须幂等。
+
+用例确认与执行授权保持独立 subject：前者绑定最终收敛的 `REQ/RULE/caseId` 与用例语义，后者绑定原子发布的不可变执行清单。用例集或执行清单的实质变化只失效各自确认，不得反向失效仍处于同一稳定投影的计划确认。
+
+#### Gate v2、Codex Goal 与 Stop Hook
+
+`task:gate --json` 返回 `schemaVersion: "workflow-gate-v2"`、history `head`、`workflowState`、`phase`、`readyActivities`、`runningActivities`、`waits`、`nextActions`、`checkpoint`、`continuation` 和 `reply`。`continuation.kind` 只允许 `continue_now`、`await_event`、`wait_until`、`wait_user`、`stop`；`reply.kind` 只允许 `none`、`action_required`、`final`。
+
+```ts
+{
+  schemaVersion: "workflow-gate-v2",
+  head: { seq, digest },
+  workflowState,
+  phase,
+  readyActivities,
+  runningActivities,
+  waits,
+  nextActions,
+  checkpoint,
+  continuation: {
+    kind: "continue_now" | "await_event" | "wait_until" | "wait_user" | "stop",
+    referenceId?,
+    notBefore?,
+    reason
+  },
+  reply: {
+    kind: "none" | "action_required" | "final",
+    allowed,
+    reason
+  }
+}
+```
+
+- 有可自动执行的 Activity 时返回 `continue_now + none`，Agent 必须在当前可用回合继续；计划 callback 为 `accepted` 后，必须立即展开并开始用例生成 Activity。它是当前回合义务，不是后台续跑承诺。
+- 等待当前 reviewer、工具或已登记外部结果时返回 `await_event + none`；一次性退避使用 `wait_until + none` 和 `notBefore`。正式 callback 的计划 publication 在有效 lease 内也返回 `wait_until + none`，lease 到期后由 `task:resume` 核对发布结果；这两类等待都不是周期轮询、定时器或后台工作，也不能再次向用户索取同一决定。
+- 真实用户决定或流程 blocker 返回 `wait_user + action_required`。
+- 只有 `SUCCEEDED`、`FAILED`、`CANCELLED` 返回 `stop + final`。
+
+请求用户动作、结束当前测试工作回合或输出完成/失败结论前使用 `task:gate --assert-safe-reply`。`none`、不安全 checkpoint、非终态完成话术或 reply/continuation 不一致都必须非零退出。用户主动请求的只读状态摘要不属于完成结论：它必须逐字受当前 gate/status 投影约束，且不能改变 workflow history。
+
+完整自动化测试请求默认由一个宿主 Codex Goal 覆盖新建或恢复后的规划、评审、工程、执行、清理/核对和报告流程；Activity 只是该 Goal 的内部检查点，不为每个阶段创建 Goal。独立的状态查询、只读诊断、规则或代码维护、清理、重置、归档和测试数据恢复属于短任务，不创建 Goal；完整测试工作流内部的 cleanup/reconcile 仍属于原 Goal。
+
+稳定 `requestId` 的最小解析和宿主 Goal 检查共同构成 Goal 接管预检。`requestId` 无法唯一确定时只请求最小必要信息；确定后、执行 `task:initialize` 或 `task:resume` 前，Agent 必须先调用宿主 `get_goal`。没有未完成 Goal 时调用 `create_goal`；现有未完成 Goal 的 objective 明确绑定同一 `requestId` 时复用，不重置其使用记录；绑定不同请求或无法确认归属时不得替换、清除或改写，只请求用户作出最小选择。Goal 接管预检发生在 workflow history 创建或恢复之前，因此这是请求用户动作时无需先运行 `task:gate --assert-safe-reply` 的唯一前置例外。
+
+新建 Goal 使用以下 objective 结构；可补充已确认范围，但不得删除其中任何完成条件或安全边界：
+
+```text
+完成自动化测试请求 <type/project/request>：从新建或恢复开始，持续推进规划、隔离评审与自动演进、工程与脚本、获授权后的执行、清理/核对和报告，直到完整工作流闭环。
+遵守生产环境、业务数据写入、设备动作、安全挑战、凭据和审批边界，不扩大用户已确认的测试范围或权限。
+仅在有效人工 callback、审批、安全挑战、业务裁决或真实 blocker 需要用户处理时暂停；处理后恢复同一 Goal。
+完成条件：workflowState=SUCCEEDED，且 npm run task:gate -- --request <type/project/request> --assert-safe-reply 通过。
+```
+
+Goal 的宿主状态只用于跨回合续跑，不能替代 gate 或决定工作流状态：
+
+| workflow/gate 场景 | Goal 动作 |
+| --- | --- |
+| 新请求或恢复请求通过 Goal 预检 | 创建或复用同一 `requestId` 的 Goal，再执行 `task:initialize` 或 `task:resume`。 |
+| `continue_now`，或存在可自动执行的 reconcile、reviewer 派发/重试、草案演进与复审 | 保持 Goal `active` 并立即继续，不请求用户发送“继续”。 |
+| `await_event` 或 `wait_until` | 保持 Goal `active`，使用宿主支持的等待/恢复机制取得已登记 reviewer、工具或外部事件；单次等待窗口或墙钟时长本身不构成 reviewer 失败，不得据此中断 reviewer、追加失败事件或发送最终回复。 |
+| `WAITING_HUMAN` / callback 对应的 `wait_user + action_required` | 只暂停宿主 Goal，不调用 `update_goal(complete)`、`update_goal(blocked)` 或清除 Goal，也不因 Goal 暂停追加 `WorkflowSuspended`；callback 解析后恢复同一 Goal。 |
+| workflow `BLOCKED` / blocker 对应的 `wait_user + action_required` | 暂停同一 Goal 并请求最小解除条件；只有真实条件满足并通过 `task:manage blocker-resolve` 后才恢复，不把 workflow blocker 等同于 Goal `blocked`。 |
+| `SUCCEEDED` 且 `task:gate --assert-safe-reply` 通过 | 调用 `update_goal` 将 Goal 标记为 `complete`。产品测试结果为 `failed`、`mixed` 或 `inconclusive` 不改变该判断，只要执行、清理/残留登记和报告均已闭环。 |
+| 不可恢复的 workflow `FAILED` | 不得标记 `complete`；只有同一阻塞条件达到宿主规定的连续阻塞审计阈值后，才调用 `update_goal` 标记 `blocked`。当前宿主要求至少连续 3 个 Goal 回合。 |
+| workflow `CANCELLED` | 不伪装为 `complete` 或 `blocked`；Goal 清除由用户控制。 |
+
+宿主缺少 `get_goal`、`create_goal` 或必要续跑能力，或 Goal 预检调用失败时，Agent 不得启动/恢复完整工作流、声称 Goal 已启用或伪造 `BlockerRaised`、`WorkflowSuspended` 等业务事件；只向用户提供一次手动 `/goal` 回退指令及上述 objective 文本。强制中断后，只有 Goal 能力恢复，且 Goal 接管预检确认已有或新建的活动 Goal 明确绑定同一 `requestId`，才重新读取 history 并运行 `task:resume`；Goal 本身不能证明 Activity 已完成。`wait_until.notBefore` 只是可恢复退避时间，仓库不因此创建定时唤醒或周期轮询。
+
+Goal 的 ID、状态、预算和使用记录只属于宿主，不写入 `.local/test-task-runtime/`、`workflow-history.ndjson`、`plan.md` 或任何 task CLI/schema。Goal 生命周期只通过宿主 `get_goal`、`create_goal` 和 `update_goal` 管理，不新增 `task:*` 命令、workflow 事件或持久化字段。
+
+项目级 Stop Hook 不调度、不领取 Activity、不执行副作用、不写业务事件，也不得调用 `get_goal`、`create_goal`、`update_goal` 或保存 Goal ID、状态和预算；它只用可丢弃的 session binding 定位请求并委托 gate。gate 返回 `decision: "block"` 时，宿主最多自动生成一次 continuation prompt；`stop_hook_active=true` 表示当前回合已由 Stop 续跑，`continue: false` 优先并且第二次 Stop 必须明确保持非终态，绝不伪造 `SUSPENDED`、`RECONCILING` 或完成结论。缺少 binding、Hook 输入无 session、gate 无法执行或输出无效时，Hook 只能说明“未请求 continuation、history 未改变”，不能承诺后台续跑。只有主 Agent 通过显式 workflow 命令才能持久化 `WorkflowSuspended`。仓库不创建周期定时任务，也不把 Stop Hook 作为 Goal 或工作流正确性的条件；Hook 只在受信任的 `.codex` 配置层且当前文件 hash 已复核/信任时运行，修改 Hook 后必须经 `/hooks` 重新检查与信任。
+
+评审恢复默认自动续跑：补齐正式区块、派发缺失角色、等待已启动角色、自动演进或启动后续复审均为内部 Activity。已确认计划的稳定投影未变化时，不得在这些内部 Activity 之间重新请求计划确认；只有资料冲突、验收缺失、顶层范围/环境/写入或权限边界实质变化、安全挑战或 reviewer 重试耗尽才请求最小解除条件。
 
 ### 3.2 双层模型与贯穿治理线
 
@@ -144,7 +226,7 @@ flowchart TD
     B --> C[计划、需求追溯、用例、评审]
     C -->|已确认 caseId| D[工程层：仓库、Graphify、源码定位]
     D --> E[自动化设计：可行性、数据、脚本方案]
-    E -->|已确认| F[脚本、执行与报告]
+    E -->|执行清单 callback accepted| F[脚本、执行与报告]
     F --> G[治理线：版本、环境、证据、失败分类、项目经验]
     D -->|代码与需求不一致| H[业务层变更评审]
     H --> C
@@ -158,42 +240,11 @@ flowchart TD
 
 代码、图谱或运行结果与已确认需求不一致时，工程层必须产出差异和证据，退回业务层评审；不得静默修改用例、放宽断言或把当前代码实现视为正确规则。
 
-### 3.3 受控探索与缺失信息补全
+### 3.3 条件性探索与安全挑战
 
-规则生效后新建或重新打开执行范围的 Web/H5 请求，必须在生成正式脚本前完成独立 `explore` 短事务；不得因为已有源码、Graphify、旧 selector 或历史脚本而跳过。阶段顺序固定为“可见探索完成 → 探索证据卡校验通过 → 正式脚本生成与评审”，任一前置未完成时正式脚本阶段保持关闭。成熟化规则不迁移或改写生效前已有的计划、用例、脚本、运行记录与本机台账。
-
-探索完成资格、Inspector/ARIA/locator 观察及证据卡技术标准由 [selector-guideline.md](./selector-guideline.md#8-codex-生成与修复-selector-的流程) 唯一维护；运行模式、可见会话、零写入和敏感采集边界由 [environment-guideline.md](./environment-guideline.md#61-运行模式) 唯一维护；实际命令顺序只见 [Skill](../../skills/iot-automation-testing/SKILL.md)。源码与 Graphify 只能补充工程定位，不能代替页面语义探索。
-
-无法满足可见探索完成条件时，探索事务进入绑定当前脚本范围的工具或环境阻塞，并记录受影响 `caseId` 与最小解除条件；不得生成正式脚本或宣称探索在后台继续。探索中的普通定位、断言或低风险动作失败属于阶段内部恢复，不得结束阶段或把“继续探索”交给用户；会话复位和重建边界由环境规范决定。
-
-业务规则、告警阈值、权限语义、设备状态含义、接口字段业务含义和生产行为仍须来自已引用资料或用户裁决，不得由页面观察反推为需求事实。滑块、短信/图形验证码、人机验证和设备确认等安全挑战不得绕过；正式执行遇到安全挑战时，只请求用户完成最小人工操作，随后重新观察并自动接管确定性步骤。
-
-人工接管提示必须说明：当前状态、阻碍类别、用户唯一需要完成的操作、禁止操作、完成标志、自动恢复动作、最长等待时间和超时影响。不得要求“继续操作”“看看页面”或让用户完成剩余普通流程。每个可恢复流程使用以下状态机：
-
-```text
-自动准备 → 自动执行 → 成功 / 失败 / 识别安全挑战
-                                      ↓
-                            用户仅完成安全挑战
-                                      ↓
-                    重新观察 → 自动恢复 → 成功 / 下一轮挑战
-```
-
-未知阻碍首次出现时，保留页面并采集脱敏的 URL、DOM/无障碍树、可见文案、按钮状态和网络/日志摘要；仅在无额外副作用前提下探索恢复条件。受控自优化只可补齐 selector、等待条件、状态转换和非破坏性恢复动作。环境、凭据、认证会话和产物脱敏规则见 [environment-guideline.md](./environment-guideline.md)。
-
-Web / H5 的正式自动化执行统一使用 Playwright：
-
-```bash
-npm run test:web
-npx playwright test
-```
-
-默认使用 Playwright 自带 Chromium。需要进行 Google Chrome 浏览器兼容性验证时，使用：
-
-```bash
-npm run test:web:chrome
-```
-
-该命令启动隔离的 Playwright Chrome 实例，不使用个人 Chrome Profile；它属于正式 Chrome 兼容性执行，不改变 Web/H5 使用 Playwright 语义探索的原则。正式结论只能来自 Playwright 的控制台输出、HTML Report、Trace、截图、视频、JUnit XML 和 Allure Report。
+<!-- delegates: automation.selectors, automation.environment -->
+Web/H5 是否在 `engineering` Activity 内展开 Inspector 和可见探索，只由[定位规范](./selector-guideline.md#8-codex-生成与修复-selector-的流程)判定；运行模式、会话、敏感采集和人工安全挑战边界只由[环境规范](./environment-guideline.md)定义。流程层仅负责：风险触发时把探索留在对应工程 Activity 内，失败只阻塞该分支；需要人工完成安全挑战时创建绑定当前 subject 的条件性 callback，解析后继续同一工作流。源码和 Graphify 只能辅助工程定位，不能替代业务资料或页面语义证据。
+<!-- end-delegates -->
 
 ## 4. 阶段一：资料输入与测试计划
 
@@ -210,33 +261,19 @@ npm run test:web:chrome
 
 ### 4.2 Codex 输出的测试计划
 
-测试计划默认状态为“草案”，至少包含：
-
-- 测试目标、范围和非范围。
-- 资料来源、版本或 URL。
-- 本轮实际引用资料清单：每项提供可点击资料链接、`manifest id / sectionId`、可定位章节及其对范围、规则或推断的用途；未引用的知识库资料不列入。
-- 测试资产选择：从 `test-assets/manifest.yaml` 选择的候选资产、可点击路径、选择状态和工程验证项；它不属于“输入资料”或业务需求追溯。
-- 测试类型、目标页面/API/Topic/设备及建议测试路径。
-- 环境候选项、选择依据和待确认的目标环境。
-- 合理推断、缺失信息、风险和待审批事项。
-- 需求追溯矩阵，以及用例生成后进行用例集评审与草案演进的交付要求。
-- 预计生成的用例、脚本、测试数据、执行命令和报告产物。
-
-计划需要保存时，必须写入 `testcases/<type>/<project>/<test-request>/plan.md`；同一测试请求只使用这一份 `plan.md` 承载计划、评审和后续工程层设计，不再使用 `*.plan.md` 命名。使用固定中文标题和表格，字段格式见 `testcase-guideline.md`。写入或批量更新后，先对实际计划运行 `npm run check:markdown -- <计划路径>`，再运行 `npm run check:architecture`；仅分隔行列数不一致时可运行 `npm run check:markdown -- --fix <计划路径>` 后复检，数据行或正文问题必须修订生成结果。两项检查均通过前，不能对用户称“测试计划已生成”或进入计划确认门禁。
+<!-- delegates: automation.testcases -->
+计划内容、固定结构、追溯和正式决定字段只按[用例规范](./testcase-guideline.md)生成，并保存为请求目录中唯一的 `plan.md`。流程层只负责在计划校验 Activity 成功后，对当前 `plan-confirmation-subject-v2` 请求 `plan-confirmation` callback；该 subject 由 manager 从既有计划区块内部投影，不新增用户可见结构，运行进度也不得写回计划。
+<!-- end-delegates -->
 
 ### 4.3 环境处理
 
-环境选择优先级为：已确认测试计划或用户明确指定 > 已确认测试用例的 `targetEnvironment` > `DEFAULT_TEST_ENV`。
-
-当用户未明确环境时，Codex 默认将 `test` 写为候选环境；在计划或工程设计输出中与范围、用例、差异、数据影响一并提交用户确认，并额外提示“未指定环境，已默认使用 test 待确认”。不得为此单独阻塞或单独追问。用户明确指定环境、已确认计划或已确认用例另有目标环境时才覆盖默认值。生产环境不得默认选择；即使获得计划确认，执行前还需要显式开启生产环境保护开关。
-
-生成或更新计划时，Codex 必须执行 `npm run check:environment -- --plan` 的安全预检；已选择静态资产时追加 `--asset <assetId>`。预检只验证所选资产的存在性与 SHA-256，不修改 `.env` 或访问服务；Appium、设备、包名和 Activity 缺失只能标为工程设计待验证，不能阻塞计划或用例生成。计划的“环境选择”记录本地配置状态、预检状态、用户确认状态和未闭合项。只记录脱敏结论；`.env` 配置存在不等于环境可用或用户已确认，未执行预检时不得写成“未提供环境”。
+<!-- delegates: automation.environment -->
+环境候选、优先级、预检、生产保护和数据授权只按[环境规范](./environment-guideline.md)处理。流程层把环境相关未决事实绑定到计划确认或条件性 callback，不创建额外固定环境确认阶段。
+<!-- end-delegates -->
 
 ### 4.4 阶段审核门槛
 
-用户至少需要确认：测试范围、目标环境、关键业务预期、合理推断、缺失信息处理方式和高风险操作。
-
-未确认时，Codex 只能补充计划或提出问题，不能生成正式用例和脚本。
+计划确认 callback 的 subject、结果和失效规则见本文件的 callback 契约；需由用户决定的具体计划字段由[用例规范](./testcase-guideline.md)与[环境规范](./environment-guideline.md)定义。`accepted` 后必须在同一 gate 投影出用例生成 Activity 并继续，随后在稳定计划投影内自动完成生成、评审、演进与复审，不要求用户重复确认计划或发送“继续”；其他结果不得推进下游。
 
 ## 5. 阶段二：测试用例
 
@@ -244,35 +281,13 @@ npm run test:web:chrome
 
 ### 5.1 多角色隔离评审
 
-用例集评审属于“用例集评审与演进”，不创建平行评审文档。流程上的门禁是：完整草案完成后，按 [testcase-guideline.md](./testcase-guideline.md#510-用例集评审与草案演进) 确定适用评审；按 [Skill 提示卡](../../skills/iot-automation-testing/SKILL.md#多角色隔离评审提示卡) 启动隔离 reviewer；所有适用结论和发现项闭环后才可提交用户确认。编排或执行记录缺失时，任务清单保持阻塞，不能以作者自评替代。
+流程层在首稿 readiness 成功后冻结 reviewer 输入，按 `ReviewPolicy.requiredRoles` 展开 review Activity，并通过 `ReviewBatchStarted`、`ReviewerDispatched`、`ReviewerSubmitted` 和 `ReviewBatchInvalidated` 编排可重复子流程。readiness 一次检查计划必填标记、全部用例包结构、RULE 设计矩阵、关系投影和来源身份；这些硬缺口必须在 reviewer 派发前一次性返回并阻止批次。写入安全提示等 warnings 同轮汇总呈现，但不单独创建 callback，也不以逐条 warning 制造评审轮次。适用角色、发现项分类、正式记录、变更影响和“可提交确认”的业务标准只由[用例规范](./testcase-guideline.md)定义；实际 reviewer 提示卡与操作顺序只见 [Skill](../../skills/iot-automation-testing/SKILL.md)。
 
-启动初审前，必须确认 `TASK-03` 已完成、关系同步及 `npm run check:rule-design -- <plan.md>` 已通过、初审批次已登记、当前 `plan.md` 已建立包含输入基线与适用 reviewer 的正式记录。预检发现的普通覆盖遗漏先自动修订并复检；reviewer 返回后，必须先回填正式记录、发现项分类、沉淀判定和本机状态，才能在对话中报告阶段结论；中间状态只能报告“评审进行中”及恢复信息。
+批次输入由 manager 从 `plan.md`、定义声明的全部用例包和计划实际引用的受控资料读取并计算，调用方不得注入输入或证据摘要。快照保留这些完整文件作为权威、可校验的回退基线；相同 SHA-256 内容在 runtime 中只保存一个共享 blob，批次优先用硬链接引用，文件系统不支持时才复制，因此复审不会重复占用整份 PDF/Word 空间。定向批次的 reviewer 只需精读 `affectedRefs` 指定的 `REQ/RULE/caseId`、来源 `sectionId` 或标题/页码定位，以及解释该范围所需的直接邻域，不能把完整 PDF、Word 或全部知识库正文当作每轮必读范围。快照被删除且正式输入未变时，`task:resume` 重建相同快照；输入已变时，旧批次以真实当前输入摘要和已提交 reviewer 证据摘要失效，并原子启动确定性新批次，旧 reviewer 的迟到提交不得进入新批次。durable 派发已成功但 runtime 绑定写入失败时，history 仍只保留一次派发；gate 输出 `reviewer-rebind:<batch>:<activity>:<role>`，宿主使用同一个 `reviewer-dispatch` 补建可丢弃绑定，不追加第二个派发事件。已提交、失败或已失效批次的残留绑定由 `task:resume` 清除。
 
-#### 连续自动演进与收敛
+初审批次默认覆盖当前草案的完整适用范围；自动演进后的批次优先使用定向复审。每个定向 scope 必须绑定 `affectedRefs`、`baseBatchId`、复审原因、明确排除引用，以及所有未重审角色的可复用 `ReviewerSubmitted` 证据；缺少任一未重审角色证据时安全失败，不能把“未派发”视为沿用通过。只有变更跨业务域、触及共享规则邻域、数据/执行边界或安全影响，或者无法证明局部影响时，才扩大受影响引用或回到完整适用评审。
 
-本节是自动评审循环、任务状态和用户交互的唯一规则来源；发现项分类、修订证据和“可提交确认”的判定由用例规范定义，reviewer 的实际派发顺序由 Skill 定义。
-
-资料明确的发现项必须按以下连续循环处理，不得在单条发现项、单个用例包或单次修订后向用户要求“继续”：
-
-```text
-初审 → 汇总分类 → 自动修订全部可证实缺口 → 静态检查与追溯同步
-    → 旧批次失效 → 真实 reviewer 最终复审 → 收敛 / 下一轮 / 阻塞
-```
-
-- 初审为第 0 轮；每次已登记真实草案修订后的最终复审依次为第 1–3 轮。每轮必须先完成所有适用自动修订项及其规则邻域复核、登记本轮安全产出，再派发下一轮全部适用的真实、只读 reviewer。
-- 循环期间，Codex 只更新 `plan.md`、本机任务状态和本轮产出登记，不向用户请求普通修订许可，也不把中间 reviewer 结论称为最终结果。任务状态保持“进行中”。
-- 用例集只有在最新最终复审为“可提交确认”、追溯与静态检查通过、自动演进项均关闭且真实 reviewer 完成时才收敛。此时一次性输出完整进度卡、产出卡、自动演进轮次摘要、已修订 `caseId` 与非阻塞风险，再等待一次用例集确认。
-- 仅在资料冲突、验收缺失、范围扩展、环境/写入/执行授权、安全挑战、reviewer 失败或超时时停止；输出受影响范围、已完成轮次和最小解除条件。达到第 3 轮仍需修订，或连续两轮没有新的草案修订证据时，`TASK-04` 必须标为“阻塞”，不得无限循环或降级为主 Agent 自评。
-- 自动循环的内部更新不要求逐轮对话展示；收敛或阻断时才输出面向用户的完整汇总。用户始终保留最终业务确认权，自动修订不得生成正式脚本或执行测试。
-
-#### 评审后的双层沉淀分流
-
-每个评审批次完成分类后，主 Agent 必须在该批次的 `plan.md` “沉淀判定”表记录归属、目标位置、证据状态和处理结果；规则字段与有效值由 [testcase-guideline.md](./testcase-guideline.md#需求缺口处置与沉淀判定) 唯一定义。本阶段只做分流，不把单次评审结论静默丢失：
-
-1. 需求事实继续通过 `sources → REQ → RULE → caseId` 追溯；不得复制进项目经验库。
-2. 已确认且跨项目适用的治理结论，先检查唯一责任规范是否已覆盖；未覆盖时只更新其责任规范，不在计划、Skill 或项目经验库复制正文。
-3. 仅具备资料推断或评审建议的项目级内容登记到 `.local/project-knowledge-candidates/<project>.json` 并在计划中只引用候选编号，等待受控探索或正式执行验证；不得影响当前已明确功能的通过/失败结论。
-4. 候选一旦获得受控探索或正式执行的可审查验证证据，即按 [report-guideline.md](./report-guideline.md#10-用户偏好与项目测试经验) 即时提升为项目经验；报告阶段只复盘、合并、失效清理和汇总未提升原因。
+`case-review-resolution` 只登记 reviewer 正式结论和发现项，不得修改测试范围、`REQ/RULE`、设计矩阵、关系、用例包或工程内容；候选发布包含此类越权修改时必须在原子发布前拒绝。需要修订时，当前批次失效并返回 `case-review-evolution`；该 Activity 在已确认计划范围内自动修订 `REQ/RULE`、设计矩阵、关系和用例包，真实产物改变后再冻结新输入并复审。若候选修改造成 `plan-confirmation-subject-v2` 实质变化，不得以自动演进名义发布，必须进入现有 `plan-confirmation` callback 的计划修订流程。不存在全局评审轮数；单角色重试与无进展停止只按固定在 run 中的 `ReviewPolicy` 执行，资料冲突通过条件性 callback 裁决。运行事实写 history，正式结论和发现项写 `plan.md`，两者不得互相替代。
 
 ## 6. 阶段三：自动化可行性、脚本设计与代码定位
 
@@ -286,28 +301,28 @@ npm run test:web:chrome
 | MQTT | mqtt.js Client |
 | IoT 链路 | API、MQTT 与 Web/App 组合 |
 
-`archive/automation/` 中的内容是已废弃的测试专用实现，不属于可复用能力库；默认不得读取、编译、执行或作为脚本生成参考。只有用户明确要求审计历史实现、复盘或迁移时才可只读查看。归档目录不得保存需求资料、运行产物、凭据或 `.local/repositories/` 中的被测代码。
+请求专属历史脚本只允许保存在对应 `testcases/archive/.../automation/` 子目录，默认不得读取、编译、执行或作为新脚本生成参考。共享 action、client、fixture、support 和 Runner 不归档；需求资料、运行产物、凭据和 `.local/repositories/` 中的被测代码不得进入归档。
 
 先将 `.local/repositories/` 作为本机代码仓库根目录，根据已确认项目和用例定位对应仓库；不得以名称相似为由扫描无关仓库。仓库路径、Graphify 图谱和源码定位依据只能写入当前测试请求的 `plan.md` 工程层，不得写入 `sources/manifest.yaml`，也不得作为业务需求或验收规则来源。选定仓库后，**在读取业务源码前**检查是否存在有效 Graphify 图谱：`graphify-out/` 与其中相互关联的 `.graphify_root`、`GRAPH_REPORT.md`、`graph.json`、`.graphify_analysis.json` 或带 Graphify 标识的清单文件。通用 `manifest.json` 不是单独的图谱证据。
 
 有效图谱存在时，先读取报告、清单和源文件路径/实体/关系索引，以已确认需求、页面路径、接口、模块或领域名定位候选源码；再读取候选源码及必要直接依赖确认实现。图谱缺失、损坏、过期或无法唯一定位时，记录原因，回退到仓库结构、项目文档、路由/API 定义和受限文本检索。图谱只用于缩小检索范围，源码和已确认需求才是事实依据；不得读取或回显 `.env`、凭据、会话或其他敏感配置。
 
-在生成正式脚本前，必须在同一测试请求的 `plan.md` 补充“工程层：代码定位与自动化设计”区块，并检查已有的 `src/actions/`、`src/clients/`、`src/fixtures/`、相似测试脚本和可用执行命令。工程设计和预检属于自动短事务，不额外增加人工门禁。该区块至少包含：
+在生成正式脚本前，必须在同一测试请求的 `plan.md` 补充“工程层：代码定位与自动化设计”区块，并检查已有的 `src/actions/`、`src/clients/`、`src/fixtures/`、相似测试脚本和可用执行命令。工程设计和预检属于自动 Activity，不额外增加人工门禁。该区块至少包含：
 
 - 每个 `caseId` 对应的需求追溯编号、代码仓库、分支/提交标识、图谱路径及其新鲜度判断、源码路径和定位依据。
 - 可复用 action、client、fixture、selector/接口契约，以及按 [environment-guideline.md](./environment-guideline.md) 确认的数据策略、台账引用、准备和清理方案。
 - 自动化可行性结论：`可实现`、`部分自动化`、`受阻` 或 `需求/代码差异待确认`，以及依据和恢复条件。
 - 拟修改或新增的脚本文件、执行命令、目标环境、预期报告位置、风险、假设及仍未满足的前置条件。
 
-只有已确认用例且第 3.3 节探索门禁已经通过时，才能登记正式脚本。脚本生成、静态检查和脚本评审自动连续完成；缺少稳定 selector 或明确预期时只能形成探索草稿并返回探索事务，不得登记为正式脚本或宣称其已稳定可执行。
+只有已确认用例，且第 3.3 节判定所需的探索证据已经满足时，才能登记正式脚本。脚本生成、静态检查和脚本评审自动连续完成；风险触发但缺少稳定 selector 或明确预期时只能形成探索草稿，并保持对应 `engineering` Activity 未完成，不得登记为正式脚本或宣称其已稳定可执行。
 
 ### 6.1 统一执行清单与范围重开
 
-脚本评审通过后，运行时生成不可变的 `ExecutionAuthorizationSnapshot`，并通过一次确认覆盖本轮全部普通执行动作。清单至少绑定请求、环境、`plan.md` 与脚本摘要、完整 `caseId`、允许操作、资源类型与数量上限、验证码策略、数据策略、残留 TTL 和产物脱敏策略。
+脚本评审通过时，`script-review` Activity 使用 `task:manage execution-authorization-publish` 原子发布请求目录中的 `execution-authorization.json`，再以该文件的不可变摘要请求一次确认。确认后 Runner 从 history 与当前文件派生 `ExecutionAuthorizationSnapshot`；清单至少绑定请求、环境、`plan.md` 与脚本摘要、完整 `caseId`、允许操作、资源类型与数量上限、验证码策略、数据策略、残留 TTL 和产物脱敏策略。
 
 - 确认后的清单内操作不再逐项询问；Runner 在 setup 中重新校验摘要、环境和预算。
-- 计划、脚本、环境、允许操作、资源类型或数量发生实质变化时，旧清单标记为 `superseded`，不得继续执行。
-- 已到执行确认门禁或已进入其下游执行/报告分支的请求需要扩大或修复范围时，只能通过 `execution-scope-reopen` 回到工程设计短事务；命令将旧授权标为 `superseded`，保留已确认历史、旧 blocker 的解除记录、需求、用例与 reviewer 结论，不允许手工改本机状态。
+- 计划、脚本、环境、允许操作、资源类型或数量发生实质变化时，旧清单摘要不再有效，必须重开工程范围并重新发布，不能继续执行。
+- 已到执行确认门禁或已进入其下游执行/报告分支的请求需要扩大或修复范围时，只能通过 `execution-scope-reopen` 使全部 `engineering` 根及其下游失效并重新进入工程设计；history 保留旧确认、旧 blocker 的解除记录、需求、用例与 reviewer 结论，不持久化平行的 `superseded` 状态，也不允许手工改 history 或派生状态。
 - 切换生产环境、使用真实用户数据、执行不可逆高风险动作或超出清单上限必须重新确认；安全挑战进入绑定当前执行事务的阻塞，解除后恢复同一运行。
 - API 或管理页面仅用于后台状态验证。二者都不可用时，只阻塞对应后台断言，不得把已执行的 UI 注册路径伪装成未执行或成功。
 
@@ -340,7 +355,7 @@ npm run test:web:chrome
 
 Web 正式执行由 Playwright project dependencies 连续完成 setup、正式用例与 teardown；报告随后汇总功能和数据卫生两个独立状态。安全挑战是唯一允许在同一运行中暂停人工接管的输入点，解除后继续原事务，不重新创建资源。
 
-正式 Runner 固定单 worker 且不启用失败即停。一个 `caseId` 失败后继续执行所有无依赖用例；只有缺少已声明能力或未精确确认前置资源的消费者进入 `blocked`。产品断言失败不得批量改写为 `skipped`，也不得阻止执行事务汇总所有可执行用例；仍有 `blocked` 或 `unknown` 时，执行事务保持可恢复阻塞。
+正式 Runner 不启用失败即停；worker 并发与隔离只按[环境规范](./environment-guideline.md#61-运行模式)决定。一个 `caseId` 失败后继续执行所有无依赖用例；只有缺少已声明能力或未精确确认前置资源的消费者进入 `blocked`。产品断言失败不得批量改写为 `skipped`，也不得阻止执行事务汇总所有可执行用例；仍有 `blocked` 或 `unknown` 时，执行事务保持可恢复阻塞。
 
 正式入口仅允许 `npm run test:web:execute -- --request <type/project/request>` 和同一授权的 `--resume`。入口拒绝 `--grep`、文件路径及其他过滤参数；诊断运行不得写入正式原子结果。
 
@@ -350,38 +365,25 @@ Web 正式执行由 Playwright project dependencies 连续完成 setup、正式�
 
 ### 7.1 报告交接
 
+<!-- delegates: automation.reporting -->
 执行结束后，将实际脚本结果、环境与数据处理结果交给 [report-guideline.md](./report-guideline.md) 完成范围判定、正式证据、结果统计、最终进度展示和复盘；流程规范不重复定义结果或证据资格。
+<!-- end-delegates -->
 
 ## 8. 阶段五：失败分析与持续改进
 
-Codex 读取测试报告、日志、截图、Trace、API 摘要和 MQTT 摘要后，按以下类别分析失败。对脚本问题或未知状态，分析须附“观察 → 判断 → 恢复策略 → 验证结果”记录，以便下一轮在相同状态下优先自动恢复：
-
-- 产品问题。
-- 脚本问题。
-- 环境问题。
-- 测试数据问题。
-- 未知问题。
-
-分析结果必须包含证据、结论置信度、修复建议和后续动作。脚本修复、用例补充、环境配置调整或面板改进均先输出 diff 或结构化建议，待用户审核后再实施。
+失败类别和判定只按[失败分类规范](./failure-classification.md)执行，证据、结果统计、修复建议和复盘字段只按[报告规范](./report-guideline.md)执行。流程层只保证测试失败仍进入报告 Activity；清理失败、残留未知或副作用不确定时进入 reconciliation，不能直接完成工作流。报告后的实施或复测属于新的明确请求，不是本 run 的固定确认门禁。
 
 ## 9. 停止条件与升级处理
 
-出现以下任一情况时，暂停后续阶段并说明原因：
+出现以下情况时，默认只阻塞直接受影响的 Activity 或能力分支；只要仍有依赖已满足且不受影响的自动 Activity，就必须继续执行。只有不确定性决定整个请求的范围、共享验收基线、公共环境或安全授权，或者继续任何分支都会造成未授权或不可逆风险时，才能阻塞整个请求：
 
-- 目标环境、业务预期或关键前置条件无法确认。
-- 缺少测试账号、测试设备、APK、接口鉴权或 MQTT 连接信息。
-- 推断内容会影响断言、环境选择、数据写入或高风险操作，但用户尚未确认。
-- 目标为生产环境，或可能删除真实数据、控制硬件、批量修改设备。
+- 目标环境、业务预期或关键前置条件无法确认：阻塞依赖该事实的用例或能力分支；只有目标环境或验收基线对全请求共享时才升级为全局阻塞。
+- 缺少测试账号、测试设备、APK、接口鉴权或 MQTT 连接信息：仅阻塞使用该资源的执行分支。
+- 推断内容会影响断言、环境选择、数据写入或高风险操作，但用户尚未确认：仅阻塞依赖该推断的 Activity。
+- 目标为生产环境，或可能删除真实数据、控制硬件、批量修改设备：阻塞相关执行分支；若授权或安全边界无法隔离，再阻塞整个请求。
 
-暂停时应输出已完成内容、`assumptions`、`missingInfo`、风险和下一步需要用户确认或补充的信息。
+暂停时由 gate 返回实际受影响范围、已完成内容、`assumptions`、`missingInfo`、风险和最小解除条件。动态阶段与进度只由 `task:status` 展示，不写回 `plan.md`。
 
 ## 10. 最小交付清单
 
-| 阶段 | 最小交付物 | 审核结果 |
-| --- | --- | --- |
-| 测试计划 | `testcases/<type>/<project>/<test-request>/plan.md` 或对话中的结构化计划 | 已确认 / 已拒绝 |
-| 测试用例 | 结构化 Markdown 用例 | 已确认 / 退回修改 |
-| 自动化设计 | `plan.md` 中的工程层代码/Graphify 定位、可行性、数据与脚本方案 | 已确认 / 退回修改 |
-| 自动化脚本 | 基于已确认设计的脚本 diff、执行方案和数据影响说明 | 批准执行 / 退回修改 |
-| 测试执行 | 测试结果、报告路径和失败证据 | 接受结果 / 要求复测 |
-| 失败分析 | 分类、证据、修复建议和改进项 | 批准实施 / 继续排查 |
+本工作流只有计划、用例集和不可变执行清单三个固定 callback，正常顺序为“计划确认一次 → 自动生成、评审、演进和复审至收敛 → 用例确认一次 → 自动生成并评审脚本 → 执行清单确认一次 → 执行、核对、清理和报告”。其余阶段通过 Activity 产物与校验推进；资料冲突、安全挑战和范围/环境/写入等未决事实只在实际出现时创建条件性 callback。各阶段交付物及其内容由测试规范索引中的责任文件定义，动态状态统一由 `task:status` 展示。
