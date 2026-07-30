@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { expandRuleNeighborhood, validateRuleDesignMatrix } from "../../scripts/rule-design-preflight.ts";
+import { validateRuleDesignMatrix as validatePureRuleDesignMatrix } from "../../src/support/testcase/relationProjection.ts";
 
 const plan = `
 ## 规则覆盖台账
@@ -27,6 +28,26 @@ test("严格预检要求每条适用规则的可审查设计结论", () => {
 test("严格预检拒绝泛化预期和缺失选填声明", () => {
   const invalid = plan.replace("选填 | 留空、合法、格式错误 | 留空不提示必填；格式错误提示", "未知 | 留空、合法、格式错误 | 已定义校验");
   assert.deepEqual(validateRuleDesignMatrix(invalid), ["RULE-REG-002 未声明必填/选填性。", "RULE-REG-002 缺少具体输入或可观察预期。"]);
+});
+
+test("规则设计矩阵拒绝与唯一 RULE 台账不同的 caseId", () => {
+  const invalid = plan.replace("OPEN-REG-002 | 已覆盖", "OPEN-REG-999 | 已覆盖");
+  assert.deepEqual(validateRuleDesignMatrix(invalid), ["RULE-REG-002 的规则设计 caseId 与 RULE 台账不一致。"]);
+});
+
+test("RULE 台账已有 caseId 时拒绝规则设计矩阵阶段占位", () => {
+  const invalid = plan.replace("OPEN-REG-001 | 已覆盖", "阶段二生成 | 已覆盖");
+  assert.deepEqual(validateRuleDesignMatrix(invalid), ["RULE-REG-001 的 RULE 台账已有 caseId，规则设计矩阵不得保留阶段二生成。"]);
+});
+
+test("阶段二尚无正文时允许阶段占位，出现 RULE caseId 后纯模型拒绝它", () => {
+  const staged = plan.replace(/OPEN-REG-00[1-3]/g, "阶段二生成");
+  assert.deepEqual(validatePureRuleDesignMatrix(staged), []);
+  const generated = staged.replace(
+    "| RULE-REG-001 | REQ-REG-001 | PRD | 输入边界 | 名称 | 提示 | 等价类与边界 | 适用 | 已覆盖 | 阶段二生成 | 无写入 |",
+    "| RULE-REG-001 | REQ-REG-001 | PRD | 输入边界 | 名称 | 提示 | 等价类与边界 | 适用 | 已覆盖 | OPEN-REG-001 | 无写入 |"
+  );
+  assert.ok(validatePureRuleDesignMatrix(generated).some((issue) => issue.detail.includes("不得保留阶段二生成")));
 });
 
 test("规则邻域覆盖同一需求、字段组和前置路径且去重", () => {
