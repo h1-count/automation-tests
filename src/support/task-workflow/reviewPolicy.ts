@@ -1,6 +1,8 @@
 import type {
+  LegacyReviewPolicy,
   ReviewPolicy,
   ReviewRole,
+  TieredReviewPolicy,
   WorkflowCapability
 } from "./types.js";
 
@@ -30,6 +32,7 @@ export interface BuildReviewPolicyInput {
   writesData: boolean;
   maxAttemptsPerRole?: number;
   maxUnchangedRevisionCycles?: number;
+  maxSemanticEvolutionCycles?: number;
   /**
    * The risk context is optional so historical callers keep their pinned
    * three-role default. New workflow creation should provide all three fields.
@@ -47,16 +50,8 @@ const standardComplexityLimits = {
 
 const strictPlanMarkers = [
   {
-    key: "data_write",
-    pattern: /\b(?:managed_cleanup|tracked_residual)\b|写入|外部副作用|提交申请/iu
-  },
-  {
     key: "otp",
     pattern: /\bOTP\b|短信验证码|手机验证码|手机号验证|发送验证码|获取验证码/iu
-  },
-  {
-    key: "upload",
-    pattern: /上传/iu
   },
   {
     key: "permission",
@@ -69,19 +64,39 @@ const strictPlanMarkers = [
   {
     key: "security_challenge",
     pattern: /安全挑战|滑块|图形验证码|人机验证|\bCAPTCHA\b/iu
+  },
+  {
+    key: "sensitive_credential",
+    pattern: /敏感凭据|密码凭据|口令|密钥|\btoken\b/iu
+  },
+  {
+    key: "unknown_result",
+    pattern: /结果未知|无法判定|\breconciliation\b/iu
+  }
+] as const;
+
+const standardPlanMarkers = [
+  {
+    key: "data_write",
+    pattern: /\b(?:managed_cleanup|ephemeral_cleanup|reusable_fixture|tracked_residual)\b|(?<!无)(?<!不)(?<!禁止)写入|外部副作用|提交申请/iu
+  },
+  {
+    key: "upload",
+    pattern: /上传/iu
   }
 ] as const;
 
 const strictCasePackageMarkers = [
   "otp",
   "captcha",
-  "upload",
   "permission",
   "device",
   "firmware",
   "mqtt",
   "security"
 ] as const;
+
+const standardCasePackageMarkers = ["upload", "create", "update", "delete"] as const;
 
 function uniqueNormalized(values: readonly string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
@@ -150,7 +165,7 @@ export function deriveReviewRiskSelection(
   const strictReasons: string[] = [];
   const standardReasons: string[] = [];
 
-  if (input.writesData) strictReasons.push("writes_data");
+  if (input.writesData) standardReasons.push("writes_data");
   for (const capability of capabilities) {
     if (capability === "iot" || capability === "mqtt") {
       strictReasons.push(`device_capability:${capability}`);
@@ -161,11 +176,21 @@ export function deriveReviewRiskSelection(
       strictReasons.push(`plan_marker:${marker.key}`);
     }
   }
+  for (const marker of standardPlanMarkers) {
+    if (marker.pattern.test(structuredPlan)) {
+      standardReasons.push(`plan_marker:${marker.key}`);
+    }
+  }
   for (const casePackage of casePackages) {
     const normalized = casePackage.toLowerCase();
     for (const marker of strictCasePackageMarkers) {
       if (new RegExp(`(?:^|-)${marker}(?:-|\\.)`, "u").test(normalized)) {
         strictReasons.push(`case_package_marker:${marker}`);
+      }
+    }
+    for (const marker of standardCasePackageMarkers) {
+      if (new RegExp(`(?:^|-)${marker}(?:-|\.)`, "u").test(normalized)) {
+        standardReasons.push(`case_package_marker:${marker}`);
       }
     }
   }
@@ -189,20 +214,20 @@ export function deriveReviewRiskSelection(
   if (strictReasons.length) {
     return {
       profile: "strict",
-      recommendedRoles: ["requirements", "design", "impact"],
+      recommendedRoles: ["combined", "impact"],
       reasons: uniqueNormalized([...strictReasons, ...standardReasons])
     };
   }
   if (standardReasons.length) {
     return {
       profile: "standard",
-      recommendedRoles: ["requirements", "design"],
+      recommendedRoles: ["combined"],
       reasons: uniqueNormalized(standardReasons)
     };
   }
   return {
     profile: "light",
-    recommendedRoles: ["combined"],
+    recommendedRoles: [],
     reasons: [
       `bounded_structure:req=${requirementCount};rule=${ruleCount};case=${cases};capabilities=${capabilities.length};packages=${casePackages.length}`
     ]
@@ -233,32 +258,68 @@ export function buildReviewPolicy(input: BuildReviewPolicyInput): ReviewPolicy {
     ...selectedRoles,
     ...(input.writesData ? ["impact" as const] : [])
   ]) as ReviewRole[];
-  const policy: ReviewPolicy = {
-    schemaVersion: "review-policy-v1",
-    requiredRoles,
-    ...(riskSelection
-      ? {
-          riskProfile: riskSelection.profile,
-          selectionReasons: [
-            ...riskSelection.reasons,
-            ...(explicitlySelected.length ? ["explicit_roles"] : [])
-          ]
-        }
-      : {}),
-    maxConcurrentReviewers: 3,
-    maxAttemptsPerRole: input.maxAttemptsPerRole ?? 3,
-    maxUnchangedRevisionCycles: input.maxUnchangedRevisionCycles ?? 2
+  if (!riskSelection || explicitlySelected.length) {
+    const policy: LegacyReviewPolicy = {
+      schemaVersion: "review-policy-v1",
+      requiredRoles,
+      ...(riskSelection
+        ? {
+            riskProfile: riskSelection.profile,
+            selectionReasons: [
+              ...riskSelection.reasons,
+              ...(explicitlySelected.length ? ["explicit_roles"] : [])
+            ]
+          }
+        : {}),
+      maxConcurrentReviewers: 3,
+      maxAttemptsPerRole: input.maxAttemptsPerRole ?? 3,
+      maxUnchangedRevisionCycles: input.maxUnchangedRevisionCycles ?? 2
+    };
+    validateReviewPolicy(policy);
+    return policy;
+  }
+  const tieredRoles = riskSelection.recommendedRoles as TieredReviewPolicy["requiredRoles"];
+  const mode: TieredReviewPolicy["mode"] = riskSelection.profile === "light"
+    ? "deterministic_only"
+    : riskSelection.profile === "standard"
+      ? "combined"
+      : "combined_with_impact";
+  if (
+    input.maxSemanticEvolutionCycles !== undefined
+    && input.maxSemanticEvolutionCycles !== 2
+  ) {
+    throw new Error("review-policy-v2 requires maxSemanticEvolutionCycles = 2.");
+  }
+  if (input.maxAttemptsPerRole !== undefined && input.maxAttemptsPerRole !== 3) {
+    throw new Error("review-policy-v2 requires maxAttemptsPerRole = 3.");
+  }
+  if (
+    input.maxUnchangedRevisionCycles !== undefined
+    && input.maxUnchangedRevisionCycles !== 2
+  ) {
+    throw new Error("review-policy-v2 requires maxUnchangedRevisionCycles = 2.");
+  }
+  const policy: TieredReviewPolicy = {
+    schemaVersion: "review-policy-v2",
+    mode,
+    requiredRoles: tieredRoles,
+    riskProfile: riskSelection.profile,
+    selectionReasons: riskSelection.reasons,
+    maxConcurrentReviewers: 2,
+    maxAttemptsPerRole: 3,
+    maxUnchangedRevisionCycles: 2,
+    maxSemanticEvolutionCycles: 2
   };
   validateReviewPolicy(policy);
   return policy;
 }
 
 export function validateReviewPolicy(policy: ReviewPolicy): void {
-  if (policy.schemaVersion !== "review-policy-v1") {
+  if (!["review-policy-v1", "review-policy-v2"].includes(policy.schemaVersion)) {
     throw new Error("Unsupported review policy schema.");
   }
-  if (!policy.requiredRoles.length || policy.requiredRoles.some((role) => !role.trim())) {
-    throw new Error("Review policy requires non-empty reviewer roles.");
+  if (policy.requiredRoles.some((role) => !role.trim())) {
+    throw new Error("Review policy reviewer roles must be non-empty.");
   }
   if (new Set(policy.requiredRoles).size !== policy.requiredRoles.length) {
     throw new Error("Review policy reviewer roles must be unique.");
@@ -282,8 +343,27 @@ export function validateReviewPolicy(policy: ReviewPolicy): void {
   ) {
     throw new Error("Review policy selection reasons must be non-empty and unique.");
   }
-  if (policy.maxConcurrentReviewers !== 3) {
-    throw new Error("Review policy maxConcurrentReviewers must be 3.");
+  if (policy.schemaVersion === "review-policy-v1" && policy.maxConcurrentReviewers !== 3) {
+    throw new Error("Legacy review policy maxConcurrentReviewers must be 3.");
+  }
+  if (policy.schemaVersion === "review-policy-v2") {
+    const expectedRoles = policy.mode === "deterministic_only"
+      ? []
+      : policy.mode === "combined"
+        ? ["combined"]
+        : ["combined", "impact"];
+    if (
+      policy.maxConcurrentReviewers !== 2
+      || policy.maxAttemptsPerRole !== 3
+      || policy.maxUnchangedRevisionCycles !== 2
+      || policy.requiredRoles.length !== expectedRoles.length
+      || policy.requiredRoles.some((role, index) => role !== expectedRoles[index])
+    ) {
+      throw new Error("Tiered review policy mode, roles and fixed limits must agree.");
+    }
+    if (policy.maxSemanticEvolutionCycles !== 2) {
+      throw new Error("Tiered review policy maxSemanticEvolutionCycles must be 2.");
+    }
   }
   if (!Number.isInteger(policy.maxAttemptsPerRole) || policy.maxAttemptsPerRole < 1) {
     throw new Error("Review policy maxAttemptsPerRole must be a positive integer.");

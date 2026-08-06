@@ -7,16 +7,23 @@ export function buildSummary(runId: string, resources: TestResourceRecord[]): Te
   const cleanupFailed = resources.filter((resource) => resource.state === "cleanup_failed").length;
   const manualRequired = resources.filter((resource) => resource.state === "manual_required").length;
   const retained = resources.filter((resource) => resource.state === "retained").length;
+  const reusableAvailable = resources.filter((resource) =>
+    resource.reusable && resource.state === "available"
+  ).length;
+  const quarantined = resources.filter((resource) => resource.state === "quarantined").length;
+  const retired = resources.filter((resource) => resource.state === "retired").length;
   const expiredResidual = resources.filter((resource) =>
     resource.state === "expired" || (resource.state === "retained" && Boolean(resource.expiresAt) && Date.parse(resource.expiresAt!) <= Date.now())
   ).length;
   const dataHygieneStatus = cleanupFailed > 0
     ? "cleanup_failed"
-    : manualRequired > 0 || expiredResidual > 0
+    : manualRequired > 0 || expiredResidual > 0 || quarantined > 0 || retired > 0
       ? "manual_required"
       : retained > 0
         ? "retained"
-        : "clean";
+        : reusableAvailable > 0
+          ? "reusable"
+          : "clean";
   return {
     runId,
     totalResources: resources.length,
@@ -26,6 +33,9 @@ export function buildSummary(runId: string, resources: TestResourceRecord[]): Te
     cleanupFailed,
     manualRequired,
     retained,
+    reusableAvailable,
+    quarantined,
+    retired,
     expiredResidual,
     dirty: resources.filter((resource) => resource.dirty || resource.state === "dirty").length,
     dataHygieneStatus,
@@ -50,6 +60,8 @@ export function sanitizeSummary(summary: TestDataSummary): TestDataReportSummary
     hasResidualRisk: summary.cleanupFailed > 0
       || summary.manualRequired > 0
       || summary.retained > 0
+      || summary.quarantined > 0
+      || summary.retired > 0
       || summary.expiredResidual > 0
       || summary.dirty > 0
   };

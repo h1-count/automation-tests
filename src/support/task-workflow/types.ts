@@ -112,7 +112,10 @@ export type ActivityKind =
   | "verify"
   | "cleanup"
   | "report"
-  | "complete";
+  | "complete"
+  | "build"
+  | "readiness"
+  | "run";
 
 export interface WorkflowActivityDefinition {
   id: string;
@@ -160,7 +163,7 @@ export interface WorkflowDefinition {
   capabilities: WorkflowCapability[];
   writesData: boolean;
   /**
-   * New v4 runs pin their review policy with the graph. Older event histories
+   * New v4+ runs pin their review policy with the graph. Older event histories
    * omit this field and remain replayable from their expanded activities.
    */
   reviewPolicy?: ReviewPolicy;
@@ -175,16 +178,30 @@ export type ReviewRole =
   | "impact"
   | (string & {});
 
-export interface ReviewPolicy {
-  schemaVersion: "review-policy-v1";
+interface ReviewPolicyBase {
   requiredRoles: ReviewRole[];
-  /** Present on risk-selected v4 runs; omitted by historical/direct callers. */
   riskProfile?: "light" | "standard" | "strict";
   selectionReasons?: string[];
-  maxConcurrentReviewers: 3;
   maxAttemptsPerRole: number;
   maxUnchangedRevisionCycles: number;
 }
+
+export interface LegacyReviewPolicy extends ReviewPolicyBase {
+  schemaVersion: "review-policy-v1";
+  maxConcurrentReviewers: 3;
+}
+
+export interface TieredReviewPolicy extends ReviewPolicyBase {
+  schemaVersion: "review-policy-v2";
+  mode: "deterministic_only" | "combined" | "combined_with_impact";
+  requiredRoles: [] | ["combined"] | ["combined", "impact"];
+  maxConcurrentReviewers: 2;
+  maxAttemptsPerRole: 3;
+  maxUnchangedRevisionCycles: 2;
+  maxSemanticEvolutionCycles: 2;
+}
+
+export type ReviewPolicy = LegacyReviewPolicy | TieredReviewPolicy;
 
 export interface BuildWorkflowDefinitionInput {
   requestId: string;
@@ -199,7 +216,13 @@ export interface BuildWorkflowDefinitionInput {
   writesData?: boolean;
   casePackages?: string[];
   reviewerRoles?: ReviewRole[];
-  reviewPolicy?: Partial<Omit<ReviewPolicy, "schemaVersion" | "requiredRoles" | "maxConcurrentReviewers">>;
+  reviewPolicy?: {
+    riskProfile?: "light" | "standard" | "strict";
+    selectionReasons?: string[];
+    maxAttemptsPerRole?: number;
+    maxUnchangedRevisionCycles?: number;
+    maxSemanticEvolutionCycles?: number;
+  };
   executionIsolation?: {
     contexts: boolean;
     accounts: boolean;

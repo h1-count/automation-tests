@@ -4,6 +4,7 @@ import { TestDataManager } from "../support/test-data/testDataManager.js";
 import type {
   DataWritePolicy,
   ResourceValidator,
+  ResourceLeaseMode,
   TestResourceType,
   TestRunStatus
 } from "../support/test-data/types.js";
@@ -14,6 +15,7 @@ export interface TestDataFixtureOptions {
   suiteId?: string;
   cleanupRegistry: CleanupActionRegistry;
   resourceValidator?: ResourceValidator;
+  resourceValidators?: Record<string, ResourceValidator>;
   dataWritePolicy: DataWritePolicy;
   authorizationDigest: string;
   writeBudget: Partial<Record<TestResourceType, number>>;
@@ -27,7 +29,8 @@ export function createTestDataFixture(options: TestDataFixtureOptions) {
         projectId: options.projectId,
         envId: options.envId,
         cleanupRegistry: options.cleanupRegistry,
-        resourceValidator: options.resourceValidator
+        resourceValidator: options.resourceValidator,
+        resourceValidators: options.resourceValidators
       });
       const run = await manager.startRun({
         projectId: options.projectId,
@@ -59,6 +62,12 @@ export function createTestDataFixture(options: TestDataFixtureOptions) {
     }
   });
 }
+
+export type ReusableFixtureLease = {
+  resourceType: TestResourceType;
+  baselineContractId: string;
+  leaseMode: ResourceLeaseMode;
+};
 
 function extractCaseIds(title: string): string[] {
   return [...new Set(title.match(/\b[A-Z][A-Z0-9]+(?:-[A-Z0-9]+){2,}\b/g) ?? [])];

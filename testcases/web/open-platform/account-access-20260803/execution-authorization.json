@@ -1,0 +1,173 @@
+{
+  "schemaVersion": "execution-authorization-v3",
+  "requestId": "web/open-platform/account-access-20260803",
+  "environment": "test",
+  "planDigest": "95c8f950340e9a006202dc33c5c2bf545b8391f2b7395502083c43f324b2896f",
+  "scriptDigests": [
+    {
+      "path": "tests/web/open-platform/account-access-20260803/account-entry-login.formal.spec.ts",
+      "digest": "6529655c4527427d8c2a3b795bb86c927721d91acdccc1f540901b73bde6cac8"
+    },
+    {
+      "path": "tests/web/open-platform/account-access-20260803/execution.manifest.ts",
+      "digest": "0f469f8dffd967f3ed4d4dd19bad1e9af7fd251c30a8c399a4b03641f5759e37"
+    },
+    {
+      "path": "tests/web/open-platform/account-access-20260803/registration-fields.formal.spec.ts",
+      "digest": "eb470660cacce2610a3103bb531086142ca284bcc6db42f168e2f408f039306a"
+    },
+    {
+      "path": "tests/web/open-platform/account-access-20260803/registration-lifecycle.formal.spec.ts",
+      "digest": "87fb9788b957861bb9049ab0c2b13913370c6fbf22d17af22522856fec7dfa55"
+    },
+    {
+      "path": "tests/web/open-platform/account-access-20260803/registration-submit.formal.spec.ts",
+      "digest": "a710e5493a835d94a6c96521ca757dfb00bbe48a2f0e2bc1bd4192731fa9e06f"
+    },
+    {
+      "path": "tests/web/open-platform/account-access-20260803/registration-upload.formal.spec.ts",
+      "digest": "00eba957bff9e9f908f774ff48cec12b0893668fd65c4dc4bb5dedb8174eed94"
+    }
+  ],
+  "caseIds": [
+    "OPEN-LOGIN-20260803-001",
+    "OPEN-LOGIN-20260803-002",
+    "OPEN-LOGIN-20260803-003",
+    "OPEN-REG-20260803-001",
+    "OPEN-REG-20260803-002",
+    "OPEN-REG-20260803-003",
+    "OPEN-REG-20260803-004",
+    "OPEN-REG-20260803-005",
+    "OPEN-REG-20260803-006",
+    "OPEN-REG-20260803-007",
+    "OPEN-REG-20260803-008",
+    "OPEN-REG-20260803-009",
+    "OPEN-REG-20260803-010",
+    "OPEN-REG-20260803-011",
+    "OPEN-REG-20260803-012",
+    "OPEN-REG-20260803-013",
+    "OPEN-REG-20260803-014",
+    "OPEN-REG-20260803-015",
+    "OPEN-REG-20260803-017",
+    "OPEN-REG-20260803-018",
+    "OPEN-REG-20260803-020",
+    "OPEN-REG-20260803-021",
+    "OPEN-REG-20260803-022",
+    "OPEN-REG-20260803-023",
+    "OPEN-REG-20260803-024",
+    "OPEN-REG-20260803-025",
+    "OPEN-REG-20260803-026"
+  ],
+  "allowedOperations": [
+    "accept_agreement",
+    "authenticate_test_account",
+    "query_postcondition",
+    "retain_tracked_residual",
+    "send_test_otp",
+    "submit_registration",
+    "upload_synthetic_file"
+  ],
+  "resourceBudgets": [
+    {
+      "resourceType": "custom",
+      "maxCreates": 30
+    },
+    {
+      "resourceType": "tenant",
+      "maxCreates": 5
+    }
+  ],
+  "dataWritePolicy": "tracked_residual",
+  "residualTtlHours": 72,
+  "securityChallengePolicy": "test-channel-first-minimal-human",
+  "artifactPolicy": "retain-with-sensitive-step-redaction",
+  "targetBuildDigest": "ed9fc5d436d2b9deb0a94edcf9755ffc66bf55b46f539a0e30ddd71bf8ad9a9f",
+  "runnableCaseIds": [
+    "OPEN-LOGIN-20260803-001",
+    "OPEN-LOGIN-20260803-002",
+    "OPEN-LOGIN-20260803-003",
+    "OPEN-REG-20260803-001",
+    "OPEN-REG-20260803-002",
+    "OPEN-REG-20260803-003",
+    "OPEN-REG-20260803-004",
+    "OPEN-REG-20260803-005",
+    "OPEN-REG-20260803-006",
+    "OPEN-REG-20260803-007",
+    "OPEN-REG-20260803-008",
+    "OPEN-REG-20260803-009",
+    "OPEN-REG-20260803-010",
+    "OPEN-REG-20260803-011",
+    "OPEN-REG-20260803-012",
+    "OPEN-REG-20260803-013",
+    "OPEN-REG-20260803-014",
+    "OPEN-REG-20260803-015",
+    "OPEN-REG-20260803-017",
+    "OPEN-REG-20260803-018",
+    "OPEN-REG-20260803-020",
+    "OPEN-REG-20260803-021",
+    "OPEN-REG-20260803-022",
+    "OPEN-REG-20260803-023",
+    "OPEN-REG-20260803-024",
+    "OPEN-REG-20260803-025",
+    "OPEN-REG-20260803-026"
+  ],
+  "deferredCases": [
+    {
+      "caseId": "OPEN-REG-20260803-016",
+      "blockers": [
+        {
+          "code": "capability_unavailable",
+          "source": "registration-license-authoritative-verification",
+          "unblockCondition": "Configure and review module_adapter for the approved test environment."
+        }
+      ]
+    },
+    {
+      "caseId": "OPEN-REG-20260803-019",
+      "blockers": [
+        {
+          "code": "capability_unavailable",
+          "source": "business-calendar-contract",
+          "unblockCondition": "Configure and review module_adapter for the approved test environment."
+        }
+      ]
+    }
+  ],
+  "capabilityEvidence": [
+    {
+      "capabilityId": "business-calendar-contract",
+      "available": false,
+      "evidenceDigest": "a5a34cd470d2cdbb05280dfa528f2c9322eb755db65afd348bec6509ac74c05f",
+      "checkedAt": "2026-08-05T09:23:21.483Z"
+    },
+    {
+      "capabilityId": "registration-license-authoritative-verification",
+      "available": false,
+      "evidenceDigest": "4a8c9ce325909b795b320e5f561260887da6b8cccac5009f004a56d6f0d868fe",
+      "checkedAt": "2026-08-05T09:23:21.483Z"
+    },
+    {
+      "capabilityId": "registration-phone-secret-reference",
+      "available": true,
+      "evidenceDigest": "773d0ef364402b7ed8e0d853ed3b52b86c471095d9cf87c8080de80dec6bc879",
+      "checkedAt": "2026-08-05T09:23:21.483Z"
+    }
+  ],
+  "selectorEvidenceDigests": [
+    "080f99e38154842d1264777738e93fd5d609dccce52bc287dcf8eaa938305ae2",
+    "5dfb4bd6c8c650a58634b5e77e618ac53ca4500afeaae1aa44cf14e4c5ab0537",
+    "766b6daad51e17c3bf2b065713d663df43bf88f1fb3580aec71f86febcf26e4b",
+    "7f8468d556c057148d26e897b8b6b8abcef92566f6e44bd207f355af212f40aa"
+  ],
+  "scriptReview": {
+    "level": "strict",
+    "evidenceDigests": [
+      "263566b036c3ec7b16f61d583dd5b8433480bc1a03d94d87af620f4745cb566c",
+      "fccc34e06bb92e669ecbda7a7de41dea5877dcd4f5811713686467cb0500e16d"
+    ]
+  },
+  "readinessDigest": "da6e17141319eb5a83d4eaf66ab1edbd126910a75767ca65f3de405381b8557c",
+  "digest": "b6e4537931d53e05fc9a9c128b24380dea5883ee924dbe0fab87325a2de9fc68",
+  "callbackId": "execution-authorization-b6e4537931d5",
+  "createdAt": "2026-08-05T09:23:14.153Z"
+}

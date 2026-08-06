@@ -106,16 +106,19 @@ export class RuntimeLeaseStore {
 
   async read(): Promise<WorkflowRuntimeState | null> {
     if (!existsSync(this.runtimePath)) return null;
-    const parsed = JSON.parse(await readFile(this.runtimePath, "utf8")) as WorkflowRuntimeState;
+    const parsed = JSON.parse(await readFile(this.runtimePath, "utf8")) as
+      | WorkflowRuntimeState
+      | { schemaVersion: string };
     // Runtime is disposable coordination state. A v1 snapshot cannot fence
     // v4 workflow work and is deliberately ignored so the next mutation
     // recreates a clean v2 snapshot from durable history.
     if (parsed.schemaVersion === LEGACY_RUNTIME_SCHEMA_VERSION) return null;
     // Runtime data is disposable. Missing reviewer host bindings are upgraded
     // only in memory; business state remains exclusively event-derived.
-    parsed.reviewerBindings ??= {};
-    validateRuntime(parsed, this.requestId);
-    return parsed;
+    const runtime = parsed as WorkflowRuntimeState;
+    runtime.reviewerBindings ??= {};
+    validateRuntime(runtime, this.requestId);
+    return runtime;
   }
 
   async initialize(expectedRevision = 0): Promise<WorkflowRuntimeState> {
@@ -185,10 +188,15 @@ export class RuntimeLeaseStore {
     validateRuntimeKey(input.activityId, "activityId");
     validateRuntimeKey(input.batchId, "batchId");
     validateRuntimeKey(input.role, "role");
-    if (!input.agentTaskId.trim() || input.agentTaskId.length > 512) {
+    if (
+      typeof input.agentTaskId !== "string"
+      || !input.agentTaskId.trim()
+      || input.agentTaskId.length > 512
+    ) {
       throw new Error("agentTaskId must be a non-empty runtime-only identifier.");
     }
     return this.mutate((runtime) => {
+      assertReviewerTaskIsIsolated(runtime, input.agentTaskId);
       const timestamp = new Date().toISOString();
       const existing = runtime.reviewerBindings[input.bindingId];
       if (existing && (
@@ -212,6 +220,48 @@ export class RuntimeLeaseStore {
         updatedAt: timestamp
       };
     });
+  }
+
+  async assertReviewerTaskIsIsolated(agentTaskId: string): Promise<void> {
+    if (
+      typeof agentTaskId !== "string"
+      || !agentTaskId.trim()
+      || agentTaskId.length > 512
+    ) {
+      throw new Error("agentTaskId must be a non-empty runtime-only identifier.");
+    }
+    const normalized = agentTaskId.trim();
+    const runtime = await this.read();
+    if (runtime) assertReviewerTaskIsIsolated(runtime, normalized);
+  }
+
+  async requireReviewerBinding(input: {
+    bindingId: string;
+    activityId: string;
+    batchId: string;
+    role: string;
+    agentTaskId: string;
+    status: RuntimeReviewerBinding["status"];
+  }): Promise<RuntimeReviewerBinding> {
+    await this.assertReviewerTaskIsIsolated(input.agentTaskId);
+    const binding = (await this.read())?.reviewerBindings[input.bindingId];
+    if (!binding) {
+      throw new WorkflowRuntimeConflictError(
+        `Reviewer binding ${input.bindingId} is missing; rebind the reviewer before submission.`
+      );
+    }
+    if (
+      binding.activityId !== input.activityId
+      || binding.batchId !== input.batchId
+      || binding.role !== input.role
+      || binding.agentTaskId !== input.agentTaskId.trim()
+      || binding.status !== input.status
+    ) {
+      throw new WorkflowRuntimeConflictError(
+        `Reviewer binding ${input.bindingId} does not match the isolated reviewer submission.`
+      );
+    }
+    return binding;
   }
 
   async removeReviewerBinding(bindingId: string): Promise<WorkflowRuntimeState> {
@@ -653,6 +703,21 @@ export class RuntimeLeaseStore {
         // Never remove a lock that is missing or belongs to another process.
       }
     }
+  }
+}
+
+function assertReviewerTaskIsIsolated(
+  runtime: WorkflowRuntimeState,
+  agentTaskId: string
+): void {
+  const normalized = agentTaskId.trim();
+  if (
+    runtime.sessionBinding?.sessionId === normalized
+    || runtime.sessionBinding?.targetThreadId === normalized
+  ) {
+    throw new WorkflowRuntimeConflictError(
+      "Reviewer task must be isolated from the bound primary session and thread."
+    );
   }
 }
 

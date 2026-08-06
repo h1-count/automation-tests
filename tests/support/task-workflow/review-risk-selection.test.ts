@@ -6,7 +6,7 @@ import {
 } from "../../../src/support/task-workflow/reviewPolicy.js";
 import { buildWorkflowDefinition } from "../../../src/support/task-workflow/definition.js";
 
-test("light profile uses one combined reviewer for a bounded read-only plan", () => {
+test("light profile uses deterministic checks without a model reviewer", () => {
   const selection = deriveReviewRiskSelection({
     planText: [
       "# Login visibility",
@@ -29,7 +29,7 @@ test("light profile uses one combined reviewer for a bounded read-only plan", ()
   });
 
   assert.equal(selection.profile, "light");
-  assert.deepEqual(selection.recommendedRoles, ["combined"]);
+  assert.deepEqual(selection.recommendedRoles, []);
   assert.deepEqual(selection.reasons, [
     "bounded_structure:req=1;rule=1;case=1;capabilities=1;packages=1"
   ]);
@@ -50,7 +50,9 @@ test("new workflow definitions pin the selected risk profile and reviewer reason
   });
 
   assert.equal(definition.reviewPolicy?.riskProfile, "light");
-  assert.deepEqual(definition.reviewPolicy?.requiredRoles, ["combined"]);
+  assert.equal(definition.reviewPolicy?.schemaVersion, "review-policy-v2");
+  assert.equal(definition.reviewPolicy?.mode, "deterministic_only");
+  assert.deepEqual(definition.reviewPolicy?.requiredRoles, []);
   assert.deepEqual(definition.reviewPolicy?.selectionReasons, [
     "bounded_structure:req=1;rule=1;case=1;capabilities=1;packages=1"
   ]);
@@ -58,11 +60,22 @@ test("new workflow definitions pin the selected risk profile and reviewer reason
     definition.activities
       .filter((activity) => activity.kind === "review")
       .map((activity) => activity.metadata?.role),
-    ["combined"]
+    []
+  );
+  assert.equal(
+    definition.activities.find((activity) => activity.id === "readiness")
+      ?.metadata?.readinessPolicyVersion,
+    "execution-readiness-v1"
+  );
+  assert.deepEqual(
+    definition.activities
+      .filter((activity) => activity.id === "readiness")
+      .map((activity) => activity.id),
+    ["readiness"]
   );
 });
 
-test("standard profile selects requirements and design from structural complexity", () => {
+test("standard profile selects one combined reviewer from structural complexity", () => {
   const selection = deriveReviewRiskSelection({
     planText: [
       "| REQ-READ-001 | 页面 A |",
@@ -75,7 +88,7 @@ test("standard profile selects requirements and design from structural complexit
   });
 
   assert.equal(selection.profile, "standard");
-  assert.deepEqual(selection.recommendedRoles, ["requirements", "design"]);
+  assert.deepEqual(selection.recommendedRoles, ["combined"]);
   assert.deepEqual(selection.reasons, ["multiple_case_packages:2"]);
 });
 
@@ -95,16 +108,16 @@ test("strict profile records stable markers and selects impact review", () => {
   });
 
   assert.equal(selection.profile, "strict");
-  assert.deepEqual(selection.recommendedRoles, ["requirements", "design", "impact"]);
+  assert.deepEqual(selection.recommendedRoles, ["combined", "impact"]);
   assert.deepEqual(selection.reasons, [
-    "writes_data",
     "device_capability:iot",
     "plan_marker:otp",
-    "plan_marker:upload",
     "plan_marker:permission",
     "plan_marker:security_challenge",
     "case_package_marker:device",
-    "case_package_marker:security"
+    "case_package_marker:security",
+    "writes_data",
+    "plan_marker:upload"
   ]);
 });
 
@@ -142,7 +155,7 @@ test("a data write always adds impact to normalized explicit roles", () => {
   });
 
   assert.deepEqual(policy.requiredRoles, ["design", "requirements", "impact"]);
-  assert.equal(policy.riskProfile, "strict");
+  assert.equal(policy.riskProfile, "standard");
 });
 
 test("risk reasons and recommended roles remain de-duplicated and ordered", () => {
@@ -166,7 +179,7 @@ test("risk reasons and recommended roles remain de-duplicated and ordered", () =
   });
 
   assert.deepEqual(first, second);
-  assert.deepEqual(first.recommendedRoles, ["requirements", "design", "impact"]);
+  assert.deepEqual(first.recommendedRoles, ["combined", "impact"]);
   assert.deepEqual(first.reasons, [
     "plan_marker:otp",
     "case_package_marker:otp"

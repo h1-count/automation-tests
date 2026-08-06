@@ -134,25 +134,30 @@ const submitButton = page.locator(
 );
 ```
 
-## 8. Codex 生成与修复 selector 的流程
+## 8. Agent 生成与修复 selector 的流程
 
 1. 先读取已有 action、Page Object、fixture 和相似测试，优先复用现有稳定 selector。
-2. 对 Web/H5 先做风险判定。页面语义或状态变化尚未观察、目标 locator 唯一性不足、旧 selector/脚本与当前页面证据不一致，或现有证据不足以支持稳定实现时，必须展开可见探索；同版本、同页面状态且已有可校验证据时可以复用并记录依据。测试类型本身不能触发通用 Inspector 门禁。
-3. 需要探索时，同时显示专用 Chrome 与 Playwright Inspector，在 Inspector 中读取目标区域的 DOM、ARIA 无障碍树和必要的脱敏网络摘要，并从 role/name/state、label 和可见语义生成候选 selector。App 使用 Appium Inspector 信息。
-4. 对每个候选 selector 验证唯一匹配、可操作性和业务语义。脱敏探索证据卡记录探索时间、页面路径与状态、目标区域的 ARIA 摘要、候选 locator、匹配数量、稳定性限制、必要的网络方法/路径/状态摘要、关联 `caseId`、未解决问题和零写入结论；敏感信息与采集边界按[环境规范](./environment-guideline.md#61-运行模式)处理。风险触发后无法显示 Inspector 与受管 Chrome、未读取所需语义或未证明候选唯一时，不得把探索标为完成。
-5. Web/H5 缺少唯一语义时，优先收敛到稳定的 `data-testid`；仍无法唯一定位时才使用唯一文本或受限 XPath，并记录补充 ARIA 或 `data-testid` 的改进项。不得仅因此长期跳过用例。
-6. 只有页面不可访问、候选定位均不唯一且无法通过业务容器收敛，或探索会触发未经确认的外部操作时，才请求人工补充信息或决策。
-7. 将 selector、接口契约或可测试性缺口回链到 `plan.md` 工程层区块中的 `caseId` 映射；候选 selector 必须保留其可访问性语义、唯一性结果和稳定性限制。生成或修复脚本后，先输出 diff、影响用例和风险，待用户审核后再执行。
+2. 先从与目标环境版本对应的路由、页面组件、直接状态依赖和测试契约推导 selector。只有同时满足以下条件，才能把源码证据标为 `source_verified`：业务容器明确；accessible name 或稳定 test id 可确定；与目标状态有关的条件分支已覆盖；候选 selector 在目标作用域内唯一；不存在未解析的 iframe、Shadow DOM、Portal、国际化、权限或运行时名称分支。源码只证明工程实现，不替代已确认业务预期。
+3. `source_verified` 已足以生成候选脚本，不必等待目标环境验证。`readiness` 再使用 `npm run test:web:verify-selectors -- <*.selector-verify.spec.ts>` 自动执行无头零写入验证；未部署目标构建或运行时证据暂不可用只使受影响 case deferred，不得改写候选正文。验证脚本必须使用受保护的 Web fixture，检查匹配数量为 1、可见性、accessible name/state，并用 `click({ trial: true })` 检查可操作性；不得派发真实业务动作。缓存键必须同时包含目标构建摘要、路由/页面状态、selector contract 摘要、locale 和 role；键完全一致且缓存仍有效时才可跳过浏览器。源码或构建变化后缓存立即失效。同一路由与页面状态的候选应聚合到一次无头运行，不得按 case 重复启动浏览器。通过后标为 `runtime_verified`。
+4. 单纯存在页面状态迁移不能触发可见 Inspector。只有源码契约无法收敛、无头验证出现多匹配或不可达、源码与目标环境运行时不一致，或动态语义无法静态确定时，才使用 `test:web:inspect` 或 `test:web:explore:reuse:inspect`。此时同时显示专用 Chrome 与 Playwright Inspector，读取目标区域的 DOM、ARIA 无障碍树和必要的脱敏网络摘要；App 与 WebView 原生 context 仍使用 Appium Inspector。
+5. 无头或可见探索证据卡只覆盖真实可达状态，记录证据等级、源码版本、页面路径与状态、目标区域 ARIA 摘要、候选 locator、匹配数量、trial 可操作性、稳定性限制、必要的脱敏网络方法/路径/状态摘要、关联 `caseId`、`reachableBoundary`、被阻止操作和未解决问题。不得把未到达的保存、注册、提交、上传或创建资源后的页面写成已验证。
+6. 探索不得点击保存、注册、提交、发送验证码、上传或创建资源；网络阻断只是防御措施，不能把危险点击当作探测手段。本地 mock、组件 fixture 或预置只读状态可以用于验证下游。需要 API/fixture 创建远端状态时，只能进入已确认执行清单后的正式 setup。
+7. 写入边界导致下游无法在探索阶段到达，但源码和状态契约足以生成实现时，可以登记 `runtime_validation_pending` 正式脚本；工程证据必须写明 `reachableBoundary` 和待正式执行验证范围。正式执行发现 selector 或状态契约不成立时按脚本问题重开现有工程范围，不能归类为产品失败或沿用旧执行清单。
+8. Web/H5 缺少唯一语义时，优先收敛到稳定的 `data-testid`；仍无法唯一定位时才使用唯一文本或受限 XPath，并记录补充 ARIA 或 `data-testid` 的改进项。只有页面不可访问、候选均不唯一且无法通过业务容器收敛，或缺少生成脚本所需的状态契约时，才请求人工补充信息或决策。
+9. 将 selector、接口契约、证据等级、可达边界或可测试性缺口回链到 `plan.md` 工程层区块中的 `caseId` 映射。生成或修复脚本后，先输出 diff、影响用例和风险，待用户审核后再执行。
 
 ## 9. 审核清单
 
 审核新增或修改 selector 时，确认：
 
 - Web/H5 是否优先使用 `role/name/state > label > data-testid > text > XPath`；App 是否优先使用 accessibility ID。
-- Web/H5 是否完成风险判定；风险触发时，正式 selector 是否具有可见 Inspector 探索证据，并能回链到目标区域的脱敏 ARIA 摘要和唯一性结果。
+- Web/H5 是否按 `source_verified → runtime_verified → visible Inspector fallback` 选择最小证据强度；`state_transition` 是否未被单独当作 Inspector 触发器。
 - 是否唯一匹配目标元素，且不依赖位置、坐标、动态 class 或列表索引。
 - 是否与业务动作或断言语义一致。
 - 是否复用了已有 action 或已有稳定 selector。
+- 无头验证是否只使用 trial actionability，探索证据是否只声明 `reachableBoundary` 以内的状态。
+- selector 缓存是否绑定目标构建、路由/状态、contract、locale 和 role；是否按页面状态聚合验证并在任一输入变化后失效。
+- 写入边界后的脚本是否标记 `runtime_validation_pending`，且远端状态准备留在执行授权后的正式 setup。
 - XPath 是否有明确原因、限制范围和后续替代计划。
 - WebView 是否先正确切换 context。
 - selector 变更是否运行了最相关的测试，并保留失败证据或验证结果。

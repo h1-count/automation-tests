@@ -144,6 +144,91 @@ test("reuses only a validated local resource in the same project and environment
   assert.equal(acquired?.state, "leased");
 });
 
+test("promotes a synthetic resource and leases it across independent requests", async (context) => {
+  const { root, manager } = await createHarness();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const producer = await manager.startRun({
+    projectId,
+    envId,
+    suiteId: "web/open-platform/registration",
+    caseIds: [caseId],
+    dataWritePolicy: "reusable_fixture",
+    authorizationDigest: "c".repeat(64),
+    writeBudget: { tenant: 1 }
+  });
+  await manager.registerCreatedResource({
+    resourceId: "synthetic-enterprise-001",
+    resourceType: "tenant",
+    projectId,
+    envId,
+    runId: producer.runId,
+    caseId,
+    reusable: true,
+    metadata: { alias: "autotest-enterprise" }
+  });
+  const promoted = await manager.promoteReusableResource({
+    resourceId: "synthetic-enterprise-001",
+    requestId: "web/open-platform/registration",
+    caseId,
+    syntheticKey: "autotest-enterprise-001",
+    baselineContractId: "enterprise-active-v1",
+    baselineVersion: "1",
+    leaseMode: "exclusive",
+    maxPoolSize: 2
+  });
+  assert.equal(promoted.state, "available");
+  assert.equal(promoted.pool?.producerRequestId, "web/open-platform/registration");
+
+  const consumer = await manager.startRun({
+    projectId,
+    envId,
+    suiteId: "web/open-platform/crud",
+    caseIds: [caseId],
+    dataWritePolicy: "no_write",
+    authorizationDigest: "d".repeat(64)
+  });
+  const leased = await manager.leaseReusableResource({
+    runId: consumer.runId,
+    projectId,
+    envId,
+    resourceType: "tenant",
+    baselineContractId: "enterprise-active-v1",
+    leaseMode: "exclusive",
+    caseId
+  });
+  assert.equal(leased?.state, "leased");
+  await manager.releaseReusableResource({
+    resourceId: leased!.resourceId,
+    runId: consumer.runId,
+    baselineRestored: true
+  });
+  assert.equal((await manager.store.readResource(leased!.resourceId))?.state, "available");
+});
+
+test("quarantines a reusable fixture when its baseline cannot be restored", async (context) => {
+  const { root, manager } = await createHarness();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const run = await createRun(manager);
+  await registerProduct(manager, run.runId, "local-product-quarantine");
+  const leased = await manager.acquireResource({
+    runId: run.runId,
+    projectId,
+    envId,
+    resourceType: "product",
+    leaseMode: "exclusive",
+    caseId
+  });
+  await manager.releaseReusableResource({
+    resourceId: leased!.resourceId,
+    runId: run.runId,
+    baselineRestored: false,
+    reason: "Baseline restore verification failed."
+  });
+  const quarantined = await manager.store.readResource(leased!.resourceId);
+  assert.equal(quarantined?.state, "dirty");
+  assert.equal(quarantined?.dirty, true);
+});
+
 test("rejects resources whose owner or machine does not match", async (context) => {
   const { root, manager } = await createHarness();
   context.after(() => rm(root, { recursive: true, force: true }));
@@ -183,13 +268,15 @@ test("refuses to clean a resource outside the local ledger", async (context) => 
   await assert.rejects(() => manager.markCleanupPending("not-in-ledger"), /not present/);
 });
 
-test("records an unregistered cleanup action as manual_required", async (context) => {
+test("allows externally verified cleanup without inventing a cleanup provider", async (context) => {
   const { root, manager } = await createHarness();
   context.after(() => rm(root, { recursive: true, force: true }));
   const run = await createRun(manager);
   const resource = await registerProduct(manager, run.runId, "local-product-003", false, "missing-action");
-  assert.equal(resource.state, "manual_required");
+  assert.equal(resource.state, "available");
   assert.equal(resource.cleanupActionId, undefined);
+  await manager.recordResourceRestored(resource.resourceId);
+  assert.equal((await manager.store.readResource(resource.resourceId))?.state, "cleaned");
 });
 
 test("marks a successful cleanup as cleaned", async (context) => {
@@ -298,6 +385,48 @@ test("tracked residual creates a retained resource with a default 72-hour TTL", 
   const summary = await manager.summarizeRun(run.runId);
   assert.equal(summary.retained, 1);
   assert.equal(summary.dataHygieneStatus, "retained");
+});
+
+test("an unapproved reusable candidate becomes a bounded tracked residual", async (context) => {
+  const { root, manager } = await createHarness();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const pendingCaseId = "CASE-REUSABLE-PENDING";
+  const run = await manager.startRun({
+    projectId,
+    envId,
+    caseIds: [pendingCaseId],
+    dataWritePolicy: "reusable_fixture",
+    caseWritePolicies: { [pendingCaseId]: "reusable_fixture" },
+    caseAllowedWritePolicies: {
+      [pendingCaseId]: ["reusable_fixture", "tracked_residual"]
+    },
+    authorizationDigest: "c".repeat(64),
+    writeBudget: { tenant: 1 }
+  });
+  const intent = await manager.reserveCreateIntent({
+    runId: run.runId,
+    projectId,
+    envId,
+    caseId: pendingCaseId,
+    resourceType: "tenant",
+    syntheticKey: "pending-tenant-001",
+    expectedOutcome: "create"
+  });
+  await manager.markIntentCreating(intent.intentId);
+  const resource = await manager.confirmCreatedResource({
+    intentId: intent.intentId,
+    resourceId: "pending-tenant-resource-001",
+    reusable: false,
+    metadata: { syntheticKey: "pending-tenant-001", state: "pending" }
+  });
+  const retained = await manager.retainTrackedResidual(
+    resource.resourceId,
+    "Authoritative approval is pending."
+  );
+  assert.equal(retained.dataWritePolicy, "tracked_residual");
+  assert.equal(retained.state, "retained");
+  assert.equal(retained.reusable, false);
+  assert.ok(retained.expiresAt);
 });
 
 test("no_write rejects create intents and resource budgets are enforced atomically", async (context) => {

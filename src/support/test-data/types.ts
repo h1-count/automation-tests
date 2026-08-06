@@ -1,6 +1,16 @@
 export const localAutomationOwner = "local-automation-test" as const;
 
-export type DataWritePolicy = "no_write" | "managed_cleanup" | "tracked_residual";
+export type DataWritePolicy =
+  | "no_write"
+  | "ephemeral_cleanup"
+  | "reusable_fixture"
+  | "tracked_residual"
+  /** @deprecated Legacy ledger and workflow compatibility. */
+  | "managed_cleanup";
+
+export type CanonicalDataWritePolicy = Exclude<DataWritePolicy, "managed_cleanup">;
+export type ResourceLeaseMode = "shared_read" | "exclusive";
+export type ResourceRetirementPolicy = "validate_quarantine_replace";
 
 export type TestResourceType =
   | "account"
@@ -26,11 +36,17 @@ export type TestResourceState =
   | "manual_required"
   | "retained"
   | "quarantined"
+  | "retired"
   | "expired";
 
 export type TestRunStatus = "running" | "passed" | "failed" | "interrupted" | "recovered";
 export type FunctionalStatus = "passed" | "failed" | "blocked" | "interrupted";
-export type DataHygieneStatus = "clean" | "retained" | "cleanup_failed" | "manual_required";
+export type DataHygieneStatus =
+  | "clean"
+  | "reusable"
+  | "retained"
+  | "cleanup_failed"
+  | "manual_required";
 
 export type CreateIntentStatus =
   | "planned"
@@ -78,11 +94,29 @@ export interface TestResourceRecord {
     checkedAt: string;
     message?: string;
   };
+  pool?: {
+    baselineContractId: string;
+    baselineVersion: string;
+    syntheticKey: string;
+    producerRequestId: string;
+    producerCaseId: string;
+    leaseMode: ResourceLeaseMode;
+    maxPoolSize: number;
+    retirementPolicy: ResourceRetirementPolicy;
+    revision: number;
+    promotedAt: string;
+  };
   lease?: {
     runId: string;
     caseId?: string;
     acquiredAt: string;
   };
+  leases?: Array<{
+    runId: string;
+    caseId?: string;
+    mode: ResourceLeaseMode;
+    acquiredAt: string;
+  }>;
   reuseCount: number;
   stateHistory: ResourceStateEvent[];
 }
@@ -96,6 +130,9 @@ export interface TestDataSummary {
   cleanupFailed: number;
   manualRequired: number;
   retained: number;
+  reusableAvailable: number;
+  quarantined: number;
+  retired: number;
   expiredResidual: number;
   dirty: number;
   functionalStatus?: FunctionalStatus;
@@ -134,6 +171,8 @@ export interface TestRunRecord {
   functionalStatus?: FunctionalStatus;
   dataHygieneStatus?: DataHygieneStatus;
   dataWritePolicy: DataWritePolicy;
+  caseWritePolicies?: Record<string, DataWritePolicy>;
+  caseAllowedWritePolicies?: Record<string, DataWritePolicy[]>;
   authorizationDigest?: string;
   writeBudget: Partial<Record<TestResourceType, number>>;
   residualTtlHours: number;
@@ -186,6 +225,8 @@ export interface StartRunInput {
   suiteId?: string;
   caseIds?: string[];
   dataWritePolicy?: DataWritePolicy;
+  caseWritePolicies?: Record<string, DataWritePolicy>;
+  caseAllowedWritePolicies?: Record<string, DataWritePolicy[]>;
   authorizationDigest?: string;
   writeBudget?: Partial<Record<TestResourceType, number>>;
   residualTtlHours?: number;
@@ -197,11 +238,32 @@ export interface AcquireResourceRequest {
   envId: string;
   projectId: string;
   caseId?: string;
+  baselineContractId?: string;
+  leaseMode?: ResourceLeaseMode;
   reusable?: boolean;
   createIfMissing?: boolean;
   metadata?: Record<string, unknown>;
   cleanupActionId?: string;
   expiresAt?: string;
+}
+
+export interface PromoteReusableResourceInput {
+  resourceId: string;
+  requestId: string;
+  caseId: string;
+  syntheticKey: string;
+  baselineContractId: string;
+  baselineVersion: string;
+  leaseMode: ResourceLeaseMode;
+  maxPoolSize: number;
+  retirementPolicy?: ResourceRetirementPolicy;
+}
+
+export interface ReleaseReusableResourceInput {
+  resourceId: string;
+  runId: string;
+  baselineRestored: boolean;
+  reason?: string;
 }
 
 export interface RegisterCreatedResourceInput {
@@ -227,6 +289,7 @@ export interface ReserveCreateIntentInput {
   resourceType: TestResourceType;
   syntheticKey: string;
   expectedOutcome?: "create" | "reject";
+  dataWritePolicy?: DataWritePolicy;
   cleanupActionId?: string;
   expiresAt?: string;
   evidence?: TestDataEvidence[];

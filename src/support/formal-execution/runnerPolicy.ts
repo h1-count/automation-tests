@@ -1,15 +1,22 @@
-import { inspectFormalSpecSource } from "./sourceGate.js";
+import { inspectFormalSpecSources } from "./sourceGate.js";
 import type { ExecutionAuthorizationSnapshot } from "./authorization.js";
+import type { FormalExecutionManifest } from "./types.js";
 import type { WorkflowProjection } from "../task-workflow/types.js";
 
 export type FormalWorkerCount = 1 | 2;
 
 export function formalWorkerCount(
   projection: WorkflowProjection,
-  authorization: Pick<ExecutionAuthorizationSnapshot, "dataWritePolicy">
+  authorization: Pick<ExecutionAuthorizationSnapshot, "dataWritePolicy" | "caseScopes">
 ): FormalWorkerCount {
-  const configured = projection.activities.execute?.definition.metadata?.maxWorkers;
-  return authorization.dataWritePolicy === "no_write" && configured === 2 ? 2 : 1;
+  const configured = (
+    projection.activities.run
+    ?? projection.activities.execute
+  )?.definition.metadata?.maxWorkers;
+  const allReadOnly = authorization.caseScopes?.length
+    ? authorization.caseScopes.every((scope) => scope.permissionProfile === "read_only")
+    : authorization.dataWritePolicy === "no_write";
+  return allReadOnly && configured === 2 ? 2 : 1;
 }
 
 export function parseFormalWorkerCount(value: string | undefined): FormalWorkerCount {
@@ -18,15 +25,27 @@ export function parseFormalWorkerCount(value: string | undefined): FormalWorkerC
   throw new Error("PLAYWRIGHT_FORMAL_WORKERS must be 1 or 2.");
 }
 
+export function interactiveOtpCaseIds(
+  manifest: Pick<FormalExecutionManifest, "cases">,
+  selectedCaseIds: readonly string[]
+): string[] {
+  const selected = new Set(selectedCaseIds);
+  return manifest.cases.flatMap((definition) =>
+    selected.has(definition.caseId)
+    && definition.operationEvidence?.some((evidence) =>
+      evidence.operation === "send_test_otp" && evidence.strategy === "ui_state"
+    )
+      ? [definition.caseId]
+      : []
+  ).sort();
+}
+
 export function assertFormalSpecSources(
   sources: Array<{ path: string; source: string }>,
   expectedCaseIds: string[]
 ): void {
   if (!sources.length) throw new Error("Formal Runner found no formal spec sources.");
-  const inspection = inspectFormalSpecSource(
-    sources.map(({ path, source }) => `// ${path}\n${source}`).join("\n"),
-    expectedCaseIds
-  );
+  const inspection = inspectFormalSpecSources(sources, expectedCaseIds);
   if (inspection.issues.length) {
     throw new Error(`Formal source gate failed: ${inspection.issues.join(" ")}`);
   }

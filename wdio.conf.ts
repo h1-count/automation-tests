@@ -1,6 +1,6 @@
 import "dotenv/config";
-import type { Options } from "@wdio/types";
-import { resolveTestEnvironment } from "./src/env/testEnvironment";
+import type { Capabilities, Options } from "@wdio/types";
+import { resolveTestEnvironment } from "./src/env/testEnvironment.js";
 
 const appPath = optionalEnvironmentValue("APPIUM_APP_PATH");
 const appPackage = optionalEnvironmentValue("APPIUM_APP_PACKAGE");
@@ -20,7 +20,7 @@ if (!appPath && (!appPackage || !appActivity)) {
   );
 }
 
-export const config: Options.Testrunner = {
+export const config: Options.Testrunner & Capabilities.WithRequestedTestrunnerCapabilities = {
   runner: "local",
   specs: ["./tests/app/**/*.spec.ts"],
   maxInstances: 1,

@@ -23,11 +23,36 @@ function parseBoolean(value: string | undefined, name: string, fallback: boolean
   throw new Error(`${name} must be true or false.`);
 }
 
-function stopHookEnvelope(
-  gate: WorkflowGateView,
-  stopHookActive: boolean
+interface HostContinuationDirective {
+  schemaVersion: "workflow-host-continuation-v1";
+  action: "continue" | "allow_stop";
+  reason: string;
+  recursiveGuard?: boolean;
+}
+
+function legacyStopAdapterEnvelope(
+  directive: HostContinuationDirective
 ): Record<string, unknown> {
-  if (isSafeWorkflowReply(gate)) return {};
+  if (directive.action === "continue") {
+    return { decision: "block", reason: directive.reason };
+  }
+  if (directive.recursiveGuard === true) {
+    return { continue: false, stopReason: directive.reason };
+  }
+  return {};
+}
+
+function hostContinuationDirective(
+  gate: WorkflowGateView,
+  adapterActive: boolean
+): HostContinuationDirective {
+  if (isSafeWorkflowReply(gate)) {
+    return {
+      schemaVersion: "workflow-host-continuation-v1",
+      action: "allow_stop",
+      reason: gate.reply.reason
+    };
+  }
   const reason = [
     `测试工作流 ${gate.requestId} 尚未到达安全回复点`,
     `state=${gate.workflowState}`,
@@ -36,19 +61,29 @@ function stopHookEnvelope(
     `next=${gate.nextActions.join(",") || "none"}`,
     "继续同一请求并先运行 task:resume；不得宣称工作流完成"
   ].join("；");
-  if (stopHookActive) {
+  if (adapterActive) {
     return {
-      continue: false,
-      stopReason: `${reason}。Stop Hook continuation 已使用，本次保持只读并停止递归 continuation。`
+      schemaVersion: "workflow-host-continuation-v1",
+      action: "allow_stop",
+      recursiveGuard: true,
+      reason: `${reason}。宿主 continuation 已使用，本次保持只读并停止递归 continuation。`
     };
   }
   if (
     !gate.checkpoint.safe
     || ["continue_now", "await_event", "wait_until"].includes(gate.continuation.kind)
   ) {
-    return { decision: "block", reason };
+    return {
+      schemaVersion: "workflow-host-continuation-v1",
+      action: "continue",
+      reason
+    };
   }
-  return {};
+  return {
+    schemaVersion: "workflow-host-continuation-v1",
+    action: "allow_stop",
+    reason
+  };
 }
 
 async function main(): Promise<void> {
@@ -61,13 +96,20 @@ async function main(): Promise<void> {
     );
   }
   const gate = await manager.gate();
-  if (args.includes("--hook")) {
-    const stopHookActive = parseBoolean(
-      option(args, "--stop-hook-active"),
-      "--stop-hook-active",
+  const legacyStopAdapter = args.includes("--hook");
+  if (args.includes("--host-continuation") || legacyStopAdapter) {
+    const adapterActive = parseBoolean(
+      option(
+        args,
+        legacyStopAdapter ? "--stop-hook-active" : "--host-continuation-active"
+      ),
+      legacyStopAdapter ? "--stop-hook-active" : "--host-continuation-active",
       false
     );
-    process.stdout.write(`${JSON.stringify(stopHookEnvelope(gate, stopHookActive))}\n`);
+    const directive = hostContinuationDirective(gate, adapterActive);
+    process.stdout.write(`${JSON.stringify(
+      legacyStopAdapter ? legacyStopAdapterEnvelope(directive) : directive
+    )}\n`);
   } else {
     process.stdout.write(
       `${args.includes("--json") ? JSON.stringify(gate) : workflowStatusText(gate)}\n`

@@ -191,25 +191,35 @@ Web 自动化每次运行必须选择且只能选择一种模式：
 
 | 模式 | 目的 | 浏览器与会话 | 业务写入预算 |
 | --- | --- | --- | --- |
-| `explore` | 通过 Inspector、ARIA/DOM、页面结构、安全导航和网络结构补齐定位与可执行性证据。 | 本机交互式探索同时显示专用 Chrome 与 Playwright Inspector；允许复用专用调试会话。 | 固定为 `0`。 |
-| `execute` | 在脚本评审和统一执行清单确认后形成正式测试结果。 | 使用与探索隔离的唯一可见 BrowserServer；按 `PageSessionGroup` 复用或隔离 Context/Page。 | 只允许执行清单中的资源类型和数量。 |
+| `explore` | 对源码推导的 selector 做无头验证，并在证据不足时通过 Inspector 补齐 ARIA/DOM、页面结构、安全导航和网络结构证据。 | 默认使用独立无头验证；只有定位规范的 fallback 条件成立时才显示专用 Chrome 与 Playwright Inspector，并可复用专用调试会话。 | 固定为 `0`。 |
+| `execute` | 在 readiness 和统一执行清单确认后形成正式测试结果。 | 默认无头；可共享 Runner 持有的 BrowserServer，但每个 case 使用独立 Context/Page，只有受控 `PageSessionGroup` 可复用。 | 只允许执行清单中的资源类型和数量。 |
 
+- `explore` 内部顺序固定为源码契约分析、`test:web:verify-selectors` 无头验证、必要时可见 Inspector fallback；三者不形成新的工作流状态或用户确认。
 - `explore` 默认阻止 `POST`、`PUT`、`PATCH`、`DELETE`。只有明确登记且整条 URL 精确匹配的无副作用查询接口可例外放行。
-- 探索时不得发送验证码、上传文件、提交表单、创建或删除资源、控制设备；探索产物的结果资格只按[报告规范](./report-guideline.md#2-报告原则)判定。
+- 探索时不得点击或触发保存、注册、提交、发送验证码、上传文件、创建或删除资源、控制设备；网络 guard 只是防御措施，不能把这些操作作为页面探测手段。无头验证仅允许 locator 查询、断言和 `trial` actionability。
+- 本地 mock、组件 fixture 和预置只读状态可以用于探索；会创建远端状态的 API/fixture 必须留在执行清单确认后的正式 setup。零写入无法穿越的边界只记录为 `reachableBoundary`，不能把下游写成已验证。
 - `execute` 中 UI 负责验证被测业务行为；API Client 只用于准备独立数据、后台状态验证和清理，不得替代需要验证的 UI 主路径。
-- 正式执行使用 Playwright project dependencies 组织 `setup → test → teardown → report`。每个 worker 使用独立账号或数据命名空间。
+- 正式执行由 Runner 事务组织 `能力复核 → 惰性 setup → test/postcondition → finally cleanup/reconcile → report`。未被 runnable case 引用的 fixture 不初始化；每个 case 默认使用独立 Context，每个并行 worker 使用独立账号或数据命名空间。
 - 只有 `no_write` 用例且每个 worker 的 Browser Context、账号、设备和数据命名空间完全隔离时，正式执行才可并行，最多使用 2 个 worker；存在业务写入、设备动作、共享账号/资源或无法证明隔离时必须使用单 worker。文件发布不属于用例 worker 并发范围，始终串行提交。
-- Web 正式 Runner 在一次授权运行内只启动一个可见 Chrome BrowserServer。普通原子用例不得逐条重启 Chrome；Context/Page 的复用和重建必须由下述场景组契约决定。
+- Web 正式 Runner 在一次授权运行内只启动一个 BrowserServer，默认无头，只有显式 `--headed` 调试时可见。普通原子用例不得逐条重启浏览器；Context/Page 默认按 case 新建，复用必须由下述场景组契约明确允许。
 - worker 超时或被中断时，teardown 必须关闭已开始但未提交的原子尝试，并由同一授权的恢复入口继续；结果状态由[报告规范](./report-guideline.md#4-执行结果标准)判定。
-- 正式 setup 生成不含敏感值的能力清单，只保存能力是否可用、受影响 `caseId` 和解除条件。能力不足不得改变无关用例的环境前置；受影响用例的结果分类由报告规范判定。
-- 跨用例前置以命名运行资源声明生产者和消费者。下游只依据资源是否已精确确认决定是否执行，不依据生产者用例最终是 `passed` 还是 `failed`；依赖图必须无环。
+- `readiness` 通过 Capability Provider 生成不含敏感值的能力证据，只保存能力是否可用、证据摘要、受影响 `caseId` 和解除条件；正式 `run` 仅复核清单内 runnable case 的能力。能力不足不得改变无关用例的环境前置。
+- 公开任务 CLI（包括 `task:manage` 的 readiness）启动时自动加载当前工作区 `.env`；已由 shell 或 CI Secret 导出的同名变量保持优先，不被 `.env` 覆盖。需要环境专用文件时使用 `DOTENV_CONFIG_PATH` 指向受控 `.env.*`；能力证据和诊断仍只允许输出变量名摘要与配置布尔值，不得输出原值。
+- 新 v5 候选脚本通过 manifest 声明自己依赖的 capability；脚本只能调用 `runtime.useCapability(capabilityId)` 取得当前 case 已声明、且 readiness 评定可用的 provider 值。已注册 provider 在当前环境不可用时，Runner 在启动 Playwright 前将该 case 标记为 deferred；未注册 provider 在 readiness 直接作为 invalid build input。脚本正文不得保留固定阻断占位。
+- 可编译、可评审的浏览器响应解析契约、`test-assets/manifest.yaml` 中 active 的 Git 静态资产及本地确定性生成器属于 `build`，不得用布尔环境变量伪装成 Capability Provider，也不得要求 `.env` 重复配置资产 ID 或可由需求直接确定的参数。新 manifest 通过 `requiredTestAssetIds` 和 `test_asset` 构建证据冻结资产身份、路径与实际 SHA-256；缺失、范围不匹配或摘要漂移是 `invalid build`。账号、OTP、远端 fixture、异步状态查询、cleanup 和真实 adapter 才是 readiness 检查的运行时能力；`runtime-validation-pending` 只是一种实现状态，不得注册为永久 unavailable 的哨兵 provider，`pendingCapabilityIds` 必须引用真实能力。
+- `requiredCapabilities` 只允许声明 case 当前阶段启动必需的能力。参数矩阵中的可选精确样本、仅影响一个等价类的输入或后续阶段能力必须单独记录，不得把整条 case 延期。资料未定义 KB/MB 等换算口径时，使用对十进制和二进制口径都明确成立的代表值；不执行精确等号与一字节相邻断言，也不增加环境变量索取该口径。
+- Provider 必须在 Runner 注册表中有真实 `check`，脚本需要取值时还必须有 `use`；仅在 manifest 填写名称或 TypeScript 接口不算实现。未注册 Provider 是构建输入错误，readiness 将受影响 case 标为 `invalid`，不输出解除环境条件后可自愈的 `deferred`。
+- UI 可见的结果直接在 Playwright 用例中判断：先用 role/name、label、文本、属性、列表数量、路由和精确浏览器响应；只有纯布局、图表、图像或无稳定结构的组合状态才使用脱敏局部截图和宿主模型 rubric 兜底。截图不得包含密码、OTP、Token、Cookie、手机号或真实业务数据，模型结论不得用于证明不可见的服务端事实。
+- 写入结果优先使用已冻结的业务响应契约；只有异步最终一致性、响应丢失/漂移后的单次 fallback、清理核对或浏览器无法判定结果时才调用后置查询。UI 仍需在存在稳定可见状态时验证前端已消费响应，但视觉、截图和 ARIA 只证明外观或语义，不能证明服务端保存。
+- 密码、OTP、Token 或禁止图像采集的正式 case 必须在执行 manifest 声明 `evidencePolicy: "sensitive"`；runnable 范围只要包含一个敏感 case，Runner 即对整批关闭 screenshot 与 Trace，使用结构化步骤、脱敏断言及安全前后状态替代。
+- 跨用例前置以命名运行资源声明生产者和消费者。依赖关系只允许由 `producesResources → requiredResources` 推导，不得使用 case 编号、文件顺序或平行 `dependsOnCaseIds`；下游只依据资源是否已精确确认决定是否执行，不要求生产者整个 case 已终态，依赖图必须无环。
 - 本机运行键由请求、环境和统一授权摘要稳定派生。worker 或进程重启时复用同一 run、预算、CreateIntent 和已确认资源；已通过用例不重复执行，`creation_unknown` 必须先精确对账。
-- 验证码优先使用测试白名单、固定测试码或测试通道。真实验证码、滑块或其他安全挑战只能最小人工接管，禁止绕过。
+- 验证码优先使用测试白名单、固定测试码或已实现的测试通道。项目没有该通道时，用例可将 `send_test_otp` 声明为 `ui_state` 证据：正式 Runner 必须以 `--headed` 启动同一可见会话，脚本最多发送一次并等待发送成功的倒计时状态，用户只在页面内输入本次验证码，输入完成后脚本自动继续。不得通过对话、命令行、`.env`、Provider、history 或报告传递一次性验证码；等待必须有界，超时后冻结同一 intent 且禁止自动重发。滑块或其他安全挑战仍只能在该可见会话中最小人工接管，禁止绕过。
 - 输入密码、验证码、Cookie、Token 或真实个人数据的步骤必须暂停或遮罩图像类采集，并禁止将原始值写入网络或控制台摘要。证据类型、完整性和通过资格只见 [report-guideline.md](./report-guideline.md#41-逐用例可审计证据包)。
 
 #### 6.1.1 `PageSessionGroup` 与 Context 隔离
 
-未来 Web/H5 工程设计必须为每个正式 `caseId` 记录一个 `PageSessionGroup` 映射；该契约只描述会话与复位事实，不复制业务步骤或报告证据：
+新 Web/H5 `formal-execution-manifest-v2` 必须为每个正式 `caseId` 记录一个 `PageSessionGroup` 映射；该契约只描述会话与复位事实，不复制业务步骤或报告证据：
 
 ```text
 sessionGroupId
@@ -220,28 +230,41 @@ isolationReason
 executionOrder
 ```
 
+- `resetStrategy` 只允许 `preserve_unrelated_fields`、`reload_route` 或 `new_context_per_case`。前两者只适用于 `read_only + no_write`；manifest 只要声明分组，就必须恰好覆盖全部 case，且共享组强制单 worker 顺序执行。
 - 同一路由、同一角色/租户、无远端写入且存在可验证 `resetStrategy` 的字段校验可以组成同一场景组，并顺序复用一个 Context/Page。
-- 同一字段的场景默认按“异常 → 边界 → 正常”排序。每个原子 case 开始前执行并验证复位：清空目标字段、关闭临时提示、恢复依赖字段和页面基线；复位结果不得依赖前一 case 是否通过。
+- `preserve_unrelated_fields` 下，每个 case 只需主动设置并验证自己的目标字段；其他输入框的残值和错误提示不得参与本 case 结论。存在跨字段联动时必须改用 `reload_route` 或独立 Context。
 - 远端写入、认证或验证码、角色/租户切换、跨域状态流以及无法可靠复位的场景必须使用新的 Context/Page，但仍连接同一个 BrowserServer。一个已确认的单 case 端到端旅程可以在其自身 Context/Page 内连续完成。
-- 页面复位失败时，仅当前场景组进入恢复：在同一个 BrowserServer 中重建 Context/Page、重新建立基线并继续尚未执行的独立 case；不得重启 Chrome、重复已通过 case 或把污染扩散为批量失败。
+- 共享 Page 意外关闭、路由偏离或 Playwright 因失败重启 worker 时，仅当前场景组在同一个 BrowserServer 中重建 Context/Page 并继续尚未执行的独立 case；失败现场不承诺长期保留，不得重复已通过 case 或把污染扩散为批量失败。
 - 跨 case 的企业、账号状态、上传或其他业务前置只通过命名运行资源和台账传递；禁止依赖前一页面对象、表单残值或断言结果。
 - `PageSessionGroup` 只影响调度和隔离，不改变“一条正式测试只绑定一个 `caseId`”以及每条 case 独立形成结果和证据的要求。
+- 页面复用只发生在同一拓扑波次和 worker 生命周期内；跨人工转换、进程重启或不同依赖波次必须重新建立页面。Runner 只按当前波次决定是否降为单 worker。
+- OTP、上传、提交和人工输入所在的写入组仍使用独立 Context；但脚本必须在进入这些不可无成本重放的边界前，先验证后续确定性控件与定位契约，避免用户完成验证码输入后才暴露本可提前发现的脚本错误。
 
-### 6.2 数据写入策略
+### 6.2 数据写入策略与跨请求资源池
 
-每次正式执行选择一个 `DataWritePolicy`：
+新 v5 正式用例按 case 选择 `DataWritePolicyV2`：
 
 | 策略 | 适用范围 | 运行后处理 |
 | --- | --- | --- |
 | `no_write` | 页面、查询、本地校验和不会创建远端状态的动作。 | 不建立远端资源记录。 |
-| `managed_cleanup` | 有已登记、幂等清理能力的合成资源。 | teardown 自动清理并验证；失败记录为 `cleanup_failed`。 |
+| `ephemeral_cleanup` | 用例临时创建或修改的合成资源。 | 在 `finally` 中删除或恢复基线并保存结果证据。 |
+| `reusable_fixture` | 需要供后续请求复用的合成测试企业、账号或子资源。 | 校验基线后晋升资源池；租用结束后恢复基线或隔离。 |
 | `tracked_residual` | `test` 环境中少量、合成、可唯一识别但暂时没有删除能力的资源。 | 状态记为 `retained`，保存到期时间并持续纳入预算和报告。 |
 
+- 旧 `managed_cleanup` 只用于历史回放，语义映射为 `ephemeral_cleanup`；新脚本不再生成该值。
 - `tracked_residual` 只允许 `test` 环境，默认 TTL 为 72 小时；生产和真实用户数据不适用。
 - 每个请求必须按资源类型声明正整数上限。预算耗尽或存在已过期且未处理的残留时冻结新的写入用例，只读用例可继续。
+- 资源类型预算之外，正式 manifest 还必须用 `operationBudgets` 冻结每个 case 的登录、OTP、上传、提交、查询等最大次数；参数化循环不得只依赖请求级总预算。
 - 没有删除接口不等于执行异常：已确认的限额残留记为 `retained`；归属、创建结果或风险未知时才记为 `manual_required` 或阻塞。
 - 本机测试数据生命周期只管理 `.local/test-ledger/` 中 owner 为 `local-automation-test`，且 machineId、projectId、envId、runId、`caseId` 均明确的资源。台账外、其他机器、未知归属、生产或真实用户数据不得自动复用、修改或清理。
-- 复用只允许 `available`、未污染、未过期且经 validator 确认可用的同机同项目同环境同类型资源；不得按名称、时间、数据库或设备列表模糊匹配。
+- 资源池唯一键为 `projectId + environment + resourceType + baselineContractId`。复用只允许 `available`、未污染、未过期且经 validator 确认可用的同机资源；不得按名称、时间、数据库或设备列表模糊匹配。
+- 只读用例可取得 `shared_read` 租约，任何修改必须取得 `exclusive` 租约。浏览器 Context、Cookie、storage 和 page 仍按用例隔离，共享的只是已校验服务端 fixture。
+- 资源状态按 `available → leased → used → available` 流转；基线恢复或校验失败时转为 `quarantined`，恢复失败或资源丢失时转为 `retired`。只有执行清单已授权创建预算时才能惰性补充替代资源。
+- 注册成功测试每次仍使用唯一合成数据创建新企业；满足稳定脱敏身份、版本化基线、池容量和退役策略后才可晋升。登录和查询可租用已校验企业；修改后必须恢复基线；删除用例优先创建一次性资源，不得删除标准共享企业。
+- 任何 CRUD 请求必须可独立运行：从资源池校验并租用，或按已确认预算创建。禁止依赖另一请求或前一用例恰好执行成功。
+- 同一已授权 run 内的显式生产者—消费者关系不属于偶然顺序依赖：生产者创建唯一合成资源并写入台账，消费者只通过命名资源和基线契约取得它。审核中的资源是合法阶段中间态，不记为脏数据；审核通过后必须再经登录或基线校验才能晋升 `reusable_fixture`。
+- CRUD 集成链路使用命名资源按 `新增 → 查询 → 修改 → 删除` 拓扑执行；修改和删除只能取得本次创建并登记的合成资源句柄。独立删除用例必须由已授权 setup 创建专用一次性资源，不能依赖其他用例碰巧成功；删除断言失败后允许 cleanup fallback 处理残留，但清理成功不得覆盖产品删除失败。
+- 审核驳回资源只用于验证按反馈重新发起注册，不得解释成修改已注册企业。外部转换后的账号、通知和状态能力采用延迟检查；账号值只从本地 `.env` 或 CI Secret 读取，转换证明、history、台账和报告只保存布尔结论及摘要。
 
 ### 6.3 创建意图与中断恢复
 
@@ -251,7 +274,7 @@ executionOrder
 - `markIntentCreating()` 后才允许发起创建；成功用 `confirmCreatedResource()` 记录脱敏资源引用，明确失败或结果未知分别使用对应状态。
 - 中断恢复只能用唯一测试标识执行 `reconcileCreateIntent()` 精确对账；禁止扫描相似名称后猜测匹配或直接重复创建。
 - `assertManagedWriteAllowed()` 同时校验环境、授权摘要、策略、预算和过期残留；任一项不满足时停止新的写入。
-- 清理与恢复仅遍历本机台账。`managed_cleanup` 必须绑定已注册且幂等的 `cleanupActionId`；风险或归属不明时不得猜测业务删除方式。
+- 清理与恢复仅遍历本机台账。`ephemeral_cleanup` 可使用已授权且可验证的 UI、现有接口或 Runner adapter，不强制专用 cleanup API；风险或归属不明时不得猜测业务删除方式。
 - 功能结论与数据卫生结论的报告字段及合并规则只见[报告规范](./report-guideline.md#5-报告最小字段)。
 - 活跃台账位于 Git 忽略的 `.local/test-ledger/`；正式报告只引用脱敏摘要路径、数量、状态和残留风险。旧 `.local/test-data/` 仅作只读历史证据。
 

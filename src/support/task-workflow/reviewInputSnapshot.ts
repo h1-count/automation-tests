@@ -5,21 +5,27 @@ import { basename, relative, resolve, sep } from "node:path";
 import { canonicalJson } from "./canonicalJson.js";
 import {
   reviewBatchScopeDigest,
-  type ReviewBatchScope
+  type ReviewBatchScope,
+  type ReviewRoleCaseScope
 } from "./reviewBatchScope.js";
 import { RuntimeLeaseStore } from "./runtimeLeaseStore.js";
 
 export const REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION = "review-input-snapshot-v1" as const;
+export const REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION = "review-input-snapshot-v2" as const;
 
 export interface ReviewInputSnapshotArtifact {
   sourcePath: string;
   snapshotPath: string;
   digest: string;
   sizeBytes: number;
+  semanticDigest?: string;
+  roleSemanticDigests?: Record<string, string>;
 }
 
 export interface ReviewInputSnapshotManifest {
-  schemaVersion: typeof REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION;
+  schemaVersion:
+    | typeof REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION
+    | typeof REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION;
   requestId: string;
   batchId: string;
   createdAt: string;
@@ -28,6 +34,8 @@ export interface ReviewInputSnapshotManifest {
   scope?: ReviewBatchScope;
   scopeDigest?: string;
   combinedDigest: string;
+  semanticDigest?: string;
+  roleInputDigests?: Record<string, string>;
 }
 
 export interface ReviewInputIdentity {
@@ -36,6 +44,8 @@ export interface ReviewInputIdentity {
     "sourcePath" | "digest" | "sizeBytes"
   >>;
   combinedDigest: string;
+  semanticDigest?: string;
+  roleInputDigests?: Record<string, string>;
 }
 
 const batchPattern = /^[A-Za-z0-9._-]+$/;
@@ -66,6 +76,150 @@ export function reviewInputDigest(
     artifacts: [...artifacts].map(({ sourcePath, digest, sizeBytes }) => ({ sourcePath, digest, sizeBytes }))
       .sort((left, right) => left.sourcePath.localeCompare(right.sourcePath))
   }));
+}
+
+function stripTopLevelSections(markdown: string, excluded: RegExp): string {
+  const kept: string[] = [];
+  let skip = false;
+  for (const line of markdown.split(/\r?\n/u)) {
+    const heading = /^##\s+(.+?)\s*$/u.exec(line);
+    if (heading) skip = excluded.test(heading[1]!);
+    if (!skip) kept.push(line.trimEnd());
+  }
+  return kept.join("\n").replace(/\n{3,}/gu, "\n\n").trim();
+}
+
+function normalizePlanProjection(markdown: string): string {
+  const withoutDerivedCaseIds = markdown.replace(
+    /\b(?!(?:REQ|RULE|REV|MRR|EVO)-)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+-\d{3}\b/gu,
+    "<caseId>"
+  );
+  const lines = withoutDerivedCaseIds.split("\n");
+  const normalized: string[] = [];
+  for (let index = 0; index < lines.length;) {
+    if (!lines[index]!.trim().startsWith("|")) {
+      normalized.push(lines[index]!);
+      index += 1;
+      continue;
+    }
+    const table: string[] = [];
+    while (index < lines.length && lines[index]!.trim().startsWith("|")) {
+      table.push(lines[index]!);
+      index += 1;
+    }
+    if (table.length >= 3 && /^\|(?:\s*:?-+:?\s*\|)+$/u.test(table[1]!.trim())) {
+      normalized.push(table[0]!, table[1]!, ...table.slice(2).sort());
+    } else {
+      normalized.push(...table);
+    }
+  }
+  return normalized.join("\n");
+}
+
+function semanticReviewContent(sourcePath: string, content: Uint8Array): Uint8Array {
+  if (!sourcePath.endsWith(".md")) return content;
+  const markdown = Buffer.from(content).toString("utf8");
+  if (sourcePath.endsWith("/plan.md")) {
+    return Buffer.from(normalizePlanProjection(stripTopLevelSections(
+      markdown,
+      /^(?:多角色评审记录|用例集评审与演进|工程层|预计交付物)/u
+    )), "utf8");
+  }
+  if (/\/cases-[^/]+\.md$/u.test(sourcePath)) {
+    const firstCase = /^##\s+测试用例[：:]/mu.exec(markdown);
+    const bodies = firstCase ? markdown.slice(firstCase.index) : markdown;
+    return Buffer.from(bodies.split(/\r?\n/u).map((line) => line.trimEnd())
+      .join("\n").replace(/\n{3,}/gu, "\n\n").trim(), "utf8");
+  }
+  return content;
+}
+
+function roleSemanticReviewContent(
+  sourcePath: string,
+  content: Uint8Array,
+  roleScope: ReviewRoleCaseScope
+): Uint8Array {
+  const semantic = Buffer.from(semanticReviewContent(sourcePath, content)).toString("utf8");
+  if (/\/cases-[^/]+\.md$/u.test(sourcePath)) {
+    const starts = [...semantic.matchAll(/^##\s+测试用例[：:]\s*(.+?)\s*$/gmu)];
+    const allowed = new Set(roleScope.caseIds);
+    const safetyLine = /(?:数据策略|权限|特权|允许操作|requiredOperations|permissionProfile|OTP|验证码|安全挑战|敏感凭据|cleanup|reconciliation|结果未知|无法判定)/iu;
+    const identityLine = /(?:用例编号|需求追溯编号|规则覆盖编号|\bREQ-|\bRULE-)/u;
+    const selected = starts.flatMap((start, index) => {
+      const bodyStart = start.index ?? 0;
+      const bodyEnd = starts[index + 1]?.index ?? semantic.length;
+      const body = semantic.slice(bodyStart, bodyEnd);
+      if (![...allowed].some((caseId) => body.includes(caseId))) return [];
+      const lines = body.split(/\r?\n/u);
+      const scoped = roleScope.role === "impact"
+        ? lines.filter((line) => safetyLine.test(line) || identityLine.test(line))
+        : lines.filter((line) => !safetyLine.test(line));
+      return [scoped.join("\n").replace(/\n{3,}/gu, "\n\n").trim()];
+    });
+    return Buffer.from(selected.join("\n\n"), "utf8");
+  }
+  if (sourcePath.endsWith("/plan.md")) {
+    const allowed = new Set([
+      ...roleScope.caseIds,
+      ...roleScope.requirementRefs,
+      ...roleScope.ruleRefs
+    ]);
+    const filtered = semantic.split(/\r?\n/u).filter((line) => {
+      const refs = line.match(/\b(?:REQ|RULE)-[A-Z0-9-]+\b|\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+-\d{3}\b/gu) ?? [];
+      return refs.length === 0 || refs.some((ref) => allowed.has(ref));
+    });
+    return Buffer.from(filtered.join("\n").replace(/\n{3,}/gu, "\n\n").trim(), "utf8");
+  }
+  return Buffer.from(semantic, "utf8");
+}
+
+export function semanticReviewInputDigest(
+  requestId: string,
+  artifacts: Array<Pick<ReviewInputSnapshotArtifact, "sourcePath" | "semanticDigest">>,
+  scopeDigest?: string
+): string {
+  return sha256(canonicalJson({
+    schemaVersion: REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION,
+    requestId,
+    ...(scopeDigest ? { scopeDigest } : {}),
+    artifacts: [...artifacts].map(({ sourcePath, semanticDigest }) => ({
+      sourcePath,
+      ...(semanticDigest ? { semanticDigest } : {})
+    })).sort((left, right) => left.sourcePath.localeCompare(right.sourcePath))
+  }));
+}
+
+export function reviewRoleInputDigests(
+  requestId: string,
+  artifacts: Array<Pick<
+    ReviewInputSnapshotArtifact,
+    "sourcePath" | "semanticDigest" | "roleSemanticDigests"
+  >>,
+  scopeDigest: string | undefined,
+  scope?: ReviewBatchScope
+): Record<string, string> {
+  if (!scope || scope.schemaVersion !== "review-batch-scope-v3") return {};
+  return Object.fromEntries(scope.roleScopes.map((roleScope) => [
+    roleScope.activityId,
+    sha256(canonicalJson({
+      schemaVersion: "review-role-input-v2",
+      requestId,
+      ...(scopeDigest ? { scopeDigest } : {}),
+      artifacts: [...artifacts].map((artifact) => ({
+        sourcePath: artifact.sourcePath,
+        semanticDigest: artifact.roleSemanticDigests?.[roleScope.activityId]
+          ?? artifact.semanticDigest
+          ?? ""
+      })).sort((left, right) => left.sourcePath.localeCompare(right.sourcePath)),
+      roleScope: {
+        activityId: roleScope.activityId,
+        role: roleScope.role,
+        caseIds: roleScope.caseIds,
+        requirementRefs: roleScope.requirementRefs,
+        ruleRefs: roleScope.ruleRefs
+      }
+    }))
+  ]));
 }
 
 function portableRelative(root: string, path: string): string {
@@ -184,6 +338,15 @@ export class ReviewInputSnapshotStore {
         ),
         digest: sha256(content),
         sizeBytes: content.byteLength,
+        semanticDigest: sha256(semanticReviewContent(sourcePath, content)),
+        ...(scope?.schemaVersion === "review-batch-scope-v3"
+          ? {
+              roleSemanticDigests: Object.fromEntries(scope.roleScopes.map((roleScope) => [
+                roleScope.activityId,
+                sha256(roleSemanticReviewContent(sourcePath, content, roleScope))
+              ]))
+            }
+          : {}),
         content
       };
     }));
@@ -193,7 +356,15 @@ export class ReviewInputSnapshotStore {
       sizeBytes
     }));
     const scopeDigest = scope ? reviewBatchScopeDigest(scope) : undefined;
-    const combinedDigest = reviewInputDigest(this.requestId, identity, scopeDigest);
+    const useSemanticSnapshot = scope?.schemaVersion === "review-batch-scope-v3";
+    const semanticDigest = useSemanticSnapshot
+      ? semanticReviewInputDigest(this.requestId, artifacts, scopeDigest)
+      : undefined;
+    const combinedDigest = semanticDigest
+      ?? reviewInputDigest(this.requestId, identity, scopeDigest);
+    const reviewerDigests = semanticDigest
+      ? reviewRoleInputDigests(this.requestId, artifacts, scopeDigest, scope)
+      : {};
     const existing = await this.readIfExists(batchId);
     if (existing) {
       if (existing.combinedDigest !== combinedDigest) {
@@ -212,13 +383,19 @@ export class ReviewInputSnapshotStore {
         await this.materializeSnapshot(blobPath, artifact.snapshotPath, artifact.content);
       }
       const manifest: ReviewInputSnapshotManifest = {
-        schemaVersion: REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION,
+        schemaVersion: useSemanticSnapshot
+          ? REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+          : REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION,
         requestId: this.requestId,
         batchId,
         createdAt: new Date().toISOString(),
         artifacts: artifacts.map(({ content: _content, ...artifact }) => artifact),
         ...(scope ? { scope, scopeDigest } : {}),
-        combinedDigest
+        combinedDigest,
+        ...(semanticDigest ? {
+          semanticDigest,
+          roleInputDigests: reviewerDigests
+        } : {})
       };
       await atomicWrite(
         this.manifestPath(batchId),
@@ -244,16 +421,34 @@ export class ReviewInputSnapshotStore {
       return {
         sourcePath,
         digest: sha256(content),
-        sizeBytes: content.byteLength
+        sizeBytes: content.byteLength,
+        semanticDigest: sha256(semanticReviewContent(sourcePath, content)),
+        ...(scope?.schemaVersion === "review-batch-scope-v3"
+          ? {
+              roleSemanticDigests: Object.fromEntries(scope.roleScopes.map((roleScope) => [
+                roleScope.activityId,
+                sha256(roleSemanticReviewContent(sourcePath, content, roleScope))
+              ]))
+            }
+          : {})
       };
     }));
+    const scopeDigest = scope ? reviewBatchScopeDigest(scope) : undefined;
+    const semanticDigest = scope?.schemaVersion === "review-batch-scope-v3"
+      ? semanticReviewInputDigest(this.requestId, artifacts, scopeDigest)
+      : undefined;
     return {
       artifacts,
-      combinedDigest: reviewInputDigest(
-        this.requestId,
-        artifacts,
-        scope ? reviewBatchScopeDigest(scope) : undefined
-      )
+      combinedDigest: semanticDigest ?? reviewInputDigest(this.requestId, artifacts, scopeDigest),
+      ...(semanticDigest ? {
+        semanticDigest,
+        roleInputDigests: reviewRoleInputDigests(
+          this.requestId,
+          artifacts,
+          scopeDigest,
+          scope
+        )
+      } : {})
     };
   }
 
@@ -288,6 +483,29 @@ export class ReviewInputSnapshotStore {
         digest: artifact.digest,
         sizeBytes: artifact.sizeBytes
       });
+      if (
+        manifest.schemaVersion === REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+        && (
+          !artifact.semanticDigest
+          || sha256(semanticReviewContent(artifact.sourcePath, content)) !== artifact.semanticDigest
+        )
+      ) {
+        throw new Error(`Review input snapshot ${batchId} has an invalid semantic digest.`);
+      }
+      if (
+        manifest.schemaVersion === REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+        && manifest.scope?.schemaVersion === "review-batch-scope-v3"
+      ) {
+        const expectedRoleArtifactDigests = Object.fromEntries(
+          manifest.scope.roleScopes.map((roleScope) => [
+            roleScope.activityId,
+            sha256(roleSemanticReviewContent(artifact.sourcePath, content, roleScope))
+          ])
+        );
+        if (JSON.stringify(artifact.roleSemanticDigests ?? {}) !== JSON.stringify(expectedRoleArtifactDigests)) {
+          throw new Error(`Review input snapshot ${batchId} has invalid role semantic digests.`);
+        }
+      }
     }
     const scopeDigest = manifest.scope
       ? reviewBatchScopeDigest(manifest.scope)
@@ -298,22 +516,51 @@ export class ReviewInputSnapshotStore {
     ) {
       throw new Error(`Review input snapshot ${batchId} has an invalid scope digest.`);
     }
-    const combinedDigest = reviewInputDigest(this.requestId, identity, scopeDigest);
+    const semanticDigest = manifest.schemaVersion === REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+      ? semanticReviewInputDigest(this.requestId, manifest.artifacts, scopeDigest)
+      : undefined;
+    const combinedDigest = semanticDigest
+      ?? reviewInputDigest(this.requestId, identity, scopeDigest);
     if (combinedDigest !== manifest.combinedDigest) {
       throw new Error(`Review input snapshot ${batchId} has an invalid combined digest.`);
+    }
+    if (semanticDigest) {
+      const expectedRoleDigests = reviewRoleInputDigests(
+        this.requestId,
+        manifest.artifacts,
+        scopeDigest,
+        manifest.scope
+      );
+      if (
+        manifest.semanticDigest !== semanticDigest
+        || JSON.stringify(manifest.roleInputDigests ?? {})
+          !== JSON.stringify(expectedRoleDigests)
+      ) {
+        throw new Error(`Review input snapshot ${batchId} has invalid role input digests.`);
+      }
     }
     return manifest;
   }
 
   /** A frozen copy proves what was reviewed; this check proves the formal
    * inputs have not changed before a dispatch or submission can advance. */
-  async verifyCurrentSources(batchId: string): Promise<ReviewInputSnapshotManifest> {
+  async verifyCurrentSources(
+    batchId: string,
+    activityId?: string
+  ): Promise<ReviewInputSnapshotManifest> {
     const manifest = await this.verify(batchId);
-    for (const artifact of manifest.artifacts) {
-      const content = await readFile(resolve(this.workspaceRoot, artifact.sourcePath));
-      if (sha256(content) !== artifact.digest || content.byteLength !== artifact.sizeBytes) {
-        throw new Error(`Review batch ${batchId} input drifted: ${artifact.sourcePath}`);
-      }
+    const current = await this.inspectCurrent(
+      manifest.artifacts.map((artifact) => artifact.sourcePath),
+      manifest.scope
+    );
+    const currentDigest = activityId
+      ? current.roleInputDigests?.[activityId] ?? current.combinedDigest
+      : current.combinedDigest;
+    const expectedDigest = activityId
+      ? manifest.roleInputDigests?.[activityId] ?? manifest.combinedDigest
+      : manifest.combinedDigest;
+    if (currentDigest !== expectedDigest) {
+      throw new Error(`Review batch ${batchId} input drifted for ${activityId ?? "batch"}.`);
     }
     return manifest;
   }
@@ -425,13 +672,23 @@ export class ReviewInputSnapshotStore {
     if (!existsSync(path)) return undefined;
     const parsed = JSON.parse(await readFile(path, "utf8")) as ReviewInputSnapshotManifest;
     if (
-      parsed.schemaVersion !== REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION
+      ![
+        REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION,
+        REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+      ].includes(parsed.schemaVersion)
       || parsed.requestId !== this.requestId
       || parsed.batchId !== batchId
       || !Array.isArray(parsed.artifacts)
       || !parsed.artifacts.length
       || (parsed.scope === undefined) !== (parsed.scopeDigest === undefined)
       || !digestPattern.test(parsed.combinedDigest)
+      || (parsed.schemaVersion === REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+        && (
+          !parsed.semanticDigest
+          || !digestPattern.test(parsed.semanticDigest)
+          || !parsed.roleInputDigests
+          || Object.values(parsed.roleInputDigests).some((digest) => !digestPattern.test(digest))
+        ))
     ) {
       throw new Error(`Review input snapshot manifest ${batchId} is invalid.`);
     }

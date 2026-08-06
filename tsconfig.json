@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "playwright*.ts",
+    "wdio.conf.ts",
+    "scripts/**/*.ts",
+    "src/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "exclude": [
+    ".local/**",
+    "artifacts/**",
+    "node_modules/**"
+  ]
+}

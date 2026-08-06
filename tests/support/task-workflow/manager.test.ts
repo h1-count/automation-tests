@@ -11,6 +11,7 @@ import {
   ArtifactReconciliationRequiredError,
   DurableWorkflowManager,
   isSafeWorkflowReply,
+  parseReviewBatchScope,
   planDecisionProjection,
   reviewFindingsDigest,
   type SafeEventPayload,
@@ -191,12 +192,18 @@ function testcaseBody(caseId: string): string {
 | 项目 | 内容 |
 | --- | --- |
 | 用例编号 | ${caseId} |
+| 需求追溯编号 | REQ-DEMO-REG-001 |
+| 规则覆盖编号 | RULE-${caseId} |
+| 数据策略 | no_write |
+| 风险等级 | 低 |
 ## 来源
 - manifest \`demo-product-requirement\`；sectionId \`registration\`；SHA-256 \`${"a".repeat(64)}\`
 ## 前置条件
 - ready
 ## 操作步骤
-- act
+| 序号 | 操作 | 输入 | 预期 |
+| --- | --- | --- | --- |
+| 1 | 打开当前页 | 无 | 页面可见 |
 ## 预期结果
 - result
 ## 覆盖关联
@@ -231,6 +238,42 @@ function casesMarkdownFor(ids: string[], bodyCount: number): string {
 ${ids.map((id) => `| ${id} | ${id} |`).join("\n")}
 
 ${ids.slice(0, bodyCount).map(testcaseBody).join("\n")}
+`;
+}
+
+function mixedRiskCasesMarkdown(
+  ids: string[],
+  strictCaseIds: Set<string>,
+  lightCaseIds: Set<string>
+): string {
+  const bodies = ids.map((caseId) => {
+    const base = testcaseBody(caseId);
+    if (strictCaseIds.has(caseId)) {
+      return base
+        .replace("| 数据策略 | no_write |", "| 数据策略 | managed_cleanup |")
+        .replace("| 风险等级 | 低 |", "| 风险等级 | 高 |")
+        .replace("打开当前页", "发送一次 OTP 并提交受控合成申请");
+    }
+    if (lightCaseIds.has(caseId)) return base;
+    return base
+      .replace("| 风险等级 | 低 |", "| 风险等级 | 高 |")
+      .replace("打开当前页", "查询已注册企业的审核状态");
+  });
+  return `# 用例包
+
+## 包信息
+
+| 项目 | 内容 |
+| --- | --- |
+| 用例包生成状态 | 草案完整 |
+
+## 用例目录
+
+| 用例编号 | 标题 |
+| --- | --- |
+${ids.map((id) => `| ${id} | ${id} |`).join("\n")}
+
+${bodies.join("\n")}
 `;
 }
 
@@ -1610,13 +1653,15 @@ test("resume carries one legacy plan confirmation across evidence-backed testcas
     await manager.dispatchReviewer({
       activityId: "case-review-requirements",
       batchId,
-      role: "requirements"
+      role: "requirements",
+      agentTaskId: `${batchId}-requirements`
     });
     await manager.submitReviewer({
       activityId: "case-review-requirements",
       batchId,
       role: "requirements",
-      planEvidenceRef: manager.planPath
+      planEvidenceRef: manager.planPath,
+      agentTaskId: `${batchId}-requirements`
     });
     const resolution = await manager.startActivity(
       "case-review-resolution",
@@ -1823,7 +1868,11 @@ test("manager completeness gate rejects a labelled 2-of-13 package without advan
       fixture.cases,
       "utf8"
     );
-    await writeFile(manager.planPath, fixture.plan, "utf8");
+    await writeFile(
+      manager.planPath,
+      fixture.plan.replaceAll("正常提交", "只读校验"),
+      "utf8"
+    );
     await manager.initialize({ reviewerRoles: ["requirements"] });
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -1928,10 +1977,185 @@ test("review batch freezes every plan-referenced controlled source and refuses a
   }
 });
 
-test("one submitted reviewer keeps the repeatable review subflow runnable", async () => {
+test("manager persists v2 risk with combined and strict-only impact scope v3", async () => {
   const root = await makeWorkspace();
   try {
     const manager = new DurableWorkflowManager(requestId, root);
+    const caseIds = [
+      ...Array.from({ length: 3 }, (_, index) =>
+        `OPEN-LOGIN-20260803-${String(index + 1).padStart(3, "0")}`
+      ),
+      ...Array.from({ length: 26 }, (_, index) =>
+        `OPEN-REG-20260803-${String(index + 1).padStart(3, "0")}`
+      )
+    ];
+    const strictCaseIds = new Set([
+      "OPEN-LOGIN-20260803-001",
+      "OPEN-REG-20260803-007",
+      "OPEN-REG-20260803-008",
+      "OPEN-REG-20260803-009",
+      "OPEN-REG-20260803-015",
+      "OPEN-REG-20260803-016",
+      "OPEN-REG-20260803-020",
+      "OPEN-REG-20260803-021",
+      "OPEN-REG-20260803-022",
+      "OPEN-REG-20260803-024"
+    ]);
+    const lightCaseIds = new Set([
+      "OPEN-REG-20260803-001",
+      "OPEN-REG-20260803-003",
+      "OPEN-REG-20260803-013",
+      "OPEN-REG-20260803-014",
+      "OPEN-REG-20260803-025"
+    ]);
+    const packages = {
+      "cases-registration.md": mixedRiskCasesMarkdown(caseIds, strictCaseIds, lightCaseIds)
+    };
+    const projected = projectRelationProjection(planMarkdown(caseIds), packages);
+    assert.deepEqual(projected.issues, []);
+    await writeFile(
+      manager.planPath,
+      projected.plan.replace(
+        "## 输入资料",
+        "## 安全与数据边界\n\n- 风险标记：实际发送短信验证码。\n\n## 输入资料"
+      ),
+      "utf8"
+    );
+    await writeFile(
+      resolve(manager.requestRoot, "cases-registration.md"),
+      projected.packages["cases-registration.md"]!,
+      "utf8"
+    );
+
+    await manager.initialize({
+      writesData: true,
+      capabilities: ["web"],
+      casePackages: ["cases-registration.md"]
+    });
+    for (const activityId of ["source-selection", "plan-validation"]) {
+      const claim = await manager.startActivity(activityId, "mixed-risk-worker");
+      await succeedManagerActivity(manager, activityId, claim.claimToken, `${activityId} verified`);
+    }
+    const subjectDigest = await manager.callbackSubjectDigest("plan-confirmation");
+    await manager.requestCallback({
+      activityId: "plan-confirmation",
+      callbackId: "mixed-risk-plan-confirmation",
+      subjectDigest,
+      kind: "plan_confirmation"
+    });
+    await recordFormalDecision(manager, "plan-confirmation", subjectDigest, "accepted");
+    await manager.resolveCallback({
+      activityId: "plan-confirmation",
+      callbackId: "mixed-risk-plan-confirmation",
+      subjectDigest,
+      resolution: "accepted"
+    });
+    for (const activityId of [
+      "case-generation-cases-registration-md",
+      "relation-sync",
+      "completeness-validation"
+    ]) {
+      const claim = await manager.startActivity(activityId, "mixed-risk-worker");
+      await succeedManagerActivity(manager, activityId, claim.claimToken, `${activityId} verified`);
+    }
+
+    await manager.startReviewBatch({ batchId: "REV-MIXED-RISK-V2" });
+    const event = (await manager.events()).find((item) =>
+      item.type === "ReviewBatchStarted" && item.payload.batchId === "REV-MIXED-RISK-V2"
+    );
+    const scope = parseReviewBatchScope(event?.payload.scope);
+    assert.equal(scope.schemaVersion, "review-batch-scope-v3");
+    if (scope.schemaVersion !== "review-batch-scope-v3") {
+      throw new Error("Expected a review-batch-scope-v3 event.");
+    }
+    assert.equal(scope.riskSummary.distribution, "mixed");
+    assert.equal(scope.riskSummary.maxLevel, "strict");
+    assert.deepEqual(scope.riskSummary.counts, { light: 5, standard: 14, strict: 10 });
+    assert.deepEqual(
+      scope.roleScopes.find((item) => item.role === "impact")?.caseIds,
+      [...strictCaseIds].sort()
+    );
+    assert.equal(
+      scope.roleScopes.find((item) => item.role === "combined")?.caseIds.length,
+      24
+    );
+    assert.deepEqual(event?.payload.roleInputDigests && Object.keys(event.payload.roleInputDigests).sort(), [
+      "case-review-combined",
+      "case-review-impact"
+    ]);
+    await manager.dispatchReviewer({
+      activityId: "case-review-combined",
+      batchId: "REV-MIXED-RISK-V2",
+      role: "combined",
+      agentTaskId: "REV-MIXED-RISK-V2-combined"
+    });
+    const dispatch = (await manager.events()).find((item) =>
+      item.type === "ReviewerDispatched"
+      && item.payload.batchId === "REV-MIXED-RISK-V2"
+      && item.payload.activityId === "case-review-combined"
+    );
+    assert.equal(
+      dispatch?.payload.inputDigest,
+      (event?.payload.roleInputDigests as Record<string, string> | undefined)
+        ?.["case-review-combined"]
+    );
+    await manager.submitReviewer({
+      activityId: "case-review-combined",
+      batchId: "REV-MIXED-RISK-V2",
+      role: "combined",
+      planEvidenceRef: manager.planPath,
+      agentTaskId: "REV-MIXED-RISK-V2-combined"
+    });
+    await manager.dispatchReviewer({
+      activityId: "case-review-impact",
+      batchId: "REV-MIXED-RISK-V2",
+      role: "impact",
+      agentTaskId: "REV-MIXED-RISK-V2-impact"
+    });
+    await manager.submitReviewer({
+      activityId: "case-review-impact",
+      batchId: "REV-MIXED-RISK-V2",
+      role: "impact",
+      planEvidenceRef: manager.planPath,
+      agentTaskId: "REV-MIXED-RISK-V2-impact"
+    });
+    const casePath = resolve(manager.requestRoot, "cases-registration.md");
+    await writeFile(
+      casePath,
+      (await readFile(casePath, "utf8")).replace(
+        "| 数据策略 | managed_cleanup |",
+        "| 数据策略 | tracked_residual |"
+      ),
+      "utf8"
+    );
+    const invalidated = await manager.invalidateReviewBatch({
+      batchId: "REV-MIXED-RISK-V2",
+      activityIds: ["case-review-combined", "case-review-impact"],
+      reason: "safety policy changed"
+    });
+    assert.equal(invalidated.activities["case-review-combined"]?.state, "SUCCEEDED");
+    assert.equal(invalidated.activities["case-review-impact"]?.state, "READY");
+    const invalidation = (await manager.events()).find((item) =>
+      item.type === "ReviewBatchInvalidated"
+      && item.payload.batchId === "REV-MIXED-RISK-V2"
+    );
+    assert.deepEqual(invalidation?.payload.activityIds, ["case-review-impact"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("light workflow reaches deterministic review resolution without reviewer events", async () => {
+  const root = await makeWorkspace();
+  try {
+    const manager = new DurableWorkflowManager(requestId, root);
+    const fixture = relationFixture(["DEMO-REG-001"], 1);
+    await writeFile(manager.planPath, fixture.plan, "utf8");
+    await writeFile(
+      resolve(manager.requestRoot, "cases-registration.md"),
+      fixture.cases,
+      "utf8"
+    );
     await manager.initialize();
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -1969,26 +2193,97 @@ test("one submitted reviewer keeps the repeatable review subflow runnable", asyn
         `${activityId} verified`
       );
     }
-    await manager.startReviewBatch({
-      batchId: "REV-ONE",
-      inputPaths: [manager.planPath, resolve(manager.requestRoot, "cases-registration.md")]
-    });
-    await manager.dispatchReviewer({
-      activityId: "case-review-requirements",
-      batchId: "REV-ONE",
-      role: "requirements"
-    });
-    await manager.submitReviewer({
-      activityId: "case-review-requirements",
-      batchId: "REV-ONE",
-      role: "requirements",
-      planEvidenceRef: manager.planPath
-    });
     const view = await manager.gate();
-    assert.equal(view.activities["case-review-requirements"]?.state, "SUCCEEDED");
-    assert.ok(view.readyActivities.some((activityId) => activityId.startsWith("case-review-")));
+    assert.equal(
+      Object.values(view.activities).filter((activity) => activity.definition.kind === "review").length,
+      0
+    );
+    assert.equal(view.activities["case-review-resolution"]?.state, "READY");
+    assert.equal((await manager.events()).some((event) => [
+      "ReviewBatchStarted",
+      "ReviewerDispatched",
+      "ReviewerSubmitted"
+    ].includes(event.type)), false);
     assert.equal(view.reply.kind, "none");
     assert.equal(view.continuation.kind, "continue_now");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reviewer submission requires a distinct running host binding and records only an isolation proof", async () => {
+  const root = await makeWorkspace();
+  try {
+    const manager = new DurableWorkflowManager(requestId, root);
+    await manager.initialize({
+      reviewerRoles: ["requirements"],
+      sessionId: "primary-session",
+      targetThreadId: "primary-thread"
+    });
+    await advanceToReviewReady(manager);
+    const batchId = "REV-ISOLATION";
+    const activityId = "case-review-requirements";
+    await manager.startReviewBatch({ batchId });
+
+    await assert.rejects(
+      manager.dispatchReviewer({
+        activityId,
+        batchId,
+        role: "requirements"
+      } as Parameters<typeof manager.dispatchReviewer>[0]),
+      /agentTaskId must be a non-empty/
+    );
+    for (const primaryId of ["primary-session", "primary-thread"]) {
+      await assert.rejects(
+        manager.dispatchReviewer({
+          activityId,
+          batchId,
+          role: "requirements",
+          agentTaskId: primaryId
+        }),
+        /must be isolated/
+      );
+    }
+    assert.equal((await manager.events()).filter((event) =>
+      event.type === "ReviewerDispatched"
+    ).length, 0);
+
+    await manager.dispatchReviewer({
+      activityId,
+      batchId,
+      role: "requirements",
+      agentTaskId: "isolated-reviewer"
+    });
+    await assert.rejects(
+      manager.submitReviewer({
+        activityId,
+        batchId,
+        role: "requirements",
+        planEvidenceRef: manager.planPath,
+        agentTaskId: "different-reviewer"
+      }),
+      /does not match the isolated reviewer submission/
+    );
+    assert.equal((await manager.events()).filter((event) =>
+      event.type === "ReviewerSubmitted"
+    ).length, 0);
+
+    await manager.submitReviewer({
+      activityId,
+      batchId,
+      role: "requirements",
+      planEvidenceRef: manager.planPath,
+      agentTaskId: "isolated-reviewer"
+    });
+    const submission = (await manager.events()).find((event) =>
+      event.type === "ReviewerSubmitted"
+    );
+    assert.equal(
+      submission?.payload.isolationProofVersion,
+      "reviewer-isolation-proof-v1"
+    );
+    assert.equal(submission?.payload.agentTaskId, undefined);
+    assert.equal(JSON.stringify(submission).includes("isolated-reviewer"), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -2042,7 +2337,8 @@ test("resume preserves a durably dispatched reviewer without duplicating its bat
     await manager.dispatchReviewer({
       activityId: "case-review-requirements",
       batchId: "REV-ORPHAN-1",
-      role: "requirements"
+      role: "requirements",
+      agentTaskId: "original-reviewer-task"
     });
     await rm(resolve(root, ".local/test-task-runtime"), { recursive: true, force: true });
 
@@ -2080,7 +2376,8 @@ test("resume preserves a durably dispatched reviewer without duplicating its bat
       activityId: "case-review-requirements",
       batchId: "REV-ORPHAN-1",
       role: "requirements",
-      planEvidenceRef: recoveredManager.planPath
+      planEvidenceRef: recoveredManager.planPath,
+      agentTaskId: "replacement-reviewer-task"
     });
     assert.equal(rejected.reviewBatch?.status, "new_batch_started");
     assert.equal(rejected.reviewBatch?.previousBatchId, "REV-ORPHAN-1");
@@ -2122,7 +2419,8 @@ test("resume preserves a durably dispatched reviewer without duplicating its bat
       activityId: "case-review-requirements",
       batchId: "REV-ORPHAN-1",
       role: "requirements",
-      planEvidenceRef: recoveredManager.planPath
+      planEvidenceRef: recoveredManager.planPath,
+      agentTaskId: "replacement-reviewer-task"
     });
     assert.equal(repeated.reviewBatch?.batchId, rejected.reviewBatch?.batchId);
     assert.deepEqual((await recoveredManager.gate()).head, rotatedHead);
@@ -2217,7 +2515,8 @@ test("resume rebuilds an unchanged reviewer snapshot and rotates a drifted one",
     await manager.dispatchReviewer({
       activityId,
       batchId,
-      role: "requirements"
+      role: "requirements",
+      agentTaskId: "resume-drift-reviewer-task"
     });
     await rm(resolve(root, ".local/test-task-runtime"), {
       recursive: true,
@@ -2247,6 +2546,54 @@ test("resume rebuilds an unchanged reviewer snapshot and rotates a drifted one",
       && typeof event.payload.batchId === "string"
       && event.payload.batchId.startsWith(`${batchId}-r`)
     ).length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("review input drift before the first dispatch rotates without invalidating unowned activities", async () => {
+  const root = await makeWorkspace();
+  try {
+    const manager = new DurableWorkflowManager(requestId, root);
+    await advanceToReviewReady(manager);
+    const batchId = "REV-PRE-DISPATCH-DRIFT";
+    const activityId = "case-review-requirements";
+    await manager.startReviewBatch({ batchId });
+
+    await writeFile(
+      manager.planPath,
+      `${await readFile(manager.planPath, "utf8")}\n<!-- evolved before reviewer dispatch -->\n`,
+      "utf8"
+    );
+    const rotated = await manager.dispatchReviewer({
+      activityId,
+      batchId,
+      role: "requirements",
+      agentTaskId: "pre-dispatch-drift-reviewer"
+    });
+
+    assert.equal(rotated.reviewBatch?.status, "new_batch_started");
+    assert.equal(rotated.reviewBatch?.previousBatchId, batchId);
+    assert.match(rotated.reviewBatch?.batchId ?? "", /^REV-PRE-DISPATCH-DRIFT-r[a-f0-9]{12}$/);
+    assert.equal(rotated.activities[activityId]?.state, "READY");
+    const events = await manager.events();
+    assert.equal(events.filter((event) =>
+      event.type === "ReviewBatchInvalidated"
+      && event.payload.batchId === batchId
+    ).length, 0);
+    assert.equal(events.filter((event) =>
+      event.type === "ReviewerDispatched"
+      && event.payload.batchId === batchId
+    ).length, 0);
+
+    const rebound = await manager.dispatchReviewer({
+      activityId,
+      batchId: rotated.reviewBatch!.batchId,
+      role: "requirements",
+      agentTaskId: "pre-dispatch-drift-reviewer"
+    });
+    assert.equal(rebound.runtimeBinding, "bound");
+    assert.equal(rebound.activities[activityId]?.state, "RUNNING");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -16,7 +16,7 @@ import {
 } from "./types.js";
 
 export const GENESIS_DIGEST = "0".repeat(64);
-export const WRITABLE_WORKFLOW_DEFINITION_VERSION = "v4";
+export const WRITABLE_WORKFLOW_DEFINITION_VERSION = "v5";
 
 export type WorkflowHistoryCandidateValidator = (
   events: readonly WorkflowEvent[]
@@ -246,7 +246,7 @@ export class WorkflowHistoryStore {
       const legacyEvent = events.find((event) => event.type === "LegacyStateImported");
       if (legacyEvent) {
         throw new WorkflowHistoryIntegrityError(
-          `Workflow history is replay-only because seq ${legacyEvent.seq} uses LegacyStateImported; create a new v4 run instead of appending.`
+          `Workflow history is replay-only because seq ${legacyEvent.seq} uses LegacyStateImported; create a new v5 run instead of appending.`
         );
       }
       const legacyDefinitionEvent = events.find(
@@ -254,7 +254,7 @@ export class WorkflowHistoryStore {
       );
       if (legacyDefinitionEvent) {
         throw new WorkflowHistoryIntegrityError(
-          `Workflow history is replay-only because seq ${legacyDefinitionEvent.seq} uses definitionVersion ${legacyDefinitionEvent.definitionVersion}; create a new v4 run instead of appending.`
+          `Workflow history is replay-only because seq ${legacyDefinitionEvent.seq} uses definitionVersion ${legacyDefinitionEvent.definitionVersion}; create a new v5 run instead of appending.`
         );
       }
       const last = events.at(-1);

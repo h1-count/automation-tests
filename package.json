@@ -11,6 +11,8 @@
     "test": "npm run test:web",
     "test:web": "playwright test",
     "test:web:execute": "tsx scripts/run-formal-web-tests.ts",
+    "test:execute": "tsx scripts/run-formal-tests.ts",
+    "test:web:verify-selectors": "tsx scripts/verify-web-selectors.ts",
     "test:web:explore": "playwright test --config=playwright.debug.config.ts",
     "playwright:explore-session": "tsx scripts/manage-playwright-explore-session.ts",
     "test:web:explore:reuse": "PLAYWRIGHT_EXPLORE_CDP_URL=http://127.0.0.1:9323 playwright test --config=playwright.debug.config.ts",
@@ -33,6 +35,7 @@
     "test-assets:select": "tsx scripts/select-test-asset.ts",
     "test:asset-selection": "tsx --test tests/support/test-assets/*.test.ts",
     "check:environment": "tsx scripts/check-environment.ts",
+    "check:types": "tsc --project tsconfig.json",
     "check:firmware:test": "tsx scripts/check-firmware-test-prerequisites.ts",
     "test:test-data": "tsx --test tests/support/test-data/*.test.ts",
     "test:automation-runtime": "tsx --test tests/support/web/*.test.ts",
@@ -53,13 +56,14 @@
     "reset:full-test-state": "tsx scripts/reset-full-test-state.ts",
     "report:playwright": "playwright show-report artifacts/playwright-report",
     "report:allure": "allure generate artifacts/allure-results --clean -o artifacts/allure-report",
-    "report": "npm run report:allure"
+    "report": "npm run report:playwright"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
     "mqtt": "^5.15.2"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.8",
     "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.1",
     "@wdio/allure-reporter": "^9.29.1",

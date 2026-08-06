@@ -26,83 +26,82 @@ function definitionFor(
   });
 }
 
-function engineeringMetadata(capability: WorkflowCapability) {
-  return definitionFor([capability]).activities
-    .find((activity) => activity.id === `engineering-${capability}`)?.metadata;
+function buildCapabilityContract(capability: WorkflowCapability) {
+  const contracts = definitionFor([capability]).activities
+    .find((activity) => activity.id === "build")
+    ?.metadata?.capabilityContracts as Record<string, Record<string, unknown>>;
+  return contracts?.[capability];
 }
 
-test("v4 expands every supported capability with its required engineering contract", () => {
+test("v5 pins every supported capability into one build contract", () => {
   const expectedMetadata: Record<WorkflowCapability, Record<string, unknown>> = {
     web: {
-      visibleExploration: true,
-      playwrightRequired: true,
-      inspectorPolicy: "risk_triggered"
+      sourceContract: "source_first",
+      headlessSelectorVerification: "cached_by_build_and_contract",
+      visibleExploration: "fallback_only",
+      runtime: "playwright"
     },
     h5: {
-      visibleExploration: true,
-      playwrightRequired: true,
-      inspectorPolicy: "risk_triggered"
+      sourceContract: "source_first",
+      headlessSelectorVerification: "cached_by_build_and_contract",
+      visibleExploration: "fallback_only",
+      runtime: "playwright"
     },
     webview: {
-      visibleExploration: true,
-      assetRequired: true,
-      appiumRequired: true,
-      deviceValidation: true,
-      contextSwitchRequired: true,
-      webSemanticsRiskGate: true,
-      inspectorPolicy: "risk_triggered"
+      sourceContract: "source_first",
+      headlessSelectorVerification: "cached_by_build_and_contract",
+      visibleExploration: "fallback_only",
+      runtime: "appium_web_context"
     },
     app: {
-      assetRequired: true,
-      appiumRequired: true,
-      deviceValidation: true
+      runtime: "appium",
+      deviceValidation: true,
     },
     api: {
-      typescriptApiClientRequired: true
+      runtime: "typescript_api"
     },
     mqtt: {
-      mqttJsRequired: true
+      runtime: "mqtt_js"
     },
     iot: {
-      compositeRunnerRequired: true
+      runtime: "composite_iot"
     }
   };
 
   for (const capability of Object.keys(expectedMetadata) as WorkflowCapability[]) {
-    const metadata = engineeringMetadata(capability);
-    assert.ok(metadata, `${capability} engineering metadata should exist`);
-    assert.deepEqual(
-      Object.fromEntries(
-        Object.keys(expectedMetadata[capability]!).map((key) => [key, metadata[key]])
-      ),
-      expectedMetadata[capability]
-    );
+    assert.deepEqual(buildCapabilityContract(capability), expectedMetadata[capability]);
   }
 
-  assert.equal(engineeringMetadata("webview")?.playwrightRequired, undefined);
+  const build = definitionFor(["web", "app"]).activities
+    .find((activity) => activity.id === "build");
+  assert.deepEqual(build?.metadata?.inspectorTriggers, [
+    "source_contract_unresolved",
+    "runtime_uniqueness_failed",
+    "source_runtime_drift",
+    "dynamic_semantics"
+  ]);
 });
 
-test("v4 permits two isolated read-only workers only for non-device capabilities", () => {
+test("v5 permits two isolated read-only workers only for non-device capabilities", () => {
   for (const capability of ["web", "h5", "api", "mqtt"] as WorkflowCapability[]) {
-    const execute = definitionFor([capability]).activities.find((activity) => activity.id === "execute");
+    const execute = definitionFor([capability]).activities.find((activity) => activity.id === "run");
     assert.equal(execute?.metadata?.maxWorkers, 2, capability);
   }
 
   for (const capability of ["webview", "app", "iot"] as WorkflowCapability[]) {
-    const execute = definitionFor([capability]).activities.find((activity) => activity.id === "execute");
+    const execute = definitionFor([capability]).activities.find((activity) => activity.id === "run");
     assert.equal(execute?.metadata?.maxWorkers, 1, capability);
   }
 
   const mixed = definitionFor(["web", "app"]);
-  assert.ok(mixed.activities.some((activity) => activity.id === "engineering-web"));
-  assert.ok(mixed.activities.some((activity) => activity.id === "engineering-app"));
+  assert.ok(mixed.activities.some((activity) => activity.id === "build"));
   assert.equal(
-    mixed.activities.find((activity) => activity.id === "execute")?.metadata?.maxWorkers,
+    mixed.activities.find((activity) => activity.id === "run")?.metadata?.maxWorkers,
     1
   );
 
   assert.equal(
-    definitionFor(["api"], true).activities.find((activity) => activity.id === "execute")?.metadata?.maxWorkers,
+    definitionFor(["api"], true).activities.find((activity) => activity.id === "run")?.metadata?.maxWorkers,
     1
   );
 });

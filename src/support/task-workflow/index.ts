@@ -10,6 +10,7 @@ export * from "./artifactPublisher.js";
 export * from "./packageCompleteness.js";
 export * from "./reviewInputSnapshot.js";
 export * from "./reviewBatchScope.js";
+export * from "./caseReviewRisk.js";
 export * from "./reviewReadiness.js";
 export * from "./simplifiedPhase.js";
 export * from "./callbackDecision.js";

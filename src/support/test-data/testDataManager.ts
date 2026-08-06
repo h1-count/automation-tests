@@ -18,8 +18,11 @@ import {
   type AcquireResourceRequest,
   type ConfirmCreatedResourceInput,
   type CreateIntentRecord,
+  type DataWritePolicy,
+  type PromoteReusableResourceInput,
   type ReconcileCreateIntentInput,
   type RegisterCreatedResourceInput,
+  type ReleaseReusableResourceInput,
   type ReserveCreateIntentInput,
   type ResourceValidator,
   type StartRunInput,
@@ -37,6 +40,7 @@ export interface TestDataManagerOptions {
   artifactRoot?: string;
   cleanupRegistry?: CleanupActionRegistry;
   resourceValidator?: ResourceValidator;
+  resourceValidators?: Record<string, ResourceValidator>;
 }
 
 /**
@@ -50,6 +54,7 @@ export class TestDataManager {
   private readonly envId?: string;
   private readonly artifactRoot: string;
   private readonly resourceValidator?: ResourceValidator;
+  private readonly resourceValidators: Record<string, ResourceValidator>;
   private machineId?: string;
 
   constructor(options: TestDataManagerOptions) {
@@ -61,7 +66,14 @@ export class TestDataManager {
     this.store = new LedgerStore(options.ledgerRoot);
     this.registry = options.cleanupRegistry ?? new CleanupActionRegistry();
     this.resourceValidator = options.resourceValidator;
+    this.resourceValidators = { ...(options.resourceValidators ?? {}) };
     this.artifactRoot = options.artifactRoot ?? resolve(process.cwd(), "artifacts/test-results");
+  }
+
+  registerResourceValidator(baselineContractId: string, validator: ResourceValidator): void {
+    if (!baselineContractId.trim()) throw new Error("A reusable fixture validator requires a baselineContractId.");
+    if (this.resourceValidators[baselineContractId]) return;
+    this.resourceValidators[baselineContractId] = validator;
   }
 
   async startRun(input: StartRunInput): Promise<TestRunRecord> {
@@ -76,7 +88,12 @@ export class TestDataManager {
       caseIds: [...new Set(input.caseIds ?? [])],
       startedAt: new Date().toISOString(),
       status: "running",
-      dataWritePolicy: input.dataWritePolicy ?? "managed_cleanup",
+      dataWritePolicy: input.dataWritePolicy ?? "ephemeral_cleanup",
+      caseWritePolicies: normalizeCaseWritePolicies(input.caseIds ?? [], input.caseWritePolicies),
+      caseAllowedWritePolicies: normalizeAllowedCaseWritePolicies(
+        input.caseIds ?? [],
+        input.caseAllowedWritePolicies
+      ),
       authorizationDigest: input.authorizationDigest,
       writeBudget: { ...(input.writeBudget ?? {}) },
       residualTtlHours: input.residualTtlHours ?? 72,
@@ -86,9 +103,11 @@ export class TestDataManager {
     if (record.dataWritePolicy !== "no_write" && !record.authorizationDigest?.trim()) {
       throw new Error("A writable formal run requires an execution authorization digest.");
     }
-    if (record.dataWritePolicy === "tracked_residual" && record.envId !== "test") {
-      throw new Error("Tracked residual writes are allowed only in the test environment.");
-    }
+    this.assertPoliciesAllowed(record.envId, [
+      record.dataWritePolicy,
+      ...Object.values(record.caseWritePolicies ?? {}),
+      ...Object.values(record.caseAllowedWritePolicies ?? {}).flat()
+    ]);
     await this.store.writeRun(record);
     return record;
   }
@@ -123,11 +142,21 @@ export class TestDataManager {
         if (JSON.stringify([...existing.caseIds].sort()) !== JSON.stringify(expectedCaseIds)) {
           throw new Error("The stored formal run case scope differs from the confirmed authorization.");
         }
-        const expectedPolicy = input.dataWritePolicy ?? "managed_cleanup";
+        const expectedPolicy = input.dataWritePolicy ?? "ephemeral_cleanup";
+        const expectedCaseWritePolicies = normalizeCaseWritePolicies(
+          input.caseIds ?? [],
+          input.caseWritePolicies
+        );
+        const expectedAllowedCaseWritePolicies = normalizeAllowedCaseWritePolicies(
+          input.caseIds ?? [],
+          input.caseAllowedWritePolicies
+        );
         const expectedBudget = input.writeBudget ?? {};
         const expectedResidualTtlHours = input.residualTtlHours ?? 72;
         if (
           existing.dataWritePolicy !== expectedPolicy
+          || JSON.stringify(existing.caseWritePolicies ?? {}) !== JSON.stringify(expectedCaseWritePolicies)
+          || JSON.stringify(existing.caseAllowedWritePolicies ?? {}) !== JSON.stringify(expectedAllowedCaseWritePolicies)
           || !sameWriteBudget(existing.writeBudget, expectedBudget)
           || existing.residualTtlHours !== expectedResidualTtlHours
         ) {
@@ -153,16 +182,23 @@ export class TestDataManager {
         caseIds: expectedCaseIds,
         startedAt: new Date().toISOString(),
         status: "running",
-        dataWritePolicy: input.dataWritePolicy ?? "managed_cleanup",
+        dataWritePolicy: input.dataWritePolicy ?? "ephemeral_cleanup",
+        caseWritePolicies: normalizeCaseWritePolicies(expectedCaseIds, input.caseWritePolicies),
+        caseAllowedWritePolicies: normalizeAllowedCaseWritePolicies(
+          expectedCaseIds,
+          input.caseAllowedWritePolicies
+        ),
         authorizationDigest: input.authorizationDigest,
         writeBudget: { ...(input.writeBudget ?? {}) },
         residualTtlHours: input.residualTtlHours ?? 72,
         resources: [],
         createIntents: []
       };
-      if (record.dataWritePolicy === "tracked_residual" && record.envId !== "test") {
-        throw new Error("Tracked residual writes are allowed only in the test environment.");
-      }
+      this.assertPoliciesAllowed(record.envId, [
+        record.dataWritePolicy,
+        ...Object.values(record.caseWritePolicies ?? {}),
+        ...Object.values(record.caseAllowedWritePolicies ?? {}).flat()
+      ]);
       await this.store.writeRun(record);
       return record;
     });
@@ -188,41 +224,117 @@ export class TestDataManager {
   }
 
   async acquireResource(request: AcquireResourceRequest): Promise<TestResourceRecord | null> {
+    return this.leaseReusableResource(request);
+  }
+
+  async leaseReusableResource(request: AcquireResourceRequest): Promise<TestResourceRecord | null> {
     this.assertScope(request.projectId, request.envId);
     await this.requireRun(request.runId);
-    if (!this.resourceValidator) {
-      return null;
-    }
-    const machineId = await this.currentMachineId();
-    const candidates = (await this.store.listResources())
-      .filter((resource) =>
-        resource.owner === localAutomationOwner &&
-        resource.machineId === machineId &&
-        resource.projectId === request.projectId &&
-        resource.envId === request.envId &&
-        resource.resourceType === request.resourceType &&
-        resource.state === "available" &&
-        resource.reusable &&
-        !resource.dirty &&
-        !isExpired(resource)
-      )
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    return this.store.withExclusive(async () => {
+      const machineId = await this.currentMachineId();
+      const requestedMode = request.leaseMode ?? "exclusive";
+      const candidates = (await this.store.listResources())
+        .filter((resource) => {
+          const leases = resource.leases ?? legacyLeases(resource);
+          const leaseCompatible = requestedMode === "shared_read"
+            ? leases.every((lease) => lease.mode === "shared_read")
+            : leases.length === 0;
+          return resource.owner === localAutomationOwner
+            && resource.machineId === machineId
+            && resource.projectId === request.projectId
+            && resource.envId === request.envId
+            && resource.resourceType === request.resourceType
+            && ["available", "leased"].includes(resource.state)
+            && resource.reusable
+            && !resource.dirty
+            && !isExpired(resource)
+            && leaseCompatible
+            && (!request.baselineContractId
+              || resource.pool?.baselineContractId === request.baselineContractId);
+        })
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 
-    for (const resource of candidates) {
-      const validation = await this.resourceValidator(resource);
-      resource.lastValidation = { ...validation, checkedAt: new Date().toISOString() };
-      if (validation.status !== "passed") {
-        await this.transition(resource, "dirty", validation.message ?? "Resource reuse validation failed.");
-        continue;
+      for (const resource of candidates) {
+        const validator = resource.pool?.baselineContractId
+          ? this.resourceValidators[resource.pool.baselineContractId] ?? this.resourceValidator
+          : this.resourceValidator;
+        if (!validator) continue;
+        const validation = await validator(resource);
+        resource.lastValidation = { ...validation, checkedAt: new Date().toISOString() };
+        if (validation.status !== "passed") {
+          resource.dirty = true;
+          resource.lease = undefined;
+          resource.leases = [];
+          await this.transition(
+            resource,
+            "quarantined",
+            validation.message ?? "Reusable fixture baseline validation failed."
+          );
+          continue;
+        }
+        if (resource.state === "available") {
+          await this.transition(resource, "leased", "Validated reusable fixture lease acquired.");
+        }
+        const acquiredAt = new Date().toISOString();
+        resource.leases = [
+          ...(resource.leases ?? legacyLeases(resource)),
+          { runId: request.runId, caseId: request.caseId, mode: requestedMode, acquiredAt }
+        ];
+        resource.lease = requestedMode === "exclusive"
+          ? { runId: request.runId, caseId: request.caseId, acquiredAt }
+          : undefined;
+        resource.reuseCount += 1;
+        await this.store.writeResource(resource);
+        await this.addResourceToRun(request.runId, resource.resourceId);
+        return resource;
       }
-      await this.transition(resource, "leased", "Validated local resource acquired for reuse.");
-      resource.lease = { runId: request.runId, caseId: request.caseId, acquiredAt: new Date().toISOString() };
-      resource.reuseCount += 1;
-      await this.store.writeResource(resource);
-      await this.addResourceToRun(request.runId, resource.resourceId);
-      return resource;
-    }
-    return null;
+      return null;
+    });
+  }
+
+  async inspectReusablePools(
+    pools: Array<{ resourceType: TestResourceRecord["resourceType"]; baselineContractId: string }>
+  ): Promise<Array<{
+    resourceType: string;
+    baselineContractId: string;
+    availableCount: number;
+    evidenceDigest: string;
+    checkedAt: string;
+  }>> {
+    const machineId = await this.currentMachineId();
+    const resources = await this.store.listResources();
+    const checkedAt = new Date().toISOString();
+    return pools.map((pool) => {
+      const matching = resources.filter((resource) =>
+        resource.owner === localAutomationOwner
+        && resource.machineId === machineId
+        && resource.projectId === this.projectId
+        && (!this.envId || resource.envId === this.envId)
+        && resource.resourceType === pool.resourceType
+        && resource.pool?.baselineContractId === pool.baselineContractId
+        && resource.state === "available"
+        && resource.reusable
+        && !resource.dirty
+        && !isExpired(resource)
+      );
+      return {
+        resourceType: pool.resourceType,
+        baselineContractId: pool.baselineContractId,
+        availableCount: matching.length,
+        evidenceDigest: createHash("sha256").update(JSON.stringify({
+          projectId: this.projectId,
+          envId: this.envId,
+          resourceType: pool.resourceType,
+          baselineContractId: pool.baselineContractId,
+          resourceRevisions: matching.map((resource) => ({
+            resourceIdDigest: createHash("sha256").update(resource.resourceId).digest("hex"),
+            revision: resource.pool?.revision ?? 0,
+            updatedAt: resource.updatedAt
+          }))
+        })).digest("hex"),
+        checkedAt
+      };
+    });
   }
 
   async reserveCreateIntent(input: ReserveCreateIntentInput): Promise<CreateIntentRecord> {
@@ -235,13 +347,19 @@ export class TestDataManager {
       if (!run.caseIds.includes(input.caseId)) {
         throw new Error(`Case ${input.caseId} is not included in the confirmed execution authorization.`);
       }
+      const casePolicy = run.caseWritePolicies?.[input.caseId] ?? run.dataWritePolicy;
+      const requestedPolicy = input.dataWritePolicy ?? casePolicy;
+      const allowedPolicies = run.caseAllowedWritePolicies?.[input.caseId] ?? [casePolicy];
+      if (!allowedPolicies.includes(requestedPolicy)) {
+        throw new Error(`${input.caseId} cannot create data with undeclared policy ${requestedPolicy}.`);
+      }
       this.assertManagedWriteAllowed({
         projectId: input.projectId,
         envId: input.envId,
         resourceType: input.resourceType,
         cleanupActionId: input.cleanupActionId,
         caseId: input.caseId,
-        dataWritePolicy: run.dataWritePolicy,
+        dataWritePolicy: requestedPolicy,
         authorizationDigest: run.authorizationDigest
       });
       await this.assertNoExpiredResidual(input.envId);
@@ -260,7 +378,7 @@ export class TestDataManager {
         throw new Error(`Write budget exhausted for ${input.resourceType}; new writes are frozen.`);
       }
       const timestamp = new Date().toISOString();
-      const expiresAt = input.expiresAt ?? (run.dataWritePolicy === "tracked_residual"
+      const expiresAt = input.expiresAt ?? (requestedPolicy === "tracked_residual"
         ? new Date(Date.now() + run.residualTtlHours * 3_600_000).toISOString()
         : undefined);
       const intent: CreateIntentRecord = {
@@ -274,7 +392,7 @@ export class TestDataManager {
         resourceType: input.resourceType,
         syntheticKey: input.syntheticKey,
         expectedOutcome: input.expectedOutcome ?? "create",
-        dataWritePolicy: run.dataWritePolicy,
+        dataWritePolicy: requestedPolicy,
         cleanupActionId: input.cleanupActionId,
         authorizationDigest: run.authorizationDigest,
         status: "planned",
@@ -326,10 +444,12 @@ export class TestDataManager {
         return existing;
       }
       const action = this.registry.get(intent.cleanupActionId, intent.resourceType);
-      const managedCleanup = intent.dataWritePolicy === "managed_cleanup"
-        && Boolean(intent.cleanupActionId && action?.idempotent);
+      const ephemeralCleanup = isEphemeralCleanup(intent.dataWritePolicy);
       const timestamp = new Date().toISOString();
-      const initialState: TestResourceState = managedCleanup ? "registered" : "retained";
+      const reusableFixture = intent.dataWritePolicy === "reusable_fixture";
+      const initialState: TestResourceState = ephemeralCleanup || reusableFixture
+        ? "registered"
+        : "retained";
       const record: TestResourceRecord = {
         resourceId: input.resourceId,
         resourceType: intent.resourceType,
@@ -342,9 +462,9 @@ export class TestDataManager {
         createIntentId: intent.intentId,
         dataWritePolicy: intent.dataWritePolicy,
         state: initialState,
-        reusable: input.reusable ?? managedCleanup,
+        reusable: input.reusable ?? reusableFixture,
         dirty: false,
-        cleanupActionId: managedCleanup ? intent.cleanupActionId : undefined,
+        cleanupActionId: ephemeralCleanup && action?.idempotent ? intent.cleanupActionId : undefined,
         createdAt: timestamp,
         updatedAt: timestamp,
         expiresAt: intent.expiresAt,
@@ -355,14 +475,16 @@ export class TestDataManager {
         stateHistory: [{
           state: initialState,
           at: timestamp,
-          message: managedCleanup
+          message: ephemeralCleanup
             ? "Resource confirmed from a pre-registered create intent."
-            : "Authorized test resource retained until its declared expiry."
+            : reusableFixture
+              ? "Resource confirmed as a reusable fixture candidate pending promotion."
+              : "Authorized test resource retained until its declared expiry."
         }]
       };
       await this.store.writeResource(record);
-      if (managedCleanup) {
-        await this.transition(record, "available", "Resource is available for validated local reuse.");
+      if (ephemeralCleanup) {
+        await this.transition(record, "available", "Ephemeral resource is available to the current run.");
       }
       intent.resourceId = input.resourceId;
       intent.status = intent.status === "creation_unknown" ? "reconciled" : "created";
@@ -397,8 +519,17 @@ export class TestDataManager {
     const action = this.registry.get(input.cleanupActionId, input.resourceType);
     const hasRegisteredIdempotentCleanup = Boolean(input.cleanupActionId && action?.idempotent);
     const now = new Date().toISOString();
-    const trackedResidual = run.dataWritePolicy === "tracked_residual";
-    const initialState: TestResourceState = hasRegisteredIdempotentCleanup ? "registered" : trackedResidual ? "retained" : "manual_required";
+    const casePolicy = run.caseWritePolicies?.[input.caseId ?? ""] ?? run.dataWritePolicy;
+    const trackedResidual = casePolicy === "tracked_residual";
+    const reusableFixture = casePolicy === "reusable_fixture";
+    const ephemeralCleanup = isEphemeralCleanup(casePolicy);
+    const initialState: TestResourceState = ephemeralCleanup
+      ? "registered"
+      : reusableFixture
+        ? "registered"
+        : trackedResidual
+          ? "retained"
+          : "manual_required";
     const record: TestResourceRecord = {
       resourceId: input.resourceId,
       resourceType: input.resourceType,
@@ -408,11 +539,13 @@ export class TestDataManager {
       machineId: run.machineId,
       runId: input.runId,
       caseId: input.caseId,
-      dataWritePolicy: run.dataWritePolicy,
+      dataWritePolicy: casePolicy,
       state: initialState,
       reusable: input.reusable,
       dirty: false,
-      cleanupActionId: hasRegisteredIdempotentCleanup ? input.cleanupActionId : undefined,
+      cleanupActionId: ephemeralCleanup && hasRegisteredIdempotentCleanup
+        ? input.cleanupActionId
+        : undefined,
       createdAt: now,
       updatedAt: now,
       expiresAt: input.expiresAt ?? (trackedResidual ? new Date(Date.now() + run.residualTtlHours * 3_600_000).toISOString() : undefined),
@@ -423,15 +556,17 @@ export class TestDataManager {
       stateHistory: [{
         state: initialState,
         at: now,
-        message: hasRegisteredIdempotentCleanup
+        message: ephemeralCleanup
           ? "Resource registered by the creating local Runner."
+          : reusableFixture
+            ? "Resource registered as a reusable fixture candidate pending promotion."
           : trackedResidual
             ? "Authorized test resource retained until its declared expiry."
             : "Cleanup action is missing or not idempotent; automatic handling is disabled."
       }]
     };
-    if (hasRegisteredIdempotentCleanup) {
-      await this.transition(record, "available", "Resource is available for validated local reuse.");
+    if (ephemeralCleanup) {
+      await this.transition(record, "available", "Ephemeral resource is available to the current run.");
     } else {
       await this.store.writeResource(record);
     }
@@ -451,9 +586,6 @@ export class TestDataManager {
     if (!input.caseId || !input.authorizationDigest?.trim() || input.dataWritePolicy === "no_write") {
       throw new Error("Managed writes require a caseId, a confirmed authorization digest, and a writable policy.");
     }
-    if (input.dataWritePolicy === "managed_cleanup" && !this.registry.get(input.cleanupActionId, input.resourceType)?.idempotent) {
-      throw new Error("managed_cleanup requires a registered idempotent cleanup action.");
-    }
     if (input.dataWritePolicy === "tracked_residual" && input.envId !== "test") {
       throw new Error("tracked_residual is allowed only in the test environment.");
     }
@@ -470,26 +602,196 @@ export class TestDataManager {
     await this.transition(resource, "dirty", reason);
   }
 
+  async promoteReusableResource(input: PromoteReusableResourceInput): Promise<TestResourceRecord> {
+    assertSafeText(input.requestId, "requestId");
+    assertSafeText(input.caseId, "caseId");
+    assertSafeText(input.syntheticKey, "syntheticKey");
+    assertSafeText(input.baselineContractId, "baselineContractId");
+    assertSafeText(input.baselineVersion, "baselineVersion");
+    if (!Number.isInteger(input.maxPoolSize) || input.maxPoolSize <= 0) {
+      throw new Error("Reusable fixture maxPoolSize must be a positive integer.");
+    }
+    return this.store.withExclusive(async () => {
+      const resource = await this.requireOwnedResource(input.resourceId);
+      if (resource.dataWritePolicy !== "reusable_fixture") {
+        throw new Error("Only reusable_fixture resources can be promoted into the pool.");
+      }
+      if (resource.caseId !== input.caseId || resource.dirty || !["registered", "quarantined"].includes(resource.state)) {
+        throw new Error("Reusable fixture candidate is not clean, owned by the producer case, and promotable.");
+      }
+      const validator = this.resourceValidators[input.baselineContractId] ?? this.resourceValidator;
+      if (!validator) {
+        throw new Error(`Reusable fixture baseline validator ${input.baselineContractId} is not registered.`);
+      }
+      const validation = await validator(resource);
+      resource.lastValidation = { ...validation, checkedAt: new Date().toISOString() };
+      if (validation.status !== "passed") {
+        resource.dirty = true;
+        await this.transition(resource, "quarantined", validation.message ?? "Reusable fixture promotion validation failed.");
+        return resource;
+      }
+      const poolResources = (await this.store.listResources()).filter((candidate) =>
+        candidate.resourceId !== resource.resourceId
+        && candidate.owner === localAutomationOwner
+        && candidate.machineId === resource.machineId
+        && candidate.projectId === resource.projectId
+        && candidate.envId === resource.envId
+        && candidate.resourceType === resource.resourceType
+        && candidate.pool?.baselineContractId === input.baselineContractId
+        && !["cleaned", "retired"].includes(candidate.state)
+      );
+      if (poolResources.length >= input.maxPoolSize) {
+        resource.dirty = false;
+        await this.transition(
+          resource,
+          "quarantined",
+          "Reusable fixture pool capacity is full; retire or replace a fixture before promotion."
+        );
+        return resource;
+      }
+      const promotedAt = new Date().toISOString();
+      resource.reusable = true;
+      resource.dirty = false;
+      resource.pool = {
+        baselineContractId: input.baselineContractId,
+        baselineVersion: input.baselineVersion,
+        syntheticKey: input.syntheticKey,
+        producerRequestId: input.requestId,
+        producerCaseId: input.caseId,
+        leaseMode: input.leaseMode,
+        maxPoolSize: input.maxPoolSize,
+        retirementPolicy: input.retirementPolicy ?? "validate_quarantine_replace",
+        revision: (resource.pool?.revision ?? 0) + 1,
+        promotedAt
+      };
+      resource.lease = undefined;
+      resource.leases = [];
+      await this.transition(resource, "available", "Reusable fixture validated and promoted into the local pool.");
+      return resource;
+    });
+  }
+
+  async retainTrackedResidual(
+    resourceId: string,
+    reason: string
+  ): Promise<TestResourceRecord> {
+    assertSafeText(reason, "reason");
+    const resource = await this.requireOwnedResource(resourceId);
+    if (["cleaned", "retired"].includes(resource.state)) {
+      throw new Error("A cleaned or retired resource cannot become a tracked residual.");
+    }
+    const run = await this.requireRun(resource.runId);
+    resource.dataWritePolicy = "tracked_residual";
+    resource.reusable = false;
+    resource.pool = undefined;
+    resource.lease = undefined;
+    resource.leases = [];
+    resource.expiresAt ??= new Date(
+      Date.now() + run.residualTtlHours * 3_600_000
+    ).toISOString();
+    await this.transition(resource, "retained", reason);
+    return resource;
+  }
+
+  async quarantineReusableResource(resourceId: string, reason: string): Promise<void> {
+    assertSafeText(reason, "reason");
+    const resource = await this.requireOwnedResource(resourceId);
+    if (!resource.pool) throw new Error("Only a managed reusable fixture can be quarantined.");
+    resource.dirty = true;
+    resource.lease = undefined;
+    resource.leases = [];
+    await this.transition(resource, "quarantined", reason);
+  }
+
+  async retireReusableResource(resourceId: string, reason: string): Promise<void> {
+    assertSafeText(reason, "reason");
+    const resource = await this.requireOwnedResource(resourceId);
+    if (!resource.pool) throw new Error("Only a managed reusable fixture can be retired.");
+    resource.reusable = false;
+    resource.lease = undefined;
+    resource.leases = [];
+    await this.transition(resource, "retired", reason);
+  }
+
   async markCleanupPending(resourceId: string): Promise<void> {
     const resource = await this.requireOwnedResource(resourceId);
     await this.transition(resource, "cleanup_pending", "Cleanup requested for local resource.");
   }
 
+  async recordResourceRestored(
+    resourceId: string,
+    message = "Authorized UI, API or adapter cleanup restored the resource baseline."
+  ): Promise<void> {
+    assertSafeText(message, "message");
+    const resource = await this.requireOwnedResource(resourceId);
+    if (!isEphemeralCleanup(resource.dataWritePolicy ?? "no_write")) {
+      throw new Error("Only an ephemeral cleanup resource can be recorded as restored.");
+    }
+    resource.dirty = false;
+    resource.lease = undefined;
+    resource.leases = [];
+    if (resource.state !== "cleanup_pending") {
+      await this.transition(resource, "cleanup_pending", "External cleanup evidence was recorded.");
+    }
+    await this.transition(resource, "cleaning", "External cleanup verification started.");
+    await this.transition(resource, "cleaned", message);
+  }
+
   async releaseResource(resourceId: string): Promise<void> {
     const resource = await this.requireOwnedResource(resourceId);
-    if (resource.state === "leased" || resource.state === "used") {
+    const runId = resource.lease?.runId ?? resource.leases?.[0]?.runId;
+    if (!runId) return;
+    await this.releaseReusableResource({
+      resourceId,
+      runId,
+      baselineRestored: !resource.dirty
+    });
+  }
+
+  async releaseReusableResource(input: ReleaseReusableResourceInput): Promise<void> {
+    const resource = await this.requireOwnedResource(input.resourceId);
+    const leases = (resource.leases ?? legacyLeases(resource))
+      .filter((lease) => lease.runId !== input.runId);
+    if (!input.baselineRestored) {
+      resource.dirty = true;
       resource.lease = undefined;
-      await this.transition(resource, resource.dirty ? "dirty" : "available", "Local resource lease released.");
+      resource.leases = [];
+      await this.transition(
+        resource,
+        resource.pool ? "quarantined" : "dirty",
+        input.reason ?? "Resource baseline was not restored before lease release."
+      );
+      return;
     }
+    resource.lease = undefined;
+    resource.leases = leases;
+    if (leases.length === 0 && ["leased", "used", "dirty", "quarantined"].includes(resource.state)) {
+      resource.dirty = false;
+      if (resource.pool) resource.pool.revision += 1;
+      await this.transition(resource, "available", input.reason ?? "Reusable fixture baseline restored and lease released.");
+      return;
+    }
+    await this.store.writeResource(resource);
   }
 
   async cleanupRun(runId: string): Promise<TestDataSummary> {
     const run = await this.requireRun(runId);
     const records = await this.resourcesForRun(run);
     for (const resource of records) {
-      if (resource.state === "retained") continue;
-      if (resource.lease?.runId === runId && resource.runId !== runId) {
-        await this.releaseResource(resource.resourceId);
+      if (["retained", "retired"].includes(resource.state)) continue;
+      if ((resource.leases ?? legacyLeases(resource)).some((lease) => lease.runId === runId)
+        && resource.runId !== runId) {
+        await this.releaseReusableResource({
+          resourceId: resource.resourceId,
+          runId,
+          baselineRestored: !resource.dirty
+        });
+        continue;
+      }
+      if (resource.runId === runId && resource.dataWritePolicy === "reusable_fixture") {
+        if (!resource.pool && resource.state !== "quarantined") {
+          await this.transition(resource, "quarantined", "Reusable fixture was not promoted before run cleanup.");
+        }
         continue;
       }
       if (resource.runId === runId && (!resource.reusable || resource.dirty || resource.state === "cleanup_pending")) {
@@ -671,6 +973,52 @@ export class TestDataManager {
     }
     assertNonProductionEnvironment(envId);
   }
+
+  private assertPoliciesAllowed(envId: string, policies: DataWritePolicy[]): void {
+    if (policies.some((policy) => policy === "tracked_residual") && envId !== "test") {
+      throw new Error("Tracked residual writes are allowed only in the test environment.");
+    }
+  }
+}
+
+function isEphemeralCleanup(policy: DataWritePolicy): boolean {
+  return policy === "ephemeral_cleanup" || policy === "managed_cleanup";
+}
+
+function normalizeCaseWritePolicies(
+  caseIds: string[],
+  policies: Record<string, DataWritePolicy> | undefined
+): Record<string, DataWritePolicy> {
+  if (!policies) return {};
+  const allowed = new Set(caseIds);
+  const entries = Object.entries(policies)
+    .filter(([caseId]) => allowed.has(caseId))
+    .sort(([left], [right]) => left.localeCompare(right));
+  if (entries.length !== Object.keys(policies).length) {
+    throw new Error("caseWritePolicies contains a case outside the authorized run scope.");
+  }
+  return Object.fromEntries(entries);
+}
+
+function normalizeAllowedCaseWritePolicies(
+  caseIds: string[],
+  policies: Record<string, DataWritePolicy[]> | undefined
+): Record<string, DataWritePolicy[]> {
+  if (!policies) return {};
+  const allowed = new Set(caseIds);
+  const entries = Object.entries(policies)
+    .map(([caseId, values]) => [caseId, [...new Set(values)].sort()] as const)
+    .sort(([left], [right]) => left.localeCompare(right));
+  if (entries.some(([caseId]) => !allowed.has(caseId))) {
+    throw new Error("caseAllowedWritePolicies contains a case outside the authorized run scope.");
+  }
+  return Object.fromEntries(entries);
+}
+
+function legacyLeases(resource: TestResourceRecord): NonNullable<TestResourceRecord["leases"]> {
+  return resource.lease
+    ? [{ ...resource.lease, mode: "exclusive" }]
+    : [];
 }
 
 function sameWriteBudget(

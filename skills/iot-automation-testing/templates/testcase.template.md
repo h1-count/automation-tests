@@ -15,7 +15,7 @@
 | 测试类型 | Web / App / API / MQTT / IoT 链路 |
 | 状态 | 草案 |
 | 目标环境 | 待确认 |
-| 数据策略 | no_write / managed_cleanup / tracked_residual |
+| 数据策略 | no_write / ephemeral_cleanup / reusable_fixture / tracked_residual |
 | 自动化状态 | 暂不可执行 |
 | 风险等级 | 低 / 中 / 高 |
 | 是否需要人工确认 | 否 |

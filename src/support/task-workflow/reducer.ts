@@ -15,7 +15,11 @@ import {
   type WorkflowState,
   type WorkflowWait
 } from "./types.js";
-import { reviewInputDigest } from "./reviewInputSnapshot.js";
+import {
+  reviewInputDigest,
+  reviewRoleInputDigests,
+  semanticReviewInputDigest
+} from "./reviewInputSnapshot.js";
 import {
   parseReviewBatchScope,
   reviewBatchScopeDigest
@@ -47,6 +51,7 @@ interface ReducerRuntime {
   reviewerDispatches: Map<string, Set<string>>;
   reviewerSubmissions: Map<string, Set<string>>;
   reviewBatches: Map<string, string | undefined>;
+  reviewBatchRoleDigests: Map<string, Map<string, string>>;
   reviewBatchActivities: Map<string, Set<string>>;
   reviewerBatchByActivity: Map<string, string>;
   preparedArtifacts: Map<string, {
@@ -266,7 +271,7 @@ function materializeReady(
             dependency?.state === "CANCELLED"
             && dependency.definition.activation !== undefined
             && (
-              !["v3", "v4"].includes(definitionVersion)
+              !["v3", "v4", "v5"].includes(definitionVersion)
               || activity.definition.optionalDependencies?.includes(id) === true
             )
           );
@@ -587,7 +592,7 @@ function applyActivityEvent(
         throw new WorkflowTransitionError(`Callback ${callbackId} does not match the pending subject digest.`);
       }
       let planDigest: string | undefined;
-      if (["v3", "v4"].includes(event.definitionVersion)) {
+      if (["v3", "v4", "v5"].includes(event.definitionVersion)) {
         const publishId = stringField(payload, "publishId");
         const manifestDigest = requireDigest(
           stringField(payload, "manifestDigest"),
@@ -635,9 +640,9 @@ function applyActivityEvent(
       return;
     }
     case "PlanConfirmationCarriedForward": {
-      if (event.definitionVersion !== "v4" || event.actorType !== "system") {
+      if (!["v4", "v5"].includes(event.definitionVersion) || event.actorType !== "system") {
         throw new WorkflowTransitionError(
-          "PlanConfirmationCarriedForward is a v4 system-only recovery event."
+          "PlanConfirmationCarriedForward is a v4+ system-only recovery event."
         );
       }
       const activity = activityFor(activities, payload);
@@ -844,7 +849,7 @@ function applyActivityEvent(
           `Review batch ${batchId} requires an immutable inputDigest.`
         );
       }
-      if (event.definitionVersion === "v4") {
+      if (["v4", "v5"].includes(event.definitionVersion)) {
         if (!Array.isArray(payload.inputRefs) || !payload.inputRefs.length) {
           throw new WorkflowTransitionError(`Review batch ${batchId} requires non-empty inputRefs.`);
         }
@@ -858,12 +863,46 @@ function applyActivityEvent(
             || !Number.isInteger(ref.sizeBytes) || Number(ref.sizeBytes) < 0) {
             throw new WorkflowTransitionError(`Review batch ${batchId} has malformed inputRef.`);
           }
-          return { sourcePath: ref.path, digest: ref.digest, sizeBytes: Number(ref.sizeBytes) };
+          if (
+            ref.semanticDigest !== undefined
+            && (typeof ref.semanticDigest !== "string" || !sha256Pattern.test(ref.semanticDigest))
+          ) {
+            throw new WorkflowTransitionError(
+              `Review batch ${batchId} has malformed inputRef semanticDigest.`
+            );
+          }
+          if (
+            ref.roleSemanticDigests !== undefined
+            && (
+              !ref.roleSemanticDigests
+              || typeof ref.roleSemanticDigests !== "object"
+              || Array.isArray(ref.roleSemanticDigests)
+              || Object.values(ref.roleSemanticDigests).some(
+                (digest) => typeof digest !== "string" || !sha256Pattern.test(digest)
+              )
+            )
+          ) {
+            throw new WorkflowTransitionError(
+              `Review batch ${batchId} has malformed inputRef roleSemanticDigests.`
+            );
+          }
+          return {
+            sourcePath: ref.path,
+            digest: ref.digest,
+            sizeBytes: Number(ref.sizeBytes),
+            ...(typeof ref.semanticDigest === "string"
+              ? { semanticDigest: ref.semanticDigest }
+              : {}),
+            ...(ref.roleSemanticDigests && typeof ref.roleSemanticDigests === "object"
+              ? { roleSemanticDigests: ref.roleSemanticDigests as Record<string, string> }
+              : {})
+          };
         });
         let scopeDigest: string | undefined;
+        let scope: ReturnType<typeof parseReviewBatchScope> | undefined;
         if (payload.scope !== undefined || payload.scopeDigest !== undefined) {
           try {
-            const scope = parseReviewBatchScope(payload.scope);
+            scope = parseReviewBatchScope(payload.scope);
             scopeDigest = requireDigest(
               stringField(payload, "scopeDigest"),
               "scopeDigest"
@@ -901,8 +940,40 @@ function applyActivityEvent(
             `Review batch ${batchId} has malformed readinessWarnings.`
           );
         }
-        if (reviewInputDigest(event.requestId, refs, scopeDigest) !== inputDigest) {
+        const isSemanticSnapshot = scope?.schemaVersion === "review-batch-scope-v3";
+        if (isSemanticSnapshot && refs.some((ref) => ref.semanticDigest === undefined)) {
+          throw new WorkflowTransitionError(
+            `Review batch ${batchId} v3 scope requires semanticDigest for every inputRef.`
+          );
+        }
+        const computedInputDigest = isSemanticSnapshot
+          ? semanticReviewInputDigest(event.requestId, refs, scopeDigest)
+          : reviewInputDigest(event.requestId, refs, scopeDigest);
+        if (computedInputDigest !== inputDigest) {
           throw new WorkflowTransitionError(`Review batch ${batchId} inputRefs do not match inputDigest.`);
+        }
+        if (isSemanticSnapshot) {
+          const rawRoleDigests = payload.roleInputDigests;
+          if (!rawRoleDigests || typeof rawRoleDigests !== "object" || Array.isArray(rawRoleDigests)) {
+            throw new WorkflowTransitionError(
+              `Review batch ${batchId} v3 scope requires roleInputDigests.`
+            );
+          }
+          const expected = reviewRoleInputDigests(event.requestId, refs, scopeDigest, scope);
+          const actual = Object.fromEntries(Object.entries(rawRoleDigests).map(([activityId, digest]) => {
+            if (typeof digest !== "string") {
+              throw new WorkflowTransitionError(
+                `Review batch ${batchId} has malformed roleInputDigest for ${activityId}.`
+              );
+            }
+            return [activityId, requireDigest(digest, `roleInputDigest for ${activityId}`)];
+          }));
+          if (JSON.stringify(Object.entries(actual).sort()) !== JSON.stringify(Object.entries(expected).sort())) {
+            throw new WorkflowTransitionError(
+              `Review batch ${batchId} roleInputDigests do not match its role scopes.`
+            );
+          }
+          runtime.reviewBatchRoleDigests.set(batchId, new Map(Object.entries(actual)));
         }
       }
       runtime.reviewBatches.set(
@@ -931,7 +1002,8 @@ function applyActivityEvent(
         );
       }
       const eventInputDigest = payload.inputDigest;
-      const batchInputDigest = runtime.reviewBatches.get(batchId);
+      const batchInputDigest = runtime.reviewBatchRoleDigests.get(batchId)?.get(activity.id)
+        ?? runtime.reviewBatches.get(batchId);
       if (eventInputDigest !== undefined && typeof eventInputDigest !== "string") {
         throw new WorkflowTransitionError(`Reviewer dispatch ${activity.id} has an invalid inputDigest.`);
       }
@@ -955,7 +1027,7 @@ function applyActivityEvent(
       }
       const joinRoles = runtime.reviewerJoinRequirements.get(activity.id);
       requireState(activity, joinRoles ? ["READY", "RUNNING", "RETRY_WAIT"] : ["READY", "RETRY_WAIT"], event);
-      const role = joinRoles || ["v3", "v4"].includes(event.definitionVersion)
+      const role = joinRoles || ["v3", "v4", "v5"].includes(event.definitionVersion)
         ? stringField(payload, "role")
         : undefined;
       if (joinRoles && !joinRoles.includes(role!)) {
@@ -963,7 +1035,7 @@ function applyActivityEvent(
           `Reviewer role ${role} is not part of compatibility join ${activity.id}.`
         );
       }
-      if (["v3", "v4"].includes(event.definitionVersion)) {
+      if (["v3", "v4", "v5"].includes(event.definitionVersion)) {
         const expectedRole = activity.definition.metadata?.role;
         if (typeof expectedRole !== "string" || role !== expectedRole) {
           throw new WorkflowTransitionError(
@@ -1012,7 +1084,8 @@ function applyActivityEvent(
           `Reviewer submission ${activity.id} does not match its dispatched batch ${batchId}.`
         );
       }
-      const batchInputDigest = runtime.reviewBatches.get(batchId);
+      const batchInputDigest = runtime.reviewBatchRoleDigests.get(batchId)?.get(activity.id)
+        ?? runtime.reviewBatches.get(batchId);
       const eventInputDigest = payload.inputDigest;
       if (
         batchInputDigest !== undefined
@@ -1036,10 +1109,10 @@ function applyActivityEvent(
         requireDigest(stringField(payload, "planEvidenceDigest"), "planEvidenceDigest");
       }
       const joinRoles = runtime.reviewerJoinRequirements.get(activity.id);
-      const submittedRole = joinRoles || ["v3", "v4"].includes(event.definitionVersion)
+      const submittedRole = joinRoles || ["v3", "v4", "v5"].includes(event.definitionVersion)
         ? stringField(payload, "role")
         : undefined;
-      if (["v3", "v4"].includes(event.definitionVersion)) {
+      if (["v3", "v4", "v5"].includes(event.definitionVersion)) {
         const expectedRole = activity.definition.metadata?.role;
         if (typeof expectedRole !== "string" || submittedRole !== expectedRole) {
           throw new WorkflowTransitionError(
@@ -1165,15 +1238,15 @@ function applyActivityEvent(
       }
       // v3 persisted revision/findings convergence facts but did not bind an
       // invalidation to the batch input digest.  It is replay-only, so retain
-      // that historical contract here while enforcing the stronger v4 shape
+      // that historical contract here while enforcing the stronger v4+ shape
       // for every writable run.
-      if (event.definitionVersion === "v4") {
+      if (["v4", "v5"].includes(event.definitionVersion)) {
         const inputDigest = requireDigest(stringField(payload, "inputDigest"), "inputDigest");
         if (runtime.reviewBatches.get(batchId) !== inputDigest) {
           throw new WorkflowTransitionError(`Review batch ${batchId} inputDigest does not match its started batch.`);
         }
       }
-      if (["v3", "v4"].includes(event.definitionVersion)) {
+      if (["v3", "v4", "v5"].includes(event.definitionVersion)) {
         const revisionDigest = requireDigest(stringField(payload, "revisionDigest"), "revisionDigest");
         const findingsDigest = requireDigest(stringField(payload, "findingsDigest"), "findingsDigest");
         const signature = `${revisionDigest}:${findingsDigest}`;
@@ -1319,6 +1392,7 @@ export function reduceWorkflow(
     reviewerDispatches: new Map(),
     reviewerSubmissions: new Map(),
     reviewBatches: new Map(),
+    reviewBatchRoleDigests: new Map(),
     reviewBatchActivities: new Map(),
     reviewerBatchByActivity: new Map(),
     preparedArtifacts: new Map(),

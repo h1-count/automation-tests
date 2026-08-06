@@ -384,9 +384,9 @@ test("an unverifiable history lock is recovered only after its fallback timeout"
   assert.equal((await store.read()).length, 1);
 });
 
-test("new definition is v4-only, risk-selectable, and has exactly three fixed confirmations", () => {
+test("new definition is v5-only, risk-selectable, and has exactly three fixed confirmations", () => {
   const defaults = definition();
-  assert.equal(defaults.definitionVersion, "v4");
+  assert.equal(defaults.definitionVersion, "v5");
   assert.deepEqual(
     defaults.reviewPolicy?.requiredRoles,
     ["requirements", "design", "traceability"]
@@ -418,7 +418,7 @@ test("explicit isolation is the only way a read execution receives two workers",
     data: boolean;
     sharedAccount?: boolean;
   }) => definition({ executionIsolation: isolation }).activities
-    .find((activity) => activity.id === "execute")!;
+    .find((activity) => activity.id === "run")!;
   assert.equal(execute().metadata?.maxWorkers, 1);
   assert.equal(execute({
     contexts: true,
@@ -433,7 +433,7 @@ test("explicit isolation is the only way a read execution receives two workers",
     sharedAccount: false
   }).metadata?.maxWorkers, 2);
   assert.equal(definition({ writesData: true }).activities
-    .find((activity) => activity.id === "execute")?.metadata?.maxWorkers, 1);
+    .find((activity) => activity.id === "run")?.metadata?.maxWorkers, 1);
 });
 
 test("accepted plan callback immediately makes every case package ready", async (context) => {
@@ -924,7 +924,7 @@ test("LegacyStateImported remains readable only from an existing verified histor
       }),
       definitionVersion: "v4"
     }),
-    /replay-only.*LegacyStateImported/
+    /replay-only/
   );
 }
 );

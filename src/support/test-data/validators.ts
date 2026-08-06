@@ -48,19 +48,20 @@ export function assertCleanupAction(action: CleanupAction | undefined, record: T
 
 export function canTransition(from: TestResourceState, to: TestResourceState): boolean {
   const transitions: Record<TestResourceState, TestResourceState[]> = {
-    registered: ["available", "retained", "manual_required"],
-    available: ["leased", "cleanup_pending", "dirty", "expired", "retained", "manual_required"],
-    leased: ["used", "available", "dirty", "cleanup_pending", "retained", "manual_required"],
-    used: ["available", "dirty", "cleanup_pending", "retained", "manual_required"],
-    dirty: ["cleanup_pending", "retained", "manual_required"],
+    registered: ["available", "retained", "quarantined", "retired", "manual_required"],
+    available: ["leased", "cleanup_pending", "dirty", "expired", "retained", "quarantined", "retired", "manual_required"],
+    leased: ["used", "available", "dirty", "cleanup_pending", "retained", "quarantined", "retired", "manual_required"],
+    used: ["available", "dirty", "cleanup_pending", "retained", "quarantined", "retired", "manual_required"],
+    dirty: ["available", "cleanup_pending", "retained", "quarantined", "retired", "manual_required"],
     cleanup_pending: ["cleaning", "manual_required"],
     cleaning: ["cleaned", "cleanup_failed", "manual_required"],
-    cleaned: [],
+    cleaned: ["retired"],
     cleanup_failed: ["cleanup_pending", "cleaning", "manual_required"],
     manual_required: ["cleanup_pending", "cleaning"],
-    retained: ["cleanup_pending", "expired", "manual_required"],
-    quarantined: ["manual_required"],
-    expired: ["cleanup_pending", "manual_required"]
+    retained: ["cleanup_pending", "expired", "quarantined", "retired", "manual_required"],
+    quarantined: ["available", "cleanup_pending", "retained", "retired", "manual_required"],
+    retired: ["cleanup_pending", "retained", "manual_required"],
+    expired: ["cleanup_pending", "quarantined", "retired", "manual_required"]
   };
   return transitions[from].includes(to);
 }

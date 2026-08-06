@@ -1,13 +1,39 @@
+import "dotenv/config";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
   buildExecutionAuthorizationManifest,
+  EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+  READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
   executionOperationKinds,
   loadConfirmedExecutionAuthorization,
   loadExecutionAuthorizationManifest,
-  type ExecutionOperationKind
+  type ExecutionCaseScope,
+  type ExecutionExternalTransitionSummary,
+  type ExecutionOperationKind,
+  type ExecutionResourcePoolBudget
 } from "../../formal-execution/authorization.js";
+import {
+  evaluateCapabilitiesWithProviders,
+  loadFormalExecutionManifest
+} from "../../formal-execution/manifest.js";
+import { createDefaultCapabilityProviderRegistry } from "../../formal-execution/capabilityProvider.js";
+import { FormalExecutionStore } from "../../formal-execution/formalExecutionStore.js";
+import { resolveSelectorBuildIdentity } from "../../formal-execution/selectorBuildIdentity.js";
+import { resolveFormalRunnerAdapter } from "../../formal-execution/runnerAdapters.js";
+import { assessExecutionReadiness } from "../../formal-execution/readiness.js";
+import { TestDataManager } from "../../test-data/testDataManager.js";
+import type { FormalExecutionManifest } from "../../formal-execution/types.js";
 import { ReviewInputSnapshotStore } from "../reviewInputSnapshot.js";
+import {
+  SCRIPT_REVIEW_POLICY_VERSION,
+  assessScriptReview,
+  scriptReviewVerification,
+  validateScriptReviewEvidenceFiles,
+  type ScriptReviewAssessment,
+  type ScriptReviewCaseRisk,
+  type ScriptReviewDataWritePolicy
+} from "../../formal-execution/scriptReviewPolicy.js";
 import {
   DurableWorkflowManager,
   workflowStatusText,
@@ -105,6 +131,32 @@ function parseExecutionOperations(values: string[]): ExecutionOperationKind[] {
   });
 }
 
+function parseDataWritePolicy(value: string): ScriptReviewDataWritePolicy {
+  if (!["no_write", "managed_cleanup", "ephemeral_cleanup", "reusable_fixture", "tracked_residual"].includes(value)) {
+    throw new Error(
+      "--data-write-policy must be no_write, ephemeral_cleanup, reusable_fixture, tracked_residual, or legacy managed_cleanup."
+    );
+  }
+  return value as ScriptReviewDataWritePolicy;
+}
+
+function parseScriptCaseRisks(values: string[]): ScriptReviewCaseRisk[] | undefined {
+  if (!values.length) return undefined;
+  return values.map((value) => {
+    const separator = value.lastIndexOf(":");
+    const caseId = separator > 0 ? value.slice(0, separator).trim() : "";
+    const level = separator > 0 ? value.slice(separator + 1).trim() : "";
+    if (!caseId || !["light", "standard", "strict"].includes(level)) {
+      throw new Error(`Invalid --case-risk "${value}"; expected <caseId>:<light|standard|strict>.`);
+    }
+    return {
+      caseId,
+      level: level as ScriptReviewCaseRisk["level"],
+      reasons: ["case_review_risk_assessment"]
+    };
+  });
+}
+
 function parseResourceBudgets(
   values: string[]
 ): Array<{ resourceType: string; maxCreates: number }> {
@@ -117,6 +169,105 @@ function parseResourceBudgets(
     }
     return { resourceType, maxCreates };
   });
+}
+
+function parseResourcePoolBudgets(values: string[]): ExecutionResourcePoolBudget[] {
+  return values.map((value) => {
+    const [resourceType, baselineContractId, maxAvailableText, replacementBudgetText, ttlHoursText] = value.split(":");
+    const maxAvailable = Number(maxAvailableText);
+    const replacementBudget = Number(replacementBudgetText);
+    const ttlHours = Number(ttlHoursText);
+    if (
+      !resourceType?.trim()
+      || !baselineContractId?.trim()
+      || !Number.isInteger(maxAvailable)
+      || maxAvailable <= 0
+      || !Number.isInteger(replacementBudget)
+      || replacementBudget < 0
+      || !Number.isInteger(ttlHours)
+      || ttlHours <= 0
+    ) {
+      throw new Error(
+        `Invalid --pool-budget "${value}"; expected <resource-type>:<baseline-contract>:<max>:<replacement-budget>:<ttl-hours>.`
+      );
+    }
+    return {
+      resourceType: resourceType.trim(),
+      baselineContractId: baselineContractId.trim(),
+      maxAvailable,
+      replacementBudget,
+      ttlHours,
+      retirementPolicy: "validate_quarantine_replace"
+    };
+  });
+}
+
+function parseTransitionAttestations(values: string[]): Record<string, boolean> {
+  return Object.fromEntries(values.map((value) => {
+    const separator = value.lastIndexOf("=");
+    const key = separator > 0 ? value.slice(0, separator).trim() : "";
+    const flag = separator > 0 ? value.slice(separator + 1).trim() : "";
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(key) || flag !== "true") {
+      throw new Error(`Invalid --attestation "${value}"; expected <safe-key>=true.`);
+    }
+    return [key, true] as const;
+  }));
+}
+
+function caseScopesFromManifest(
+  manifest: FormalExecutionManifest,
+  caseIds: string[]
+): ExecutionCaseScope[] {
+  const selected = new Set(caseIds);
+  return manifest.cases.filter((definition) => selected.has(definition.caseId)).map((definition) => {
+    if (
+      manifest.schemaVersion !== "formal-execution-manifest-v2"
+      || !definition.permissionProfile
+      || !definition.requiredOperations
+      || !definition.dataWritePolicy
+    ) {
+      throw new Error(`${definition.caseId} must use formal-execution-manifest-v2 before publishing v4 authorization.`);
+    }
+    return {
+      caseId: definition.caseId,
+      permissionProfile: definition.permissionProfile,
+      requiredOperations: definition.requiredOperations,
+      operationBudgets: definition.operationBudgets ?? [],
+      dataWritePolicy: definition.dataWritePolicy === "managed_cleanup"
+        ? "ephemeral_cleanup"
+        : definition.dataWritePolicy,
+      consumesResources: definition.consumesResources ?? [],
+      producesResources: definition.producesResources.map((resource) => {
+        if (typeof resource === "string") {
+          throw new Error(`${definition.caseId} v4 authorization requires produced resource contracts.`);
+        }
+        return resource;
+      })
+    };
+  });
+}
+
+function externalTransitionsFromManifest(
+  manifest: FormalExecutionManifest,
+  caseIds: string[]
+): ExecutionExternalTransitionSummary[] {
+  const selected = new Set(caseIds);
+  return manifest.cases.flatMap((definition) =>
+    selected.has(definition.caseId)
+      ? (definition.executionStages ?? []).flatMap((stage) =>
+          stage.externalTransition
+            ? [{
+                caseId: definition.caseId,
+                stageId: stage.stageId,
+                transitionId: stage.externalTransition.transitionId,
+                actionSummary: stage.externalTransition.actionSummary,
+                allowedOutcomes: stage.externalTransition.allowedOutcomes,
+                requiredAttestationKeys: stage.externalTransition.requiredAttestationKeys ?? []
+              }]
+            : []
+        )
+      : []
+  );
 }
 
 function parseOutputDigests(values: string[]): Array<{ path: string; digest: string }> {
@@ -180,6 +331,55 @@ function output(args: string[], value: unknown, text: string): void {
   process.stdout.write(`${args.includes("--json") ? JSON.stringify(value, null, 2) : text}\n`);
 }
 
+async function scriptReviewAssessment(
+  manager: DurableWorkflowManager,
+  view: WorkflowGateView,
+  input: {
+    scripts: string[];
+    caseIds: string[];
+    operations: ExecutionOperationKind[];
+    environment: string;
+    resourceBudgets: Array<{ resourceType: string; maxCreates: number }>;
+    dataWritePolicy: ScriptReviewDataWritePolicy;
+    residualTtlHours: number;
+    caseRiskAssessments?: ScriptReviewCaseRisk[];
+  }
+): Promise<ScriptReviewAssessment> {
+  const formalManifest = await loadFormalExecutionManifest(manager.requestId);
+  const requestedCaseIds = new Set(input.caseIds);
+  const buildContracts = view.activities.build?.definition.metadata?.capabilityContracts;
+  const capabilities = Object.values(view.activities)
+    .filter((activity) => activity.definition.kind === "engineering")
+    .flatMap((activity) =>
+      activity.definition.capability ? [activity.definition.capability] : []
+    )
+    .concat(
+      buildContracts && typeof buildContracts === "object" && !Array.isArray(buildContracts)
+        ? Object.keys(buildContracts) as WorkflowCapability[]
+        : []
+    );
+  return assessScriptReview({
+    requestId: manager.requestId,
+    workspaceRoot: manager.workspaceRoot,
+    planPath: manager.planPath,
+    scriptPaths: input.scripts,
+    caseIds: input.caseIds,
+    environment: input.environment,
+    allowedOperations: input.operations,
+    resourceBudgets: input.resourceBudgets,
+    dataWritePolicy: input.dataWritePolicy,
+    residualTtlHours: input.residualTtlHours,
+    capabilities,
+    caseRiskAssessments: input.caseRiskAssessments,
+    caseReviewPolicy: view.reviewPolicy,
+    formalCases: formalManifest.cases.filter((item) => requestedCaseIds.has(item.caseId)),
+    executionHasCleanupActivity: Boolean(
+      view.activities.cleanup
+      || view.activities.run?.definition.metadata?.transaction
+    )
+  });
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
@@ -191,8 +391,14 @@ async function main(): Promise<void> {
       "  callback-resolve --callback <id> --resolution <accepted|rejected|revision_requested|cancelled> --plan-source <updated-plan.md>  # required for formal callbacks",
       "Review: review-batch-start, reviewer-dispatch/submit/fail, review-batch-invalidate",
       "  review-batch-start --batch <id> [--activity <review-id> --affected-ref <REQ|RULE|case|section> --excluded-ref <ref> --base-batch <id> --reason <text>]",
-      "Execution: execution-authorization-publish/request/verify, execution-scope-reopen, external-operation-start/reconcile",
-      "  execution-authorization-publish --claim <lease> --environment <name> --script <path> --case-id <id> --operation <kind> [--budget <type:max>] --data-write-policy <no_write|managed_cleanup|tracked_residual> --verified <evidence>",
+      "  reviewer-dispatch --batch <id> --activity <review-id> --agent-task <host-task-id>",
+      "  reviewer-submit --batch <id> --activity <review-id> --agent-task <host-task-id> [--plan-evidence <plan.md>]",
+      "  review-batch-invalidate --batch <id> --reason <text> [--activity <review-id> --revision-digest <sha256> --findings-digest <sha256>]",
+      "Execution: script-review-assess, execution-readiness-publish, execution-authorization-publish/request/verify, execution-scope-reopen, execution-transition-park/resolve, external-operation-start/reconcile",
+      "  script-review-assess --environment <name> --script <path> --case-id <id> [--case-risk <id:level>] --operation <kind> [--budget <type:max>] --data-write-policy <no_write|ephemeral_cleanup|reusable_fixture|tracked_residual>",
+      "  execution-readiness-publish --claim <lease> --environment <name> [--target-build-digest <sha256>] --script <path> --case-id <id> [--case-risk <id:level>] --operation <kind> [--selector-evidence-digest <sha256>] [--review-evidence <runtime-json>] --verified <evidence>",
+      "  execution-authorization-publish --claim <lease> --environment <name> --script <path> --case-id <id> --operation <kind> [--budget <type:max>] --data-write-policy <no_write|ephemeral_cleanup|reusable_fixture|tracked_residual> [--review-evidence <runtime-json>] --verified <evidence>",
+      "  execution-transition-resolve --transition <id> --outcome <safe-token> [--attestation <key=true>] [--owner <name>]",
       "Lifecycle: history-verify, complete, cancel"
     ].join("\n") + "\n");
     return;
@@ -200,8 +406,12 @@ async function main(): Promise<void> {
 
   const requestId = required(args, "--request");
   const manager = new DurableWorkflowManager(requestId);
-  const sessionId = option(args, "--session") ?? process.env.CODEX_THREAD_ID;
-  const targetThreadId = option(args, "--thread") ?? sessionId;
+  const sessionId = option(args, "--session")
+    ?? process.env.TEST_WORKFLOW_HOST_SESSION_ID
+    ?? process.env.CODEX_THREAD_ID;
+  const targetThreadId = option(args, "--thread")
+    ?? process.env.TEST_WORKFLOW_HOST_CONTEXT_ID
+    ?? sessionId;
 
   if (command === "init") {
     const casePackages = options(args, "--case-package");
@@ -512,6 +722,267 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "script-review-assess") {
+    const suppliedScripts = options(args, "--script");
+    const currentView = await manager.gate();
+    const scripts = currentView.activities.readiness
+      ? [...new Set([
+          ...suppliedScripts,
+          `tests/${requestId}/execution.manifest.ts`
+        ])]
+      : suppliedScripts;
+    const caseIds = options(args, "--case-id");
+    const operations = parseExecutionOperations(options(args, "--operation"));
+    if (!suppliedScripts.length || !caseIds.length || !operations.length) {
+      throw new Error(
+        "script-review-assess requires --script, --case-id, and --operation."
+      );
+    }
+    const view = currentView;
+    const scriptReview = view.activities["script-review"] ?? view.activities.readiness;
+    if (!scriptReview) {
+      throw new Error("Workflow definition is missing script-review/readiness.");
+    }
+    const assessment = await scriptReviewAssessment(manager, view, {
+      scripts,
+      caseIds,
+      operations,
+      environment: required(args, "--environment"),
+      resourceBudgets: parseResourceBudgets(options(args, "--budget")),
+      dataWritePolicy: parseDataWritePolicy(required(args, "--data-write-policy")),
+      caseRiskAssessments: parseScriptCaseRisks(options(args, "--case-risk")),
+      residualTtlHours: parsePositiveInteger(
+        option(args, "--residual-ttl-hours"),
+        "--residual-ttl-hours",
+        72
+      )
+    });
+    const enforced = scriptReview.definition.metadata?.scriptReviewPolicyVersion
+      === SCRIPT_REVIEW_POLICY_VERSION
+      || scriptReview.definition.metadata?.readinessPolicyVersion
+        === "execution-readiness-v1";
+    output(
+      args,
+      { ...assessment, enforced },
+      `脚本评审等级：${assessment.level}；所需 reviewer：${
+        assessment.requiredReviewerRoles.join(", ") || "无"
+      }；静态门禁：${assessment.publishable ? "通过" : "阻断"}；策略${
+        enforced ? "已启用" : "仅供旧 run 参考"
+      }。`
+    );
+    if (!assessment.publishable) process.exitCode = 2;
+    return;
+  }
+
+  if (command === "execution-readiness-publish") {
+    const suppliedScripts = options(args, "--script");
+    const formalManifestScript = `tests/${requestId}/execution.manifest.ts`;
+    const scripts = [...new Set([
+      ...suppliedScripts,
+      formalManifestScript
+    ])];
+    const caseIds = options(args, "--case-id");
+    const operations = parseExecutionOperations(options(args, "--operation"));
+    if (!suppliedScripts.length || !caseIds.length || !operations.length) {
+      throw new Error(
+        "execution-readiness-publish requires --script, --case-id, and --operation."
+      );
+    }
+    const before = await manager.gate();
+    const readinessActivity = before.activities.readiness;
+    if (readinessActivity?.state !== "RUNNING") {
+      throw new Error(
+        "Start readiness before publishing execution-authorization-v4."
+      );
+    }
+    const attemptStarted = [...await manager.events()].reverse().find((event) =>
+      event.type === "ActivityAttemptStarted"
+      && event.payload.activityId === "readiness"
+      && event.payload.attempt === readinessActivity.attempt
+    );
+    if (!attemptStarted) {
+      throw new Error("readiness has no durable ActivityAttemptStarted timestamp.");
+    }
+    const claimToken = required(args, "--claim");
+    const authorizationSchemaVersion = readinessActivity.definition.metadata?.outputSchemaVersion
+      === READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+      ? READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+      : EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
+    const environment = required(args, "--environment");
+    const suppliedTargetBuildDigest = option(args, "--target-build-digest");
+    const suppliedSelectorEvidenceDigests = options(args, "--selector-evidence-digest");
+    const resourceBudgets = parseResourceBudgets(options(args, "--budget"));
+    const resourcePoolBudgets = parseResourcePoolBudgets(options(args, "--pool-budget"));
+    const dataWritePolicy = parseDataWritePolicy(required(args, "--data-write-policy"));
+    const residualTtlHours = parsePositiveInteger(
+      option(args, "--residual-ttl-hours"),
+      "--residual-ttl-hours",
+      72
+    );
+    const scriptAssessment = await scriptReviewAssessment(manager, before, {
+      scripts,
+      caseIds,
+      operations,
+      environment,
+      resourceBudgets,
+      dataWritePolicy,
+      caseRiskAssessments: parseScriptCaseRisks(options(args, "--case-risk")),
+      residualTtlHours
+    });
+    if (!scriptAssessment.publishable) {
+      throw new Error(
+        `Execution readiness static gate failed: ${scriptAssessment.blockingIssues.join(" ")}`
+      );
+    }
+    const formalManifest = await loadFormalExecutionManifest(requestId);
+    if (formalManifest.environment !== environment) {
+      throw new Error("Formal manifest environment differs from readiness input.");
+    }
+    const selectorBuildIdentity = await resolveSelectorBuildIdentity({
+      manifest: formalManifest,
+      workspaceRoot: manager.workspaceRoot,
+      suppliedTargetBuildDigest,
+      suppliedEvidenceDigests: suppliedSelectorEvidenceDigests
+    });
+    const { targetBuildDigest } = selectorBuildIdentity;
+    const selectorEvidenceDigests = selectorBuildIdentity.evidenceDigests;
+    const capabilityResults = await evaluateCapabilitiesWithProviders(
+      formalManifest.capabilities,
+      {
+        requestId,
+        environment,
+        targetBuildDigest
+      },
+      createDefaultCapabilityProviderRegistry()
+    );
+    const poolKeys = [...new Map(
+      formalManifest.cases.flatMap((definition) =>
+        (definition.consumesResources ?? []).map((resource) => [
+          `${resource.resourceType}:${resource.baselineContractId}`,
+          { resourceType: resource.resourceType, baselineContractId: resource.baselineContractId }
+        ] as const)
+      )
+    ).values()];
+    const resourcePoolEvidence = await new TestDataManager({
+      projectId: formalManifest.projectId,
+      envId: environment
+    }).inspectReusablePools(poolKeys);
+    const readiness = assessExecutionReadiness({
+      manifest: formalManifest,
+      requestedCaseIds: caseIds,
+      capabilityResults,
+      allowedOperations: operations,
+      dataWritePolicy,
+      resourcePoolBudgets,
+      resourcePoolEvidence,
+      ...(!resolveFormalRunnerAdapter(requestId).implemented
+        ? {
+            globalBlockers: [{
+              code: "runner_adapter_unavailable",
+              source: requestId.split("/")[0]!,
+              unblockCondition: `Implement and verify the ${requestId.split("/")[0]} formal runner adapter.`
+            }]
+          }
+        : {})
+    });
+    if (readiness.invalidCount > 0) {
+      throw new Error(
+        `Execution readiness contains invalid cases: ${
+          readiness.invalidCases.map((item) => item.caseId).join(", ")
+        }.`
+      );
+    }
+    if (readiness.runnableCount === 0) {
+      const summary = `No runnable cases; ${readiness.deferredCount} case(s) are deferred by checked capabilities.`;
+      await manager.failActivity("readiness", {
+        claimToken,
+        retryable: true,
+        summary,
+        maxAttempts: 99,
+        retryAt: new Date(Date.now() + 86_400_000).toISOString()
+      });
+      const blocked = await manager.raiseBlocker({
+        blockerId: `readiness-zero-runnable-${targetBuildDigest.slice(0, 12)}`,
+        affectedActivityIds: ["readiness"],
+        category: "execution_readiness",
+        detail: summary,
+        resolutionCondition: "Provide at least one checked runnable case and rerun readiness."
+      });
+      output(args, { readiness, workflow: blocked }, summary);
+      process.exitCode = 2;
+      return;
+    }
+    const reviewEvidence = await validateScriptReviewEvidenceFiles({
+      assessment: scriptAssessment,
+      evidencePaths: options(args, "--review-evidence"),
+      workspaceRoot: manager.workspaceRoot,
+      runtimeRequestRoot: manager.runtime.requestRoot
+    });
+    const manifest = buildExecutionAuthorizationManifest({
+      schemaVersion: authorizationSchemaVersion,
+      requestId,
+      environment,
+      scriptPaths: scripts,
+      caseIds: readiness.runnableCaseIds,
+      runnableCaseIds: readiness.runnableCaseIds,
+      deferredCases: readiness.deferredCases,
+      capabilityEvidence: readiness.capabilityEvidence,
+      targetBuildDigest,
+      selectorEvidenceDigests,
+      scriptReview: {
+        level: scriptAssessment.level,
+        evidenceDigests: reviewEvidence.map((item) => item.digest)
+      },
+      ...(authorizationSchemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+        ? {
+            caseScopes: caseScopesFromManifest(formalManifest, readiness.runnableCaseIds),
+            resourcePoolBudgets,
+            resourcePoolEvidence,
+            externalTransitions: externalTransitionsFromManifest(
+              formalManifest,
+              readiness.runnableCaseIds
+            )
+          }
+        : {}),
+      allowedOperations: operations,
+      resourceBudgets,
+      dataWritePolicy,
+      residualTtlHours,
+      workspaceRoot: manager.workspaceRoot,
+      callbackId: option(args, "--callback"),
+      createdAt: attemptStarted.occurredAt
+    });
+    if (manifest.schemaVersion !== authorizationSchemaVersion) {
+      throw new Error(`Readiness must publish ${authorizationSchemaVersion}.`);
+    }
+    const targetPath = `testcases/${requestId}/execution-authorization.json`;
+    const view = await manager.publishArtifactsAndSucceed("readiness", {
+      claimToken,
+      publishId: option(args, "--publish")
+        ?? `execution-readiness-${manifest.readinessDigest.slice(0, 12)}-${sha256(claimToken).slice(0, 12)}`,
+      verification: scriptReviewVerification({
+        assessment: scriptAssessment,
+        evidence: reviewEvidence,
+        verification: required(args, "--verified")
+      }),
+      artifacts: [{
+        targetPath,
+        content: `${JSON.stringify(manifest, null, 2)}\n`
+      }]
+    });
+    output(
+      args,
+      {
+        readiness,
+        manifest,
+        targetBuildDigestSource: selectorBuildIdentity.sources,
+        workflow: view
+      },
+      `readiness 已从 ${selectorBuildIdentity.sources.join(", ")} 读取 targetBuildDigest=${targetBuildDigest}，发布 ${readiness.runnableCount} 个执行链用例（首波 ${readiness.initialRunnableCaseIds.length}，后续 ${readiness.scheduledCaseIds.length}，共 ${readiness.executionWaves.length} 波，graph=${readiness.dependencyPlan.graphDigest.slice(0, 12)}），${readiness.deferredCount} 个真实延期用例。`
+    );
+    return;
+  }
+
   if (command === "execution-authorization-publish") {
     const scripts = options(args, "--script");
     const caseIds = options(args, "--case-id");
@@ -537,22 +1008,50 @@ async function main(): Promise<void> {
       throw new Error("script-review has no durable ActivityAttemptStarted timestamp.");
     }
     const claimToken = required(args, "--claim");
+    const environment = required(args, "--environment");
+    const resourceBudgets = parseResourceBudgets(options(args, "--budget"));
+    const dataWritePolicy = parseDataWritePolicy(required(args, "--data-write-policy"));
+    const residualTtlHours = parsePositiveInteger(
+      option(args, "--residual-ttl-hours"),
+      "--residual-ttl-hours",
+      72
+    );
+    const policyEnforced = scriptReview.definition.metadata?.scriptReviewPolicyVersion
+      === SCRIPT_REVIEW_POLICY_VERSION;
+    const assessment = policyEnforced
+      ? await scriptReviewAssessment(manager, before, {
+          scripts,
+          caseIds,
+          operations,
+          environment,
+          resourceBudgets,
+          dataWritePolicy,
+          caseRiskAssessments: parseScriptCaseRisks(options(args, "--case-risk")),
+          residualTtlHours
+        })
+      : undefined;
+    if (assessment && !assessment.publishable) {
+      throw new Error(
+        `Script review static gate failed: ${assessment.blockingIssues.join(" ")}`
+      );
+    }
+    const evidence = assessment
+      ? await validateScriptReviewEvidenceFiles({
+          assessment,
+          evidencePaths: options(args, "--review-evidence"),
+          workspaceRoot: manager.workspaceRoot,
+          runtimeRequestRoot: manager.runtime.requestRoot
+        })
+      : [];
     const manifest = buildExecutionAuthorizationManifest({
       requestId,
-      environment: required(args, "--environment"),
+      environment,
       scriptPaths: scripts,
       caseIds,
       allowedOperations: operations,
-      resourceBudgets: parseResourceBudgets(options(args, "--budget")),
-      dataWritePolicy: required(args, "--data-write-policy") as
-        | "no_write"
-        | "managed_cleanup"
-        | "tracked_residual",
-      residualTtlHours: parsePositiveInteger(
-        option(args, "--residual-ttl-hours"),
-        "--residual-ttl-hours",
-        72
-      ),
+      resourceBudgets,
+      dataWritePolicy,
+      residualTtlHours,
       workspaceRoot: manager.workspaceRoot,
       callbackId: option(args, "--callback"),
       createdAt: attemptStarted.occurredAt
@@ -562,7 +1061,13 @@ async function main(): Promise<void> {
       claimToken,
       publishId: option(args, "--publish")
         ?? `execution-authorization-${manifest.digest.slice(0, 12)}-${sha256(claimToken).slice(0, 12)}`,
-      verification: required(args, "--verified"),
+      verification: assessment
+        ? scriptReviewVerification({
+            assessment,
+            evidence,
+            verification: required(args, "--verified")
+          })
+        : required(args, "--verified"),
       artifacts: [{
         targetPath,
         content: `${JSON.stringify(manifest, null, 2)}\n`
@@ -590,6 +1095,76 @@ async function main(): Promise<void> {
   if (command === "execution-scope-reopen") {
     const view = await manager.reopenExecutionScope(required(args, "--reason"));
     output(args, view, "工程设计、脚本评审和旧执行授权已失效；请从 engineering 重新推进。");
+    return;
+  }
+
+  if (command === "execution-transition-park") {
+    const snapshot = await loadConfirmedExecutionAuthorization(
+      requestId,
+      option(args, "--environment"),
+      [],
+      manager.workspaceRoot
+    );
+    const store = new FormalExecutionStore();
+    const pending = await store.pendingTransitions(snapshot.digest);
+    if (!pending.length) throw new Error("The formal run has no pending external transition.");
+    const checkpointDigest = sha256(JSON.stringify(pending.map((item) => ({
+      transitionId: item.transitionId,
+      checkpointDigest: item.checkpointDigest
+    }))));
+    const blockerId = `external-transition-${snapshot.digest.slice(0, 12)}-${checkpointDigest.slice(0, 12)}`;
+    const view = await manager.parkRunForExternalTransition({
+      activityId: option(args, "--activity") ?? "run",
+      claimToken: required(args, "--claim"),
+      blockerId,
+      detail: `等待已冻结的外部状态转换：${pending.map((item) => item.transitionId).join(", ")}；checkpoint=${checkpointDigest}`,
+      resolutionCondition: "完成至少一个已列出的审核/驳回动作并提交对应脱敏确认。"
+    });
+    output(args, { blockerId, checkpointDigest, pending, workflow: view }, `已冻结 ${pending.length} 个外部转换并暂停 run。`);
+    return;
+  }
+
+  if (command === "execution-transition-resolve") {
+    const snapshot = await loadConfirmedExecutionAuthorization(
+      requestId,
+      option(args, "--environment"),
+      [],
+      manager.workspaceRoot
+    );
+    const formalManifest = await loadFormalExecutionManifest(requestId);
+    const transitionId = required(args, "--transition");
+    const outcome = required(args, "--outcome");
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(outcome)) {
+      throw new Error("--outcome must be a safe token declared by the transition.");
+    }
+    const store = new FormalExecutionStore();
+    const resolved = await store.resolveExternalTransition({
+      authorizationDigest: snapshot.digest,
+      manifest: formalManifest,
+      transitionId,
+      outcome,
+      attestations: parseTransitionAttestations(options(args, "--attestation"))
+    });
+    const before = await manager.gate();
+    const activityId = option(args, "--activity") ?? "run";
+    const blockerId = before.activities[activityId]?.blockerIds.find((id) =>
+      id.startsWith(`external-transition-${snapshot.digest.slice(0, 12)}-`)
+    );
+    if (!blockerId) {
+      output(args, resolved, `外部转换 ${transitionId} 已解析；run 已处于可恢复状态。`);
+      return;
+    }
+    const resumed = await manager.resumeRunAfterExternalTransition({
+      activityId,
+      blockerId,
+      evidenceDigest: sha256(JSON.stringify({
+        transitionId,
+        outcome,
+        checkpointDigest: resolved.checkpointDigest
+      })),
+      owner: option(args, "--owner") ?? "external-transition-resume"
+    });
+    output(args, { resolved, resumed }, `外部转换 ${transitionId} 已解析；同一 run 已恢复。`);
     return;
   }
 
@@ -655,7 +1230,7 @@ async function main(): Promise<void> {
       activityId,
       batchId,
       role,
-      ...(option(args, "--agent-task") ? { agentTaskId: option(args, "--agent-task")! } : {})
+      agentTaskId: required(args, "--agent-task")
     });
     output(args, view, `Reviewer ${activityId} 已派发。`);
     return;
@@ -679,7 +1254,7 @@ async function main(): Promise<void> {
       batchId,
       role,
       planEvidenceRef: evidencePath,
-      ...(option(args, "--agent-task") ? { agentTaskId: option(args, "--agent-task")! } : {})
+      agentTaskId: required(args, "--agent-task")
     });
     output(args, view, `Reviewer ${activityId} 的正式 plan.md 证据已提交。`);
     return;
@@ -710,8 +1285,8 @@ async function main(): Promise<void> {
     const view = await manager.invalidateReviewBatch({
       batchId: required(args, "--batch"),
       activityIds,
-      revisionDigest: required(args, "--revision-digest"),
-      findingsDigest: required(args, "--findings-digest"),
+      revisionDigest: option(args, "--revision-digest"),
+      findingsDigest: option(args, "--findings-digest"),
       reason: required(args, "--reason")
     });
     output(args, view, `评审批次 ${required(args, "--batch")} 已失效并进入下一次 case-review。`);

@@ -33,7 +33,7 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition): void
     throw new Error("Workflow definition identity is incomplete.");
   }
   if (definition.reviewPolicy) validateReviewPolicy(definition.reviewPolicy);
-  if (["v3", "v4"].includes(definition.definitionVersion) && !definition.reviewPolicy) {
+  if (["v3", "v4", "v5"].includes(definition.definitionVersion) && !definition.reviewPolicy) {
     throw new Error("Workflow definition v3+ requires a pinned review policy.");
   }
   const ids = new Set<string>();
@@ -129,9 +129,10 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
         }
       : {}),
     maxAttemptsPerRole: input.reviewPolicy?.maxAttemptsPerRole,
-    maxUnchangedRevisionCycles: input.reviewPolicy?.maxUnchangedRevisionCycles
+    maxUnchangedRevisionCycles: input.reviewPolicy?.maxUnchangedRevisionCycles,
+    maxSemanticEvolutionCycles: input.reviewPolicy?.maxSemanticEvolutionCycles
   });
-  const activities = buildV4Activities(
+  const activities = buildV5Activities(
     capabilities,
     input.writesData ?? false,
     casePackages,
@@ -141,7 +142,7 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
   const base: Omit<WorkflowDefinition, "graphDigest"> = {
     schemaVersion: "test-workflow-definition-v1",
     definitionId: input.definitionId ?? "durable-test-workflow",
-    definitionVersion: "v4",
+    definitionVersion: "v5",
     requestId: input.requestId,
     planDigest: input.planDigest,
     capabilities,
@@ -209,96 +210,87 @@ function baseActivities(casePackages: string[]): {
   return { activities, caseIds };
 }
 
-function appendEngineeringAndExecution(
+function appendBuildReadinessAndExecution(
   activities: WorkflowActivityDefinition[],
   capabilities: WorkflowCapability[],
   writesData: boolean,
   caseConfirmationId: string,
   executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"]
 ): void {
-  const engineeringIds = capabilities.map((capability) => `engineering-${capability}`);
-  capabilities.forEach((capability, index) => activities.push({
-    id: engineeringIds[index]!,
-    kind: "engineering",
-    phase: "engineering",
-    dependencies: [caseConfirmationId],
-    required: true,
+  const capabilityContracts = Object.fromEntries(capabilities.map((capability) => [
     capability,
-    metadata: capability === "web" || capability === "h5"
+    capability === "web" || capability === "h5"
       ? {
-          visibleExploration: true,
-          playwrightRequired: true,
-          inspectorPolicy: "risk_triggered",
-          inspectorTriggers: ["semantic_uncertainty", "state_transition", "locator_risk", "insufficient_evidence"]
+          sourceContract: "source_first",
+          headlessSelectorVerification: "cached_by_build_and_contract",
+          visibleExploration: "fallback_only",
+          runtime: "playwright"
         }
       : capability === "webview"
         ? {
-            visibleExploration: true,
-            assetRequired: true,
-            appiumRequired: true,
-            deviceValidation: true,
-            contextSwitchRequired: true,
-            webSemanticsRiskGate: true,
-            inspectorPolicy: "risk_triggered",
-            inspectorTriggers: ["semantic_uncertainty", "state_transition", "locator_risk", "insufficient_evidence"]
+            sourceContract: "source_first",
+            headlessSelectorVerification: "cached_by_build_and_contract",
+            visibleExploration: "fallback_only",
+            runtime: "appium_web_context"
           }
-      : capability === "app"
-        ? { assetRequired: true, appiumRequired: true, deviceValidation: true }
-        : capability === "api"
-          ? { typescriptApiClientRequired: true }
-          : capability === "mqtt"
-            ? { mqttJsRequired: true }
-            : { compositeRunnerRequired: true }
-  }));
+        : capability === "app"
+          ? { runtime: "appium", deviceValidation: true }
+          : capability === "api"
+            ? { runtime: "typescript_api" }
+            : capability === "mqtt"
+              ? { runtime: "mqtt_js" }
+              : { runtime: "composite_iot" }
+  ]));
+  activities.push({
+    id: "build",
+    kind: "build",
+    phase: "engineering",
+    dependencies: [caseConfirmationId],
+    required: true,
+    publishesArtifacts: true,
+    metadata: {
+      capabilityContracts: capabilityContracts as unknown as SafeJsonValue,
+      selectorEvidencePolicy: "source_first_cached",
+      scriptReviewPolicyVersion: "script-review-policy-v3",
+      inspectorTriggers: [
+        "source_contract_unresolved",
+        "runtime_uniqueness_failed",
+        "source_runtime_drift",
+        "dynamic_semantics"
+      ],
+      reviewPolicy: "risk_and_digest_scoped"
+    }
+  });
   activities.push(
     {
-      id: "script-generation",
-      kind: "script_generation",
-      phase: "engineering",
-      dependencies: engineeringIds,
-      required: true,
-      publishesArtifacts: true
-    },
-    {
-      id: "script-review",
-      kind: "script_review",
+      id: "readiness",
+      kind: "readiness",
       phase: "script_review",
-      dependencies: ["script-generation"],
+      dependencies: ["build"],
       required: true,
       publishesArtifacts: true,
       metadata: {
-        outputArtifact: "execution-authorization.json"
+        outputArtifact: "execution-authorization.json",
+        outputSchemaVersion: "execution-authorization-v4",
+        readinessPolicyVersion: "execution-readiness-v1",
+        zeroRunnablePolicy: "block_before_authorization"
       }
     },
     {
       id: "execution-authorization",
       kind: "execution_authorization",
       phase: "execution_authorization",
-      dependencies: ["script-review"],
+      dependencies: ["readiness"],
       required: true,
       metadata: {
         callbackSubjectArtifact: "execution-authorization.json",
         callbackSubjectFormat: "canonical_json_digest_v1",
-        callbackSubjectSchemaVersion: "execution-authorization-v2",
-        publisherActivityId: "script-review"
+        callbackSubjectSchemaVersion: "execution-authorization-v4",
+        publisherActivityId: "readiness"
       }
     }
   );
 
-  let executionDependencies = ["execution-authorization"];
-  if (writesData) {
-    activities.push({
-      id: "data-setup",
-      kind: "data_setup",
-      phase: "execution",
-      dependencies: executionDependencies,
-      required: true,
-      requiresExternalOperation: true,
-      concurrencyGroup: "business_write",
-      concurrencyLimit: 1
-    });
-    executionDependencies = ["data-setup"];
-  }
   const deviceBoundCapability = capabilities.some((capability) => ["app", "webview", "iot"].includes(capability));
   const parallelExecutionEligible = !writesData
     && !deviceBoundCapability
@@ -307,13 +299,21 @@ function appendEngineeringAndExecution(
     && executionIsolation.data === true
     && executionIsolation.sharedAccount !== true;
   activities.push({
-    id: "execute",
-    kind: "execute",
+    id: "run",
+    kind: "run",
     phase: "execution",
-    dependencies: executionDependencies,
+    dependencies: ["execution-authorization"],
     required: true,
     metadata: {
       maxWorkers: parallelExecutionEligible ? 2 : 1,
+      transaction: [
+        "capability_recheck",
+        "lazy_setup",
+        "case_execution",
+        "postcondition_when_required",
+        "finally_cleanup",
+        "reconciliation"
+      ],
       parallelEligibleOnlyWhen: ["contexts_isolated", "accounts_isolated", "data_isolated", "no_shared_account", "no_device_bound_capability"],
       parallelExecutionEligible
     },
@@ -326,44 +326,21 @@ function appendEngineeringAndExecution(
       : {})
   });
   activities.push({
-    id: "verify",
-    kind: "verify",
-    phase: "execution",
-    dependencies: ["execute"],
-    required: true
-  });
-  let reportDependencies = ["verify"];
-  if (writesData) {
-    activities.push({
-      id: "cleanup",
-      kind: "cleanup",
-      phase: "execution",
-      dependencies: ["verify"],
-      required: true,
-      requiresExternalOperation: true,
-      concurrencyGroup: "business_write",
-      concurrencyLimit: 1
-    });
-    reportDependencies = ["cleanup"];
-  }
-  activities.push({
     id: "report",
     kind: "report",
     phase: "reporting",
-    dependencies: reportDependencies,
+    dependencies: ["run"],
     required: true,
-    publishesArtifacts: true
-  });
-  activities.push({
-    id: "workflow-completion",
-    kind: "complete",
-    phase: "completion",
-    dependencies: ["report"],
-    required: true
+    publishesArtifacts: true,
+    metadata: {
+      deterministic: true,
+      outputs: ["run-summary.json", "execution-summary.md"],
+      completesWorkflow: true
+    }
   });
 }
 
-function buildV4Activities(
+function buildV5Activities(
   capabilities: WorkflowCapability[],
   writesData: boolean,
   casePackages: string[],
@@ -387,10 +364,16 @@ function buildV4Activities(
       id: "case-review-resolution",
       kind: "review_resolution",
       phase: "case_review",
-      dependencies: reviewIds,
+      dependencies: reviewIds.length ? reviewIds : ["completeness-validation"],
       required: true,
       publishesArtifacts: true,
-      metadata: { subflow: "case-review" }
+      metadata: {
+        subflow: "case-review",
+        ...(reviewPolicy.schemaVersion === "review-policy-v2"
+          && reviewPolicy.mode === "deterministic_only"
+          ? { deterministicOnly: true }
+          : {})
+      }
     },
     {
       id: "case-review-conflict-decision",
@@ -424,7 +407,7 @@ function buildV4Activities(
       activation: { activityId: "case-review-resolution", outcomes: ["converged"] }
     }
   );
-  appendEngineeringAndExecution(
+  appendBuildReadinessAndExecution(
     activities,
     capabilities,
     writesData,

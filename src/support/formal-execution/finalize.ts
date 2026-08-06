@@ -15,17 +15,62 @@ export async function finalizeFormalExecution(requestId: string): Promise<Formal
     snapshot.digest,
     "Playwright worker ended before the formal case transaction committed; the open attempt was conservatively recorded as failed."
   );
-  const summary = await store.summarize(snapshot.digest);
-  if (!summary.complete || summary.counts.blocked > 0) {
-    return summary;
-  }
+  const preliminarySummary = await store.summarize(snapshot.digest);
   const record = await store.read(snapshot.digest);
   if (!record) throw new Error("Formal execution state disappeared before teardown.");
   const manager = new TestDataManager({ projectId: manifest.projectId, envId: manifest.environment });
-  await manager.cleanupRun(record.testDataRunId);
-  const run = await manager.store.readRun(record.testDataRunId);
-  if (run?.status === "running") {
-    await manager.endRun(record.testDataRunId, summary.counts.failed > 0 ? "failed" : "passed");
+  let cleanupFailed = false;
+  try {
+    await manager.cleanupRun(record.testDataRunId);
+    await store.recordCleanup(snapshot.digest, "passed");
+  } catch (error) {
+    cleanupFailed = true;
+    await store.recordCleanup(
+      snapshot.digest,
+      "failed",
+      error instanceof Error ? error.message : "Unknown cleanup failure."
+    );
   }
-  return summary;
+  const intents = (await manager.store.listIntents()).filter((item) =>
+    item.runId === record.testDataRunId
+  );
+  const run = await manager.store.readRun(record.testDataRunId);
+  const runResourceIds = new Set(run?.resources ?? []);
+  const resources = (await manager.store.listResources()).filter((item) =>
+    item.runId === record.testDataRunId || runResourceIds.has(item.resourceId)
+  );
+  const dataEvidence = Object.fromEntries(
+    snapshot.caseIds.map((caseId) => [
+      caseId,
+      {
+        intents: intents
+          .filter((item) => item.caseId === caseId)
+          .map((item) => ({
+            resourceType: item.resourceType,
+            expectedOutcome: item.expectedOutcome,
+            status: item.status
+          })),
+        resources: resources
+          .filter((item) => item.caseId === caseId)
+          .map((item) => ({
+            resourceType: item.resourceType,
+            state: item.state,
+            reusable: item.reusable
+          }))
+      }
+    ])
+  );
+  await store.recordDataEvidence(snapshot.digest, dataEvidence);
+  if (run?.status === "running") {
+    await manager.endRun(
+      record.testDataRunId,
+      preliminarySummary.counts.failed > 0
+      || preliminarySummary.counts.blocked > 0
+      || !preliminarySummary.complete
+      || cleanupFailed
+        ? "failed"
+        : "passed"
+    );
+  }
+  return store.summarize(snapshot.digest);
 }

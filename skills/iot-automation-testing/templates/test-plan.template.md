@@ -78,17 +78,17 @@
 
 ## 测试数据策略与残留台账
 
-> 结构版本：test-data-policy-v1
+> 结构版本：test-data-policy-v2
 
 > 按[环境规范](../../../docs/testing/environment-guideline.md)选择数据策略，并记录本请求的引用与确认结论。
 
 | 数据策略 | 允许环境 | 资源类型 | 最大数量 | 关联覆盖范围 / caseId | 正式决定引用 |
 | --- | --- | --- | --- | --- | --- |
-| no_write / managed_cleanup / tracked_residual | test / pre / 不适用 | <无 / 企业申请 / 产品 / 文件等> | 0 / <正整数> | <计划阶段填写覆盖范围；生成后回填 caseId / 不适用> | <正式用户决定行 / 不适用> |
+| no_write / ephemeral_cleanup / reusable_fixture / tracked_residual | test / pre / 不适用 | <无 / 企业申请 / 产品 / 文件等> | 0 / <正整数> | <计划阶段填写覆盖范围；生成后回填 caseId / 不适用> | <正式用户决定行 / 不适用> |
 
 ### 写入策略明细
 
-- <策略名称>：关联覆盖范围 <业务动作或资源场景>；生成原子用例后回填 `caseId`；唯一合成标识 <规则>；`cleanupActionId` <已登记动作 / 不适用>；TTL <小时 / 不适用>。
+- <策略名称>：关联覆盖范围 <业务动作或资源场景>；生成原子用例后回填 `caseId`；唯一合成标识 <规则>；基线合约 <baselineContractId / 不适用>；租约 <shared_read / exclusive / 不适用>；恢复/退役策略 <规则 / 不适用>；TTL <小时 / 不适用>。
 
 - 台账或数据策略引用：<环境规范约定的登记点 / 不适用>。
 - 残留风险与处理期限：<无 / 后续处理条件与期限>。
@@ -305,7 +305,7 @@
 
 - 拟修改或新增文件：<脚本路径及目的>
 - 执行命令与目标环境：<命令；环境>
-- 定位风险与探索：<风险未触发及复用证据 / Inspector 命令、专用 Chrome/Inspector 结论与脱敏证据卡定位>
+- 定位证据与可达边界：<source_verified / runtime_verified / visible Inspector fallback / runtime_validation_pending；源码版本与路径；验证命令；reachableBoundary；待正式执行验证范围>
 - 预期报告位置与逐用例证据：<artifacts 路径；CaseEvidenceBundle、关键截图、视频区间、Trace 或协议摘要>
 - 差异与审核事项：<代码与需求不一致时，列出证据、影响 caseId 和需业务层确认的事项；无则填写“无”。>
 

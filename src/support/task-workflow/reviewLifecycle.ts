@@ -13,6 +13,8 @@ import {
   type ReviewBatchScope
 } from "./reviewBatchScope.js";
 
+export const REVIEWER_ISOLATION_PROOF_VERSION = "reviewer-isolation-proof-v1" as const;
+
 export class ReviewInputDriftError extends Error {
   constructor(readonly batchId: string, readonly detail: string) {
     super(`Review batch ${batchId} input drifted; start a new batch. ${detail}`);
@@ -22,10 +24,14 @@ export class ReviewInputDriftError extends Error {
 export async function verifyOrRepairReviewSnapshot(
   store: ReviewInputSnapshotStore,
   events: WorkflowEvent[],
-  batchId: string
+  batchId: string,
+  activityId?: string
 ): Promise<string> {
   try {
-    return (await store.verifyCurrentSources(batchId)).combinedDigest;
+    const snapshot = await store.verifyCurrentSources(batchId, activityId);
+    return activityId
+      ? snapshot.roleInputDigests?.[activityId] ?? snapshot.combinedDigest
+      : snapshot.combinedDigest;
   } catch (error) {
     if (String(error).includes("input drifted")) {
       throw new ReviewInputDriftError(batchId, String(error));
@@ -51,8 +57,10 @@ export async function verifyOrRepairReviewSnapshot(
     if (repaired.combinedDigest !== batch.payload.inputDigest) {
       throw new ReviewInputDriftError(batchId, "The recovered source digest differs from durable batch input.");
     }
-    await store.verifyCurrentSources(batchId);
-    return repaired.combinedDigest;
+    await store.verifyCurrentSources(batchId, activityId);
+    return activityId
+      ? repaired.roleInputDigests?.[activityId] ?? repaired.combinedDigest
+      : repaired.combinedDigest;
   }
 }
 
@@ -93,11 +101,19 @@ export function reviewBatchCoveredActivityIds(
     ? []
     : parseReviewBatchScope(batch.payload.scope).reusedReviewerEvidence
       .map((evidence) => evidence.activityId);
+  const roleInputDigests = batch.payload.roleInputDigests;
   const submitted = events.flatMap((event) =>
     event.type === "ReviewerSubmitted"
     && event.payload.batchId === batchId
-    && event.payload.inputDigest === batch.payload.inputDigest
     && typeof event.payload.activityId === "string"
+    && event.payload.inputDigest === (
+      roleInputDigests
+      && typeof roleInputDigests === "object"
+      && !Array.isArray(roleInputDigests)
+      && typeof (roleInputDigests as Record<string, unknown>)[event.payload.activityId] === "string"
+        ? (roleInputDigests as Record<string, string>)[event.payload.activityId]
+        : batch.payload.inputDigest
+    )
       ? [event.payload.activityId]
       : []
   );
@@ -175,6 +191,23 @@ export function reviewFindingsDigest(
   }), "utf8").digest("hex");
 }
 
+export function reviewRevisionDigest(input: {
+  events: readonly WorkflowEvent[];
+  batchId: string;
+  activityIds: string[];
+}): string {
+  const batch = reviewBatchStarted(input.events, input.batchId);
+  if (!batch || typeof batch.payload.inputDigest !== "string") {
+    throw new Error(`Review batch ${input.batchId} was never started.`);
+  }
+  return createHash("sha256").update(canonicalJson({
+    schemaVersion: "review-revision-evidence-v1",
+    inputDigest: batch.payload.inputDigest,
+    activityIds: [...new Set(input.activityIds)].sort(),
+    findingsDigest: reviewFindingsDigest(input.events, input.batchId)
+  }), "utf8").digest("hex");
+}
+
 export function rotatedReviewBatchId(batchId: string, revisionDigest: string): string {
   if (!/^[a-f0-9]{64}$/.test(revisionDigest)) {
     throw new Error("revisionDigest must be a lowercase SHA-256 digest.");
@@ -203,6 +236,8 @@ export interface ReviewLifecycleEventInput {
   scopeDigest?: string;
   readinessDigest?: string;
   readinessWarnings?: string[];
+  roleInputDigests?: Record<string, string>;
+  isolationProofVersion?: typeof REVIEWER_ISOLATION_PROOF_VERSION;
 }
 
 function assertDigest(value: string | undefined, name: string): void {
@@ -221,6 +256,12 @@ export function prepareReviewLifecycleEvent(
   assertDigest(input.findingsDigest, "findingsDigest");
   assertDigest(input.scopeDigest, "scopeDigest");
   assertDigest(input.readinessDigest, "readinessDigest");
+  if (input.roleInputDigests) {
+    for (const [activityId, digest] of Object.entries(input.roleInputDigests)) {
+      if (!activityId.trim()) throw new Error("roleInputDigests requires activity IDs.");
+      assertDigest(digest, `roleInputDigests.${activityId}`);
+    }
+  }
   const reviewerActivity = input.activityId
     ? projection.activities[input.activityId]
     : undefined;
@@ -233,6 +274,7 @@ export function prepareReviewLifecycleEvent(
   const expectedJoinRoles = reviewerActivity?.reviewerExpectedRoles;
   if (
     (input.type === "ReviewerDispatched" || input.type === "ReviewerSubmitted")
+    && reviewerActivity
     && expectedJoinRoles?.length
   ) {
     if (!input.role || !expectedJoinRoles.includes(input.role)) {
@@ -297,6 +339,10 @@ export function prepareReviewLifecycleEvent(
     ...(input.readinessDigest ? { readinessDigest: input.readinessDigest } : {}),
     ...(input.readinessWarnings
       ? { readinessWarnings: input.readinessWarnings }
+      : {}),
+    ...(input.roleInputDigests ? { roleInputDigests: input.roleInputDigests } : {}),
+    ...(input.isolationProofVersion
+      ? { isolationProofVersion: input.isolationProofVersion }
       : {})
   };
   if (input.type === "ReviewerDispatched") {
@@ -312,6 +358,11 @@ export function prepareReviewLifecycleEvent(
     }
     if (!input.planEvidenceRef || !input.planEvidenceDigest) {
       throw new Error("Reviewer submission requires plan evidence path and digest.");
+    }
+    if (input.isolationProofVersion !== REVIEWER_ISOLATION_PROOF_VERSION) {
+      throw new Error(
+        `Reviewer submission requires ${REVIEWER_ISOLATION_PROOF_VERSION}.`
+      );
     }
   }
   return { payload, duplicate: false };

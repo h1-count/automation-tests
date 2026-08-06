@@ -120,6 +120,23 @@ async function hook(root: string, active: boolean): Promise<Record<string, unkno
   return JSON.parse(result.stdout) as Record<string, unknown>;
 }
 
+async function hostContinuation(
+  root: string,
+  active: boolean
+): Promise<Record<string, unknown>> {
+  const result = await execFileAsync(process.execPath, [
+    "--import",
+    tsxLoader,
+    gatePath,
+    "--request",
+    requestId,
+    "--host-continuation",
+    "--host-continuation-active",
+    String(active)
+  ], { cwd: root });
+  return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+
 test("Gate v2 exposes continuation without legacy scheduling fields", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
@@ -327,6 +344,26 @@ test("Stop Hook emits one continuation, prevents recursion, and allows safe user
     kind: "plan_confirmation"
   });
   assert.deepEqual(await hook(root, false), {});
+});
+
+test("provider-neutral host continuation keeps vendor envelope fields out of the core contract", async (context) => {
+  const root = await workspace();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const manager = new DurableWorkflowManager(requestId, root);
+  await manager.initialize({ capabilities: ["web"], casePackages: ["cases-registration.md"] });
+
+  const first = await hostContinuation(root, false);
+  assert.equal(first.schemaVersion, "workflow-host-continuation-v1");
+  assert.equal(first.action, "continue");
+  assert.equal(first.decision, undefined);
+  assert.equal(first.stopReason, undefined);
+
+  const recursive = await hostContinuation(root, true);
+  assert.equal(recursive.schemaVersion, "workflow-host-continuation-v1");
+  assert.equal(recursive.action, "allow_stop");
+  assert.equal(recursive.recursiveGuard, true);
+  assert.equal(recursive.continue, undefined);
+  assert.equal(recursive.stopReason, undefined);
 });
 
 test("deleting runtime preserves business projection and only loses host bindings", async (context) => {

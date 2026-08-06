@@ -7,8 +7,10 @@ import test from "node:test";
 import {
   DurableWorkflowManager,
   buildWorkflowDefinition,
+  parseReviewBatchScope,
   reviewBatchCoveredActivityIds,
-  reviewFindingsDigest
+  reviewFindingsDigest,
+  reviewRevisionDigest
 } from "../../../src/support/task-workflow/index.js";
 import { projectRelationProjection } from "../../../src/support/testcase/relationProjection.js";
 import { recordFormalDecision } from "./formalDecisionFixture.js";
@@ -46,6 +48,7 @@ async function workspace(): Promise<string> {
       "### 包含",
       "",
       "- 注册。",
+      "- 风险标记：普通 test 环境提交申请。",
       "",
       "### 不包含",
       "",
@@ -102,6 +105,10 @@ async function workspace(): Promise<string> {
     "## 基本信息",
     "",
     "| 用例编号 | DEMO-001 |",
+    "| 需求追溯编号 | REQ-DEMO-001 |",
+    "| 规则覆盖编号 | RULE-DEMO-001 |",
+    "| 数据策略 | ephemeral_cleanup |",
+    "| 风险等级 | 低 |",
     "|---|---|",
     "",
     "## 来源",
@@ -114,7 +121,9 @@ async function workspace(): Promise<string> {
     "",
     "## 操作步骤",
     "",
-    "step",
+    "| 序号 | 操作 | 输入 | 预期 |",
+    "| --- | --- | --- | --- |",
+    "| 1 | 核对认证状态并打开当前页 | 无 | 页面可见 |",
     "",
     "## 预期结果",
     "",
@@ -269,13 +278,15 @@ async function completeReviewBatch(
     await manager.dispatchReviewer({
       activityId,
       batchId,
-      role
+      role,
+      agentTaskId: `${batchId}-${role}`
     });
     await manager.submitReviewer({
       activityId,
       batchId,
       role,
-      planEvidenceRef: manager.planPath
+      planEvidenceRef: manager.planPath,
+      agentTaskId: `${batchId}-${role}`
     });
   }
   return reviewIds;
@@ -290,7 +301,7 @@ async function evolveAndInvalidate(
   await succeedActivity(manager, "case-review-resolution", "evolve");
   let view = await manager.gate();
   assert.equal(view.activities["case-confirmation"]?.state, "CANCELLED");
-  assert.equal(view.activities["engineering-web"]?.state, "PENDING");
+  assert.equal(view.activities.build?.state, "PENDING");
   await succeedActivity(manager, "case-review-evolution");
   const reviewIds = Object.values((await manager.gate()).activities)
     .filter((activity) => activity.definition.kind === "review")
@@ -304,7 +315,7 @@ async function evolveAndInvalidate(
   });
   assert.ok(reviewIds.every((activityId) => view.activities[activityId]?.state === "READY"));
   assert.ok(reviewIds.every((activityId) => view.activities[activityId]?.attempt === 0));
-  assert.notEqual(view.activities["engineering-web"]?.state, "READY");
+  assert.notEqual(view.activities.build?.state, "READY");
 }
 
 test("four progressing revisions can repeat the full case-review before latest convergence", async (context) => {
@@ -333,7 +344,7 @@ test("four progressing revisions can repeat the full case-review before latest c
   await succeedActivity(manager, "case-review-resolution", "converged");
   let view = await manager.gate();
   assert.equal(view.activities["case-confirmation"]?.state, "READY");
-  assert.equal(view.activities["engineering-web"]?.state, "PENDING");
+  assert.equal(view.activities.build?.state, "PENDING");
   const caseSubjectDigest = await manager.callbackSubjectDigest("case-confirmation");
   await manager.requestCallback({
     activityId: "case-confirmation",
@@ -348,7 +359,90 @@ test("four progressing revisions can repeat the full case-review before latest c
     subjectDigest: caseSubjectDigest,
     resolution: "accepted"
   });
-  assert.equal(view.activities["engineering-web"]?.state, "READY");
+  assert.equal(view.activities.build?.state, "READY");
+});
+
+test("review-policy-v2 stops after two semantic evolution cycles in one epoch", async (context) => {
+  const root = await workspace();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const manager = new DurableWorkflowManager(requestId, root);
+  await manager.initialize({
+    capabilities: ["web"],
+    casePackages: ["cases-main.md"]
+  });
+  await advanceToReview(manager);
+  const activityId = "case-review-combined";
+
+  const submitExistingBatch = async (batchId: string): Promise<void> => {
+    await manager.dispatchReviewer({
+      activityId,
+      batchId,
+      role: "combined",
+      agentTaskId: `${batchId}-combined`
+    });
+    await manager.submitReviewer({
+      activityId,
+      batchId,
+      role: "combined",
+      planEvidenceRef: manager.planPath,
+      agentTaskId: `${batchId}-combined`
+    });
+  };
+  const evolve = async (batchId: string, cycle: number): Promise<void> => {
+    await succeedActivity(manager, "case-review-resolution", "evolve");
+    await succeedActivity(manager, "case-review-evolution");
+    await changeCase(cycle);
+    await manager.invalidateReviewBatch({
+      batchId,
+      activityIds: [activityId],
+      revisionDigest: sha256(`v2-revision:${cycle}`),
+      findingsDigest: sha256(`v2-findings:${cycle}`),
+      reason: "semantic testcase evolution"
+    });
+  };
+  const changeCase = async (cycle: number): Promise<void> => {
+    const path = resolve(manager.requestRoot, "cases-main.md");
+    await writeFile(
+      path,
+      `${await readFile(path, "utf8")}\n## 预期结果补充 ${cycle}\n\n- 资料支持的语义变更 ${cycle}。\n`,
+      "utf8"
+    );
+  };
+
+  await manager.startReviewBatch({ batchId: "REV-EPOCH-0" });
+  await submitExistingBatch("REV-EPOCH-0");
+  await evolve("REV-EPOCH-0", 0);
+
+  for (let cycle = 1; cycle <= 2; cycle += 1) {
+    await manager.startReviewBatch({
+      batchId: `REV-EPOCH-${cycle}`,
+      baseBatchId: `REV-EPOCH-${cycle - 1}`,
+      affectedRefs: ["DEMO-001", "RULE-DEMO-001"],
+      reason: "semantic testcase evolution"
+    });
+    const started = (await manager.events()).find((event) =>
+      event.type === "ReviewBatchStarted" && event.payload.batchId === `REV-EPOCH-${cycle}`
+    );
+    const scope = parseReviewBatchScope(started?.payload.scope);
+    assert.equal(scope.schemaVersion, "review-batch-scope-v3");
+    if (scope.schemaVersion === "review-batch-scope-v3") {
+      assert.equal(scope.semanticEvolutionCycle, cycle);
+    }
+    await submitExistingBatch(`REV-EPOCH-${cycle}`);
+    await evolve(`REV-EPOCH-${cycle}`, cycle);
+  }
+
+  const blocked = await manager.startReviewBatch({
+    batchId: "REV-EPOCH-3",
+    baseBatchId: "REV-EPOCH-2",
+    affectedRefs: ["DEMO-001", "RULE-DEMO-001"],
+    reason: "third semantic testcase evolution"
+  });
+  assert.equal(blocked.workflowState, "BLOCKED");
+  assert.equal((await manager.events()).some((event) =>
+    event.type === "ReviewBatchStarted" && event.payload.batchId === "REV-EPOCH-3"
+  ), false);
+  assert.ok(blocked.waits.some((wait) => wait.detail?.includes("review_convergence_failed")));
 });
 
 test("automatic evolution preserves plan confirmation unless the user-owned plan boundary changes", async (context) => {
@@ -557,7 +651,11 @@ test("two consecutive unchanged revisions block on the third identical signature
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
   const manager = new DurableWorkflowManager(requestId, root);
-  await manager.initialize({ capabilities: ["web"], casePackages: ["cases-main.md"] });
+  await manager.initialize({
+    capabilities: ["web"],
+    casePackages: ["cases-main.md"],
+    reviewerRoles: ["interaction"]
+  });
   await advanceToReview(manager);
   const revisionDigest = sha256("unchanged-revision");
   const findingsDigest = sha256("unchanged-findings");
@@ -600,7 +698,7 @@ test("human conflict cannot bypass evolution, re-review, and case confirmation",
   assert.equal(view.activities["case-review-conflict-decision"]?.state, "READY");
   assert.equal(view.activities["case-review-evolution"]?.state, "PENDING");
   assert.equal(view.activities["case-confirmation"]?.state, "CANCELLED");
-  assert.equal(view.activities["engineering-web"]?.state, "PENDING");
+  assert.equal(view.activities.build?.state, "PENDING");
 
   const conflictDigest = await manager.callbackSubjectDigest(
     "case-review-conflict-decision"
@@ -624,7 +722,7 @@ test("human conflict cannot bypass evolution, re-review, and case confirmation",
     resolution: "accepted"
   });
   assert.equal(view.activities["case-review-evolution"]?.state, "READY");
-  assert.equal(view.activities["engineering-web"]?.state, "PENDING");
+  assert.equal(view.activities.build?.state, "PENDING");
 
   await succeedActivity(manager, "case-review-evolution");
   await writeFile(
@@ -688,7 +786,7 @@ test("case subject drift reconciles in-flight downstream work before reopening c
     subjectDigest,
     resolution: "accepted"
   });
-  await manager.startActivity("engineering-web", "engineering-worker");
+  await manager.startActivity("build", "engineering-worker");
   await writeFile(
     resolve(root, "testcases", ...requestId.split("/"), "cases-main.md"),
     `${await readFile(resolve(root, "testcases", ...requestId.split("/"), "cases-main.md"), "utf8")}\n<!-- changed decision subject -->\n`,
@@ -700,14 +798,14 @@ test("case subject drift reconciles in-flight downstream work before reopening c
   assert.equal(gate.reply.kind, "none");
   assert.equal(gate.continuation.kind, "continue_now");
   assert.equal(gate.continuation.reason, "callback_subject_drift_reconcile");
-  assert.equal(gate.activities["engineering-web"]?.state, "RUNNING");
+  assert.equal(gate.activities.build?.state, "RUNNING");
 
   gate = await manager.resume("reconcile changed case decision");
-  assert.equal(gate.activities["engineering-web"]?.state, "RECONCILING");
+  assert.equal(gate.activities.build?.state, "RECONCILING");
   assert.equal(gate.reply.kind, "none");
   assert.ok((await manager.events()).some((event) =>
     event.type === "ArtifactDriftDetected"
-    && event.payload.activityId === "engineering-web"
+    && event.payload.activityId === "build"
   ));
 });
 
@@ -762,7 +860,8 @@ test("one reviewer may retry three times in a batch and then becomes explicitly 
     await manager.dispatchReviewer({
       activityId,
       batchId,
-      role: "requirements"
+      role: "requirements",
+      agentTaskId: "retry-reviewer"
     });
     const view = await manager.failReviewer({
       activityId,
@@ -806,9 +905,10 @@ test("review capacity admits three independent v4 reviewers and rejects only the
   const firstThree = ["requirements", "design", "traceability"];
   for (const role of firstThree) {
     await manager.dispatchReviewer({
-      activityId: reviewByRole.get(role),
+      activityId: reviewByRole.get(role)!,
       batchId,
-      role
+      role,
+      agentTaskId: `${batchId}-${role}`
     });
   }
 
@@ -818,24 +918,27 @@ test("review capacity admits three independent v4 reviewers and rejects only the
   ));
   await assert.rejects(
     manager.dispatchReviewer({
-      activityId: reviewByRole.get("interaction"),
+      activityId: reviewByRole.get("interaction")!,
       batchId,
-      role: "interaction"
+      role: "interaction",
+      agentTaskId: `${batchId}-interaction`
     }),
     /capacity is full/
   );
 
   const completedRole = firstThree[0]!;
   await manager.submitReviewer({
-    activityId: reviewByRole.get(completedRole),
+    activityId: reviewByRole.get(completedRole)!,
     batchId,
     role: completedRole,
-    planEvidenceRef: manager.planPath
+    planEvidenceRef: manager.planPath,
+    agentTaskId: `${batchId}-${completedRole}`
   });
   view = await manager.dispatchReviewer({
-    activityId: reviewByRole.get("interaction"),
+    activityId: reviewByRole.get("interaction")!,
     batchId,
-    role: "interaction"
+    role: "interaction",
+    agentTaskId: `${batchId}-interaction`
   });
   assert.equal(
     view.activities[reviewByRole.get("interaction")!]?.state,
@@ -894,20 +997,23 @@ test("targeted re-review binds changed refs and reuses untouched reviewer eviden
     manager.dispatchReviewer({
       activityId: "case-review-requirements",
       batchId: "REV-TARGET-DESIGN",
-      role: "requirements"
+      role: "requirements",
+      agentTaskId: "REV-TARGET-DESIGN-requirements"
     }),
     /outside targeted batch/
   );
   await manager.dispatchReviewer({
     activityId: designActivityId,
     batchId: "REV-TARGET-DESIGN",
-    role: "design"
+    role: "design",
+    agentTaskId: "REV-TARGET-DESIGN-design"
   });
   await manager.submitReviewer({
     activityId: designActivityId,
     batchId: "REV-TARGET-DESIGN",
     role: "design",
-    planEvidenceRef: manager.planPath
+    planEvidenceRef: manager.planPath,
+    agentTaskId: "REV-TARGET-DESIGN-design"
   });
   assert.deepEqual(
     reviewBatchCoveredActivityIds(
@@ -926,6 +1032,41 @@ test("targeted re-review binds changed refs and reuses untouched reviewer eviden
   );
 });
 
+test("review invalidation deterministically derives omitted revision and findings digests", async (context) => {
+  const root = await workspace();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const manager = new DurableWorkflowManager(requestId, root);
+  await manager.initialize({
+    capabilities: ["web"],
+    casePackages: ["cases-main.md"],
+    reviewerRoles: ["requirements"]
+  });
+  await advanceToReview(manager);
+  const batchId = "REV-DERIVED-INVALIDATION";
+  const activityIds = await completeReviewBatch(manager, batchId);
+  await succeedActivity(manager, "case-review-resolution", "evolve");
+  await succeedActivity(manager, "case-review-evolution");
+  const before = await manager.events();
+  const expectedRevision = reviewRevisionDigest({
+    events: before,
+    batchId,
+    activityIds
+  });
+  const expectedFindings = reviewFindingsDigest(before, batchId);
+
+  await manager.invalidateReviewBatch({
+    batchId,
+    activityIds,
+    reason: "derive immutable review evidence"
+  });
+  const invalidation = (await manager.events()).find((event) =>
+    event.type === "ReviewBatchInvalidated"
+    && event.payload.batchId === batchId
+  );
+  assert.equal(invalidation?.payload.revisionDigest, expectedRevision);
+  assert.equal(invalidation?.payload.findingsDigest, expectedFindings);
+});
+
 test("read execution parallelism requires complete isolation evidence and no shared account", () => {
   const build = (executionIsolation?: {
     contexts: boolean;
@@ -938,7 +1079,7 @@ test("read execution parallelism requires complete isolation evidence and no sha
     capabilities: ["web"],
     casePackages: ["cases-main.md"],
     executionIsolation
-  }).activities.find((activity) => activity.id === "execute")!.metadata;
+  }).activities.find((activity) => activity.id === "run")!.metadata;
 
   assert.equal(build()?.maxWorkers, 1);
   assert.equal(build({ contexts: true, accounts: false, data: true })?.maxWorkers, 1);

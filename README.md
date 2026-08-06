@@ -7,7 +7,7 @@
 1. 阅读 [AGENTS.md](./AGENTS.md) 了解强制门禁与安全边界。
 2. 阅读 [测试规范索引](./docs/testing/README.md)，按任务打开唯一责任规范。
 3. 复制 `.env.example` 为本地 `.env`，填写当前环境所需的非公开配置。
-4. 提供需求、URL、截图、接口资料或物模型；Codex 会先输出测试计划，确认后再进入用例、脚本和执行。
+4. 提供需求、URL、截图、接口资料或物模型；AI 测试 Agent 会先输出测试计划，确认后再进入用例、脚本和执行。
 
 工程按“业务层 → 工程层 → 治理线”推进；完整流程、Graphify 定位和审核门禁以 [automation-guideline.md](./docs/testing/automation-guideline.md#32-双层模型与贯穿治理线) 为准。
 
@@ -20,7 +20,7 @@
 | 环境、运行模式、账号、验证码和测试数据 | [environment-guideline.md](./docs/testing/environment-guideline.md) |
 | 测试计划与用例格式 | [testcase-guideline.md](./docs/testing/testcase-guideline.md) |
 | selector、报告、失败分类 | [docs/testing/](./docs/testing/README.md) |
-| Codex 执行步骤、模板和示例 | [SKILL.md](./skills/iot-automation-testing/SKILL.md) |
+| Agent 执行步骤、模板和示例 | [SKILL.md](./skills/iot-automation-testing/SKILL.md) |
 
 规则正文只在责任文件维护；本 README 只提供使用入口和命令。
 
@@ -124,7 +124,7 @@ npm run report:allure
 
 创建新测试时，先按 `plan.md → 用例确认 → 工程设计与脚本评审 → 统一执行清单` 门禁生成资产，再使用对应 Runner。
 
-完整自动化测试请求按[生命周期规范](docs/testing/automation-guideline.md#314-durable-workflow生命周期与恢复)默认创建或复用一个宿主 Codex Goal；状态查询、只读诊断和独立维护请求不创建。Goal 不写入仓库，也不扩大测试授权。项目 Stop Hook 仅在受信任工作区、且当前 Hook 文件 hash 已通过 `/hooks` 检查和信任时运行；修改 Hook 后必须重新检查，不能把 Hook 配置存在视为后台续跑保证。
+完整自动化测试请求按[生命周期规范](docs/testing/automation-guideline.md#314-durable-workflow生命周期与恢复)使用仓库 Durable Workflow 作为唯一事实源；宿主若提供长期任务或停止事件能力，只作为可选续跑适配，不写入仓库，也不扩大测试授权。任何宿主适配器都必须先在受信任工作区完成路径、文件摘要和权限检查；不能把适配器配置存在视为后台续跑保证。
 
 ## 目录概览
 
@@ -132,7 +132,7 @@ npm run report:allure
 automation-tests/
 ├── AGENTS.md                  # 强制门禁与安全边界
 ├── docs/testing/              # 每个主题的唯一规则文件
-├── skills/iot-automation-testing/ # Codex 工作流、模板与示例
+├── skills/iot-automation-testing/ # Agent 工作流、模板与示例
 ├── sources/                   # 原始测试资料
 ├── test-assets/               # 可复用静态测试资产
 ├── testcases/                 # 计划、结构化用例与请求级 workflow-history.ndjson
@@ -143,8 +143,8 @@ automation-tests/
 ├── .auth/                     # Git 忽略的本地认证会话
 └── .local/                    # Git 忽略的本机元数据、偏好与台账；不是 workflow 事实源
     ├── repositories/          # 本机被测代码仓库
-    ├── project-knowledge-candidates/ # 未验证的项目经验候选
-    ├── test-task-runtime/     # 可丢弃的租约、session/reviewer 绑定与暂存引用；不保存 Goal 状态
+    ├── project-knowledge-candidates/ # 项目经验的待验证控制元数据（正文已同步入 Git 经验库）
+    ├── test-task-runtime/     # 可丢弃的租约、session/reviewer 绑定与暂存引用；不保存宿主长期任务状态
     ├── test-ledger/           # 测试运行与受管资源台账
     └── testing-memory.md      # 当前用户的长期协作偏好
 ```

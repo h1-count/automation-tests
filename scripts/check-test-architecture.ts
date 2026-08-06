@@ -186,11 +186,15 @@ function checkImportBoundaries(): void {
   );
 }
 
-function checkHookConfiguration(): void {
+function checkOptionalHostAdapterConfiguration(): void {
   const hookPath = resolve(projectRoot, "scripts/codex-stop-stage-envelope.mjs");
   const configPath = resolve(projectRoot, ".codex/hooks.json");
+  if (!existsSync(configPath) && !existsSync(hookPath)) {
+    record("PASS", "可选宿主停止适配", "未启用宿主专属停止事件适配；仓库 workflow 仍可显式恢复。");
+    return;
+  }
   if (!existsSync(configPath) || !existsSync(hookPath)) {
-    record("FAIL", "Stop Hook 配置", "缺少 hooks.json 或 Stop Hook 脚本。");
+    record("FAIL", "可选宿主停止适配", "宿主适配配置与脚本必须同时存在或同时省略。");
     return;
   }
   let commands: unknown[] = [];
@@ -200,7 +204,7 @@ function checkHookConfiguration(): void {
     };
     commands = (config.hooks?.Stop ?? []).flatMap((group) => group.hooks ?? []);
   } catch {
-    record("FAIL", "Stop Hook 配置", ".codex/hooks.json 不是有效 JSON。");
+    record("FAIL", "可选宿主停止适配", "已启用的宿主适配配置不是有效 JSON。");
     return;
   }
   const stopCommands = commands.filter((entry): entry is { type: string; command: string } =>
@@ -212,8 +216,10 @@ function checkHookConfiguration(): void {
     && stopCommands[0]!.command.includes("scripts/codex-stop-stage-envelope.mjs");
   record(
     valid ? "PASS" : "FAIL",
-    "Stop Hook 配置",
-    valid ? "Stop 配置唯一且指向现存项目脚本。" : "Stop 配置必须包含唯一 command hook，并指向项目 Stop Hook 脚本。"
+    "可选宿主停止适配",
+    valid
+      ? "已启用的宿主停止事件配置唯一且指向现存兼容脚本。"
+      : "已启用的宿主停止事件配置必须包含唯一 command adapter，并指向现存兼容脚本。"
   );
 }
 
@@ -232,5 +238,5 @@ checkResponsibilityOwnership();
 checkWorkflowFiles();
 checkPublicCommands();
 checkImportBoundaries();
-checkHookConfiguration();
+checkOptionalHostAdapterConfiguration();
 printResults();

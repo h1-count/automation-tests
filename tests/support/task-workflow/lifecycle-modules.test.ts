@@ -357,7 +357,7 @@ test("resume recovery derives a host rebind action without inventing durable wor
       batchId: "REV-01",
       role: "design"
     }
-  }] as WorkflowEvent[];
+  }] as unknown as WorkflowEvent[];
 
   assert.deepEqual(
     planResumeRecovery({

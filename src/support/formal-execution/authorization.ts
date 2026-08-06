@@ -9,19 +9,104 @@ import { DurableWorkflowManager } from "../task-workflow/workflowManager.js";
 import type { SafeJsonValue, WorkflowEvent } from "../task-workflow/types.js";
 
 export const executionOperationKinds = [
+  "authenticate_test_account",
   "send_test_otp",
   "upload_synthetic_file",
   "accept_agreement",
   "submit_registration",
   "create_test_resource",
+  "update_test_resource",
+  "delete_test_resource",
+  "change_test_permission",
+  "invoke_test_device_action",
   "query_postcondition",
   "cleanup_test_resource",
   "retain_tracked_residual"
 ] as const;
 export type ExecutionOperationKind = (typeof executionOperationKinds)[number];
 
-export interface ExecutionAuthorizationSnapshot {
-  schemaVersion: "execution-authorization-v2";
+export interface ExecutionReadinessBlocker {
+  code: string;
+  source: string;
+  unblockCondition: string;
+}
+
+export interface ExecutionDeferredCase {
+  caseId: string;
+  blockers: ExecutionReadinessBlocker[];
+}
+
+export interface ExecutionCapabilityEvidence {
+  capabilityId: string;
+  available: boolean;
+  evidenceDigest: string;
+  checkedAt: string;
+  expiresAt?: string;
+}
+
+export interface ExecutionScriptReviewSummary {
+  level: "light" | "standard" | "strict";
+  evidenceDigests: string[];
+}
+
+export interface ExecutionCaseResourceRequirement {
+  name: string;
+  resourceType: string;
+  baselineContractId: string;
+  leaseMode: "shared_read" | "exclusive";
+}
+
+export interface ExecutionCaseProducedResource {
+  name: string;
+  resourceType: string;
+  disposition: "ephemeral_cleanup" | "reusable_fixture" | "tracked_residual";
+  baselineContractId?: string;
+  baselineVersion?: string;
+  leaseMode?: "shared_read" | "exclusive";
+  maxPoolSize?: number;
+  retirementPolicy?: "validate_quarantine_replace";
+}
+
+export interface ExecutionCaseScope {
+  caseId: string;
+  permissionProfile: "read_only" | "test_write" | "privileged_test";
+  requiredOperations: ExecutionOperationKind[];
+  operationBudgets?: Array<{
+    operation: ExecutionOperationKind;
+    maxExecutions: number;
+  }>;
+  dataWritePolicy: "no_write" | "ephemeral_cleanup" | "reusable_fixture" | "tracked_residual";
+  consumesResources: ExecutionCaseResourceRequirement[];
+  producesResources: ExecutionCaseProducedResource[];
+}
+
+export interface ExecutionResourcePoolBudget {
+  resourceType: string;
+  baselineContractId: string;
+  maxAvailable: number;
+  replacementBudget: number;
+  ttlHours: number;
+  retirementPolicy: "validate_quarantine_replace";
+}
+
+export interface ExecutionResourcePoolEvidence {
+  resourceType: string;
+  baselineContractId: string;
+  availableCount: number;
+  evidenceDigest: string;
+  checkedAt: string;
+}
+
+export interface ExecutionExternalTransitionSummary {
+  caseId: string;
+  stageId: string;
+  transitionId: string;
+  actionSummary: string;
+  allowedOutcomes: string[];
+  requiredAttestationKeys: string[];
+}
+
+interface ExecutionAuthorizationCommon {
   requestId: string;
   environment: string;
   planDigest: string;
@@ -29,10 +114,25 @@ export interface ExecutionAuthorizationSnapshot {
   caseIds: string[];
   allowedOperations: ExecutionOperationKind[];
   resourceBudgets: Array<{ resourceType: string; maxCreates: number }>;
-  dataWritePolicy: "no_write" | "managed_cleanup" | "tracked_residual";
+  dataWritePolicy: "no_write" | "managed_cleanup" | "ephemeral_cleanup" | "reusable_fixture" | "tracked_residual";
   residualTtlHours: number;
   securityChallengePolicy: "test-channel-first-minimal-human";
   artifactPolicy: "retain-with-sensitive-step-redaction";
+}
+
+export interface ExecutionAuthorizationSnapshot extends ExecutionAuthorizationCommon {
+  schemaVersion: "execution-authorization-v2" | "execution-authorization-v3" | "execution-authorization-v4";
+  targetBuildDigest?: string;
+  runnableCaseIds?: string[];
+  deferredCases?: ExecutionDeferredCase[];
+  capabilityEvidence?: ExecutionCapabilityEvidence[];
+  selectorEvidenceDigests?: string[];
+  scriptReview?: ExecutionScriptReviewSummary;
+  readinessDigest?: string;
+  caseScopes?: ExecutionCaseScope[];
+  resourcePoolBudgets?: ExecutionResourcePoolBudget[];
+  resourcePoolEvidence?: ExecutionResourcePoolEvidence[];
+  externalTransitions?: ExecutionExternalTransitionSummary[];
   digest: string;
   status: "confirmed";
   createdAt: string;
@@ -41,25 +141,53 @@ export interface ExecutionAuthorizationSnapshot {
 }
 
 export const EXECUTION_AUTHORIZATION_ARTIFACT = "execution-authorization.json";
-export const EXECUTION_AUTHORIZATION_SCHEMA_VERSION = "execution-authorization-v2" as const;
+export const EXECUTION_AUTHORIZATION_SCHEMA_VERSION = "execution-authorization-v4" as const;
+export const READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION = "execution-authorization-v3" as const;
+export const LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION = "execution-authorization-v2" as const;
 
-export interface ExecutionAuthorizationManifest {
-  schemaVersion: typeof EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
-  requestId: string;
-  environment: string;
-  planDigest: string;
-  scriptDigests: Array<{ path: string; digest: string }>;
-  caseIds: string[];
-  allowedOperations: ExecutionOperationKind[];
-  resourceBudgets: Array<{ resourceType: string; maxCreates: number }>;
-  dataWritePolicy: "no_write" | "managed_cleanup" | "tracked_residual";
-  residualTtlHours: number;
-  securityChallengePolicy: "test-channel-first-minimal-human";
-  artifactPolicy: "retain-with-sensitive-step-redaction";
+export interface ExecutionAuthorizationManifestV2 extends ExecutionAuthorizationCommon {
+  schemaVersion: typeof LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
   digest: string;
   callbackId: string;
   createdAt: string;
 }
+
+export interface ExecutionAuthorizationManifestV3 extends ExecutionAuthorizationCommon {
+  schemaVersion: typeof READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
+  targetBuildDigest: string;
+  runnableCaseIds: string[];
+  deferredCases: ExecutionDeferredCase[];
+  capabilityEvidence: ExecutionCapabilityEvidence[];
+  selectorEvidenceDigests: string[];
+  scriptReview: ExecutionScriptReviewSummary;
+  readinessDigest: string;
+  digest: string;
+  callbackId: string;
+  createdAt: string;
+}
+
+export interface ExecutionAuthorizationManifestV4 extends ExecutionAuthorizationCommon {
+  schemaVersion: typeof EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
+  targetBuildDigest: string;
+  runnableCaseIds: string[];
+  deferredCases: ExecutionDeferredCase[];
+  capabilityEvidence: ExecutionCapabilityEvidence[];
+  selectorEvidenceDigests: string[];
+  scriptReview: ExecutionScriptReviewSummary;
+  caseScopes: ExecutionCaseScope[];
+  resourcePoolBudgets: ExecutionResourcePoolBudget[];
+  resourcePoolEvidence: ExecutionResourcePoolEvidence[];
+  externalTransitions?: ExecutionExternalTransitionSummary[];
+  readinessDigest: string;
+  digest: string;
+  callbackId: string;
+  createdAt: string;
+}
+
+export type ExecutionAuthorizationManifest =
+  | ExecutionAuthorizationManifestV2
+  | ExecutionAuthorizationManifestV3
+  | ExecutionAuthorizationManifestV4;
 
 export interface BuildExecutionAuthorizationManifestInput {
   requestId: string;
@@ -68,28 +196,59 @@ export interface BuildExecutionAuthorizationManifestInput {
   caseIds: string[];
   allowedOperations: ExecutionOperationKind[];
   resourceBudgets: Array<{ resourceType: string; maxCreates: number }>;
-  dataWritePolicy: "no_write" | "managed_cleanup" | "tracked_residual";
+  dataWritePolicy: "no_write" | "managed_cleanup" | "ephemeral_cleanup" | "reusable_fixture" | "tracked_residual";
   residualTtlHours?: number;
   planPath?: string;
   workspaceRoot?: string;
   createdAt?: string;
   callbackId?: string;
+  schemaVersion?: "execution-authorization-v2" | "execution-authorization-v3" | "execution-authorization-v4";
+  targetBuildDigest?: string;
+  runnableCaseIds?: string[];
+  deferredCases?: ExecutionDeferredCase[];
+  capabilityEvidence?: ExecutionCapabilityEvidence[];
+  selectorEvidenceDigests?: string[];
+  scriptReview?: ExecutionScriptReviewSummary;
+  caseScopes?: ExecutionCaseScope[];
+  resourcePoolBudgets?: ExecutionResourcePoolBudget[];
+  resourcePoolEvidence?: ExecutionResourcePoolEvidence[];
+  externalTransitions?: ExecutionExternalTransitionSummary[];
 }
 
-interface ExecutionAuthorizationDigestBase {
+type ExecutionAuthorizationDigestBaseV2 = ExecutionAuthorizationCommon & {
+  schemaVersion: typeof LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
+};
+
+type ExecutionAuthorizationDigestBaseV3 = ExecutionAuthorizationCommon & {
+  schemaVersion: typeof READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
+  targetBuildDigest: string;
+  runnableCaseIds: string[];
+  deferredCases: ExecutionDeferredCase[];
+  capabilityEvidence: ExecutionCapabilityEvidence[];
+  selectorEvidenceDigests: string[];
+  scriptReview: ExecutionScriptReviewSummary;
+  readinessDigest: string;
+};
+
+type ExecutionAuthorizationDigestBaseV4 = ExecutionAuthorizationCommon & {
   schemaVersion: typeof EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
-  requestId: string;
-  environment: string;
-  planDigest: string;
-  scriptDigests: Array<{ path: string; digest: string }>;
-  caseIds: string[];
-  allowedOperations: ExecutionOperationKind[];
-  resourceBudgets: Array<{ resourceType: string; maxCreates: number }>;
-  dataWritePolicy: "no_write" | "managed_cleanup" | "tracked_residual";
-  residualTtlHours: number;
-  securityChallengePolicy: "test-channel-first-minimal-human";
-  artifactPolicy: "retain-with-sensitive-step-redaction";
-}
+  targetBuildDigest: string;
+  runnableCaseIds: string[];
+  deferredCases: ExecutionDeferredCase[];
+  capabilityEvidence: ExecutionCapabilityEvidence[];
+  selectorEvidenceDigests: string[];
+  scriptReview: ExecutionScriptReviewSummary;
+  caseScopes: ExecutionCaseScope[];
+  resourcePoolBudgets: ExecutionResourcePoolBudget[];
+  resourcePoolEvidence: ExecutionResourcePoolEvidence[];
+  externalTransitions?: ExecutionExternalTransitionSummary[];
+  readinessDigest: string;
+};
+
+type ExecutionAuthorizationDigestBase =
+  | ExecutionAuthorizationDigestBaseV2
+  | ExecutionAuthorizationDigestBaseV3
+  | ExecutionAuthorizationDigestBaseV4;
 
 const digestPattern = /^[a-f0-9]{64}$/;
 const requestPattern = /^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/;
@@ -98,6 +257,10 @@ const mutatingOperations = new Set<ExecutionOperationKind>([
   "upload_synthetic_file",
   "submit_registration",
   "create_test_resource",
+  "update_test_resource",
+  "delete_test_resource",
+  "change_test_permission",
+  "invoke_test_device_action",
   "retain_tracked_residual"
 ]);
 
@@ -166,8 +329,9 @@ export function buildExecutionAuthorizationManifest(
   assertRequestId(input.requestId);
   const manager = new DurableWorkflowManager(input.requestId, workspaceRoot);
   const planPath = resolve(input.planPath ?? manager.planPath);
-  const base = normalizeDigestBase({
-    schemaVersion: EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+  const schemaVersion = input.schemaVersion
+    ?? LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
+  const common: ExecutionAuthorizationCommon = {
     requestId: input.requestId,
     environment: input.environment,
     planDigest: digestPlanForExecutionAuthorization(planPath),
@@ -175,14 +339,60 @@ export function buildExecutionAuthorizationManifest(
       const safePath = safeWorkspaceRelativePath(workspaceRoot, path, "script path");
       return { path: safePath, digest: digestFile(resolve(workspaceRoot, safePath)) };
     }),
-    caseIds: input.caseIds,
+    caseIds: isReadinessAuthorizationSchema(schemaVersion)
+      ? input.runnableCaseIds ?? input.caseIds
+      : input.caseIds,
     allowedOperations: input.allowedOperations,
     resourceBudgets: input.resourceBudgets,
     dataWritePolicy: input.dataWritePolicy,
     residualTtlHours: input.residualTtlHours ?? 72,
     securityChallengePolicy: "test-channel-first-minimal-human",
     artifactPolicy: "retain-with-sensitive-step-redaction"
-  });
+  };
+  const readinessBase = {
+        ...common,
+        schemaVersion,
+        targetBuildDigest: requireDigest(input.targetBuildDigest, "targetBuildDigest"),
+        runnableCaseIds: [...new Set(input.runnableCaseIds ?? input.caseIds)].sort(),
+        deferredCases: normalizeDeferredCases(input.deferredCases ?? []),
+        capabilityEvidence: normalizeCapabilityEvidence(input.capabilityEvidence ?? []),
+        selectorEvidenceDigests: [...new Set(input.selectorEvidenceDigests ?? [])].sort(),
+        scriptReview: normalizeScriptReview(input.scriptReview),
+        readinessDigest: calculateReadinessDigest({
+          targetBuildDigest: requireDigest(input.targetBuildDigest, "targetBuildDigest"),
+          runnableCaseIds: input.runnableCaseIds ?? input.caseIds,
+          deferredCases: input.deferredCases ?? [],
+          capabilityEvidence: input.capabilityEvidence ?? [],
+          selectorEvidenceDigests: input.selectorEvidenceDigests ?? [],
+          scriptReview: normalizeScriptReview(input.scriptReview),
+          ...(schemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+            ? {
+                resourcePoolEvidence: normalizeResourcePoolEvidence(input.resourcePoolEvidence ?? []),
+                caseScopes: normalizeCaseScopes(input.caseScopes ?? [])
+              }
+            : {})
+        })
+      };
+  const base = normalizeDigestBase(schemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+    ? {
+        ...readinessBase,
+        schemaVersion,
+        caseScopes: normalizeCaseScopes(input.caseScopes ?? []),
+        resourcePoolBudgets: normalizeResourcePoolBudgets(input.resourcePoolBudgets ?? []),
+        resourcePoolEvidence: normalizeResourcePoolEvidence(input.resourcePoolEvidence ?? []),
+        ...(input.externalTransitions?.length
+          ? { externalTransitions: normalizeExternalTransitions(input.externalTransitions) }
+          : {})
+      }
+    : schemaVersion === READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+      ? {
+          ...readinessBase,
+          schemaVersion
+        }
+      : {
+        ...common,
+        schemaVersion
+      });
   validateDigestBase(base);
   const digest = calculateExecutionAuthorizationDigest(base);
   const callbackId = input.callbackId ?? `execution-authorization-${digest.slice(0, 12)}`;
@@ -263,7 +473,7 @@ async function loadV3ConfirmedAuthorization(
   const { callbackId, ...snapshot } = manifest;
   return {
     ...snapshot,
-    schemaVersion: EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+    schemaVersion: manifest.schemaVersion,
     confirmationId: callbackId,
     status: "confirmed",
     confirmedAt: callback.occurredAt
@@ -286,6 +496,17 @@ function parseExecutionAuthorizationManifest(
     "planDigest",
     "scriptDigests",
     "caseIds",
+    "targetBuildDigest",
+    "runnableCaseIds",
+    "deferredCases",
+    "capabilityEvidence",
+    "selectorEvidenceDigests",
+    "scriptReview",
+    "caseScopes",
+    "resourcePoolBudgets",
+    "resourcePoolEvidence",
+    "externalTransitions",
+    "readinessDigest",
     "allowedOperations",
     "resourceBudgets",
     "dataWritePolicy",
@@ -300,7 +521,11 @@ function parseExecutionAuthorizationManifest(
   if (unknownKeys.length) {
     throw new Error(`Execution authorization manifest has unsupported fields: ${unknownKeys.join(", ")}.`);
   }
-  if (raw.schemaVersion !== EXECUTION_AUTHORIZATION_SCHEMA_VERSION) {
+  if (
+    raw.schemaVersion !== EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+    && raw.schemaVersion !== READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+    && raw.schemaVersion !== LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+  ) {
     throw new Error("Unsupported execution authorization manifest schema.");
   }
   if (raw.requestId !== requestId) {
@@ -316,11 +541,10 @@ function parseExecutionAuthorizationManifest(
   }
   const resourceBudgets = parseResourceBudgets(raw.resourceBudgets);
   const dataWritePolicy = raw.dataWritePolicy;
-  if (!["no_write", "managed_cleanup", "tracked_residual"].includes(String(dataWritePolicy))) {
+  if (!["no_write", "managed_cleanup", "ephemeral_cleanup", "reusable_fixture", "tracked_residual"].includes(String(dataWritePolicy))) {
     throw new Error("Execution authorization manifest has an invalid dataWritePolicy.");
   }
-  const base = normalizeDigestBase({
-    schemaVersion: EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+  const common: ExecutionAuthorizationCommon = {
     requestId,
     environment: requireString(raw.environment, "environment"),
     planDigest: requireDigest(raw.planDigest, "planDigest"),
@@ -331,8 +555,43 @@ function parseExecutionAuthorizationManifest(
     dataWritePolicy: dataWritePolicy as ExecutionAuthorizationDigestBase["dataWritePolicy"],
     residualTtlHours: requirePositiveInteger(raw.residualTtlHours, "residualTtlHours"),
     securityChallengePolicy: raw.securityChallengePolicy as ExecutionAuthorizationDigestBase["securityChallengePolicy"],
-    artifactPolicy: raw.artifactPolicy as ExecutionAuthorizationDigestBase["artifactPolicy"]
-  });
+    artifactPolicy: raw.artifactPolicy as ExecutionAuthorizationCommon["artifactPolicy"]
+  };
+  const readinessBase = {
+          ...common,
+          targetBuildDigest: requireDigest(raw.targetBuildDigest, "targetBuildDigest"),
+          runnableCaseIds: parseStringArray(raw.runnableCaseIds, "runnableCaseIds"),
+          deferredCases: parseDeferredCases(raw.deferredCases),
+          capabilityEvidence: parseCapabilityEvidence(raw.capabilityEvidence),
+          selectorEvidenceDigests: parseStringArray(
+            raw.selectorEvidenceDigests,
+            "selectorEvidenceDigests"
+          ).map((digest) => requireDigest(digest, "selectorEvidenceDigest")),
+          scriptReview: parseScriptReview(raw.scriptReview),
+          readinessDigest: requireDigest(raw.readinessDigest, "readinessDigest")
+        };
+  const base = normalizeDigestBase(
+    raw.schemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+      ? {
+          ...readinessBase,
+          schemaVersion: EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+          caseScopes: parseCaseScopes(raw.caseScopes),
+          resourcePoolBudgets: parseResourcePoolBudgets(raw.resourcePoolBudgets),
+          resourcePoolEvidence: parseResourcePoolEvidence(raw.resourcePoolEvidence),
+          ...(raw.externalTransitions === undefined
+            ? {}
+            : { externalTransitions: parseExternalTransitions(raw.externalTransitions) })
+        }
+      : raw.schemaVersion === READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+        ? {
+            ...readinessBase,
+            schemaVersion: READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+          }
+        : {
+          ...common,
+          schemaVersion: LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+        }
+  );
   validateDigestBase(base);
   const digest = requireDigest(raw.digest, "digest");
   if (calculateExecutionAuthorizationDigest(base) !== digest) {
@@ -406,8 +665,11 @@ function assertEnvironmentAndOperations(
 function normalizeDigestBase(
   value: ExecutionAuthorizationDigestBase
 ): ExecutionAuthorizationDigestBase {
-  return {
-    ...value,
+  const common = {
+    schemaVersion: value.schemaVersion,
+    requestId: value.requestId,
+    environment: value.environment,
+    planDigest: value.planDigest,
     scriptDigests: [...value.scriptDigests]
       .map((item) => ({ path: item.path, digest: item.digest }))
       .sort((left, right) => left.path.localeCompare(right.path)),
@@ -415,7 +677,43 @@ function normalizeDigestBase(
     allowedOperations: [...value.allowedOperations].sort() as ExecutionOperationKind[],
     resourceBudgets: [...value.resourceBudgets]
       .map((item) => ({ resourceType: item.resourceType.trim(), maxCreates: item.maxCreates }))
-      .sort((left, right) => left.resourceType.localeCompare(right.resourceType))
+      .sort((left, right) => left.resourceType.localeCompare(right.resourceType)),
+    dataWritePolicy: value.dataWritePolicy,
+    residualTtlHours: value.residualTtlHours,
+    securityChallengePolicy: value.securityChallengePolicy,
+    artifactPolicy: value.artifactPolicy
+  };
+  if (isReadinessDigestBase(value)) {
+    const readiness = {
+      ...common,
+      targetBuildDigest: value.targetBuildDigest,
+      runnableCaseIds: [...value.runnableCaseIds].sort(),
+      deferredCases: normalizeDeferredCases(value.deferredCases),
+      capabilityEvidence: normalizeCapabilityEvidence(value.capabilityEvidence),
+      selectorEvidenceDigests: [...new Set(value.selectorEvidenceDigests)].sort(),
+      scriptReview: normalizeScriptReview(value.scriptReview),
+      readinessDigest: value.readinessDigest
+    };
+    if (isV4DigestBase(value)) {
+      return {
+        ...readiness,
+        schemaVersion: EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+        caseScopes: normalizeCaseScopes(value.caseScopes),
+        resourcePoolBudgets: normalizeResourcePoolBudgets(value.resourcePoolBudgets),
+        resourcePoolEvidence: normalizeResourcePoolEvidence(value.resourcePoolEvidence),
+        ...(value.externalTransitions?.length
+          ? { externalTransitions: normalizeExternalTransitions(value.externalTransitions) }
+          : {})
+      };
+    }
+    return {
+      ...readiness,
+      schemaVersion: READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+    };
+  }
+  return {
+    ...common,
+    schemaVersion: LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
   };
 }
 
@@ -456,6 +754,406 @@ function validateDigestBase(value: ExecutionAuthorizationDigestBase): void {
     && value.allowedOperations.some((operation) => mutatingOperations.has(operation))) {
     throw new Error("A no_write authorization cannot include business mutation operations.");
   }
+  if (isReadinessDigestBase(value)) {
+    requireDigest(value.targetBuildDigest, "targetBuildDigest");
+    requireDigest(value.readinessDigest, "readinessDigest");
+    assertUnique(value.runnableCaseIds, "runnable caseId");
+    assertUnique(value.deferredCases.map((item) => item.caseId), "deferred caseId");
+    if (JSON.stringify(value.caseIds) !== JSON.stringify(value.runnableCaseIds)) {
+      throw new Error(`${value.schemaVersion} caseIds must equal runnableCaseIds.`);
+    }
+    const runnable = new Set(value.runnableCaseIds);
+    if (value.deferredCases.some((item) => runnable.has(item.caseId))) {
+      throw new Error("A case cannot be both runnable and deferred.");
+    }
+    if (value.deferredCases.some((item) =>
+      !item.caseId.trim()
+      || item.blockers.length === 0
+      || item.blockers.some((blocker) =>
+        !blocker.code.trim()
+        || !blocker.source.trim()
+        || !blocker.unblockCondition.trim()
+      )
+    )) {
+      throw new Error("Every deferred case requires a caseId and actionable blockers.");
+    }
+    assertUnique(
+      value.capabilityEvidence.map((item) => item.capabilityId),
+      "capability evidence"
+    );
+    for (const item of value.capabilityEvidence) {
+      requireDigest(item.evidenceDigest, `evidenceDigest for ${item.capabilityId}`);
+      if (!Number.isFinite(Date.parse(item.checkedAt))
+        || (item.expiresAt !== undefined && !Number.isFinite(Date.parse(item.expiresAt)))) {
+        throw new Error(`Capability evidence ${item.capabilityId} has an invalid time.`);
+      }
+    }
+    value.selectorEvidenceDigests.forEach((digest) =>
+      requireDigest(digest, "selectorEvidenceDigest")
+    );
+    value.scriptReview.evidenceDigests.forEach((digest) =>
+      requireDigest(digest, "script review evidenceDigest")
+    );
+    const expectedReadinessDigest = calculateReadinessDigest({
+      targetBuildDigest: value.targetBuildDigest,
+      runnableCaseIds: value.runnableCaseIds,
+      deferredCases: value.deferredCases,
+      capabilityEvidence: value.capabilityEvidence,
+      selectorEvidenceDigests: value.selectorEvidenceDigests,
+      scriptReview: value.scriptReview,
+      ...(isV4DigestBase(value)
+        ? {
+            resourcePoolEvidence: value.resourcePoolEvidence,
+            caseScopes: value.caseScopes
+          }
+        : {})
+    });
+    if (expectedReadinessDigest !== value.readinessDigest) {
+      throw new Error("Execution readiness digest does not match its immutable evidence.");
+    }
+    if (isV4DigestBase(value)) {
+      validateV4Scope(value);
+    }
+  }
+}
+
+export function calculateReadinessDigest(input: {
+  targetBuildDigest: string;
+  runnableCaseIds: string[];
+  deferredCases: ExecutionDeferredCase[];
+  capabilityEvidence: ExecutionCapabilityEvidence[];
+  selectorEvidenceDigests: string[];
+  scriptReview: ExecutionScriptReviewSummary;
+  resourcePoolEvidence?: ExecutionResourcePoolEvidence[];
+  caseScopes?: ExecutionCaseScope[];
+}): string {
+  const normalized = {
+    schemaVersion: "execution-readiness-v1",
+    targetBuildDigest: requireDigest(input.targetBuildDigest, "targetBuildDigest"),
+    runnableCaseIds: [...new Set(input.runnableCaseIds)].sort(),
+    deferredCases: normalizeDeferredCases(input.deferredCases),
+    capabilityEvidence: normalizeCapabilityEvidence(input.capabilityEvidence),
+    selectorEvidenceDigests: [...new Set(input.selectorEvidenceDigests)]
+      .map((digest) => requireDigest(digest, "selectorEvidenceDigest"))
+      .sort(),
+    scriptReview: normalizeScriptReview(input.scriptReview),
+    ...(input.resourcePoolEvidence || input.caseScopes
+      ? {
+          resourcePoolEvidence: normalizeResourcePoolEvidence(input.resourcePoolEvidence ?? []),
+          caseScopes: normalizeCaseScopes(input.caseScopes ?? [])
+        }
+      : {})
+  };
+  return createHash("sha256")
+    .update(canonicalJson(normalized as unknown as SafeJsonValue), "utf8")
+    .digest("hex");
+}
+
+function validateV4Scope(value: ExecutionAuthorizationDigestBaseV4): void {
+  assertUnique(value.caseScopes.map((scope) => scope.caseId), "execution case scope");
+  if (JSON.stringify(value.caseScopes.map((scope) => scope.caseId).sort())
+    !== JSON.stringify([...value.runnableCaseIds].sort())) {
+    throw new Error("execution-authorization-v4 requires one case scope for every runnable case.");
+  }
+  for (const scope of value.caseScopes) {
+    if (scope.permissionProfile === "read_only" && scope.dataWritePolicy !== "no_write") {
+      throw new Error(`${scope.caseId} read_only scope must use no_write.`);
+    }
+    if (scope.requiredOperations.some((operation) => !value.allowedOperations.includes(operation))) {
+      throw new Error(`${scope.caseId} requests an operation outside the authorization.`);
+    }
+    assertUnique((scope.operationBudgets ?? []).map((budget) => budget.operation), `${scope.caseId} operation budget`);
+    for (const budget of scope.operationBudgets ?? []) {
+      if (!scope.requiredOperations.includes(budget.operation)
+        || !Number.isInteger(budget.maxExecutions)
+        || budget.maxExecutions <= 0) {
+        throw new Error(`${scope.caseId} contains an invalid per-case operation budget.`);
+      }
+    }
+    if (scope.permissionProfile !== "read_only"
+      && scope.consumesResources.some((resource) => resource.leaseMode !== "exclusive")) {
+      throw new Error(`${scope.caseId} write-capable consumers require exclusive fixture leases.`);
+    }
+  }
+  assertUnique(
+    value.resourcePoolBudgets.map((budget) => `${budget.resourceType}:${budget.baselineContractId}`),
+    "resource pool budget"
+  );
+  for (const budget of value.resourcePoolBudgets) {
+    if (
+      !budget.resourceType.trim()
+      || !budget.baselineContractId.trim()
+      || !Number.isInteger(budget.maxAvailable)
+      || budget.maxAvailable <= 0
+      || !Number.isInteger(budget.replacementBudget)
+      || budget.replacementBudget < 0
+      || !Number.isInteger(budget.ttlHours)
+      || budget.ttlHours <= 0
+      || budget.retirementPolicy !== "validate_quarantine_replace"
+    ) {
+      throw new Error("execution-authorization-v4 contains an invalid resource pool budget.");
+    }
+  }
+  assertUnique(
+    value.resourcePoolEvidence.map((item) => `${item.resourceType}:${item.baselineContractId}`),
+    "resource pool evidence"
+  );
+  for (const evidence of value.resourcePoolEvidence) {
+    requireDigest(evidence.evidenceDigest, "resource pool evidenceDigest");
+    if (!Number.isInteger(evidence.availableCount) || evidence.availableCount < 0
+      || !Number.isFinite(Date.parse(evidence.checkedAt))) {
+      throw new Error("execution-authorization-v4 contains invalid resource pool evidence.");
+    }
+  }
+  const transitions = value.externalTransitions ?? [];
+  assertUnique(transitions.map((item) => item.transitionId), "external transition");
+  for (const transition of transitions) {
+    if (
+      !value.runnableCaseIds.includes(transition.caseId)
+      || !transition.stageId.trim()
+      || !transition.transitionId.trim()
+      || !transition.actionSummary.trim()
+      || transition.allowedOutcomes.length === 0
+      || transition.allowedOutcomes.some((outcome) => !outcome.trim())
+      || transition.requiredAttestationKeys.some((key) => !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(key))
+    ) {
+      throw new Error("execution-authorization-v4 contains an invalid external transition summary.");
+    }
+    assertUnique(transition.allowedOutcomes, `${transition.transitionId} outcome`);
+    assertUnique(transition.requiredAttestationKeys, `${transition.transitionId} attestation key`);
+  }
+}
+
+function normalizeCaseScopes(values: ExecutionCaseScope[]): ExecutionCaseScope[] {
+  return values.map((scope) => ({
+    caseId: scope.caseId.trim(),
+    permissionProfile: scope.permissionProfile,
+    requiredOperations: [...new Set(scope.requiredOperations)].sort() as ExecutionOperationKind[],
+    operationBudgets: (scope.operationBudgets ?? []).map((budget) => ({
+      operation: budget.operation,
+      maxExecutions: budget.maxExecutions
+    })).sort((left, right) => left.operation.localeCompare(right.operation)),
+    dataWritePolicy: scope.dataWritePolicy,
+    consumesResources: scope.consumesResources.map((resource) => ({
+      name: resource.name.trim(),
+      resourceType: resource.resourceType.trim(),
+      baselineContractId: resource.baselineContractId.trim(),
+      leaseMode: resource.leaseMode
+    })).sort((left, right) => left.name.localeCompare(right.name)),
+    producesResources: scope.producesResources.map((resource) => ({
+      name: resource.name.trim(),
+      resourceType: resource.resourceType.trim(),
+      disposition: resource.disposition,
+      ...(resource.baselineContractId ? { baselineContractId: resource.baselineContractId.trim() } : {}),
+      ...(resource.baselineVersion ? { baselineVersion: resource.baselineVersion.trim() } : {}),
+      ...(resource.leaseMode ? { leaseMode: resource.leaseMode } : {}),
+      ...(resource.maxPoolSize !== undefined ? { maxPoolSize: resource.maxPoolSize } : {}),
+      ...(resource.retirementPolicy ? { retirementPolicy: resource.retirementPolicy } : {})
+    })).sort((left, right) => left.name.localeCompare(right.name))
+  })).sort((left, right) => left.caseId.localeCompare(right.caseId));
+}
+
+function normalizeResourcePoolBudgets(
+  values: ExecutionResourcePoolBudget[]
+): ExecutionResourcePoolBudget[] {
+  return values.map((budget) => ({
+    resourceType: budget.resourceType.trim(),
+    baselineContractId: budget.baselineContractId.trim(),
+    maxAvailable: budget.maxAvailable,
+    replacementBudget: budget.replacementBudget,
+    ttlHours: budget.ttlHours,
+    retirementPolicy: budget.retirementPolicy
+  })).sort((left, right) =>
+    `${left.resourceType}:${left.baselineContractId}`.localeCompare(
+      `${right.resourceType}:${right.baselineContractId}`
+    )
+  );
+}
+
+function normalizeResourcePoolEvidence(
+  values: ExecutionResourcePoolEvidence[]
+): ExecutionResourcePoolEvidence[] {
+  return values.map((evidence) => ({
+    resourceType: evidence.resourceType.trim(),
+    baselineContractId: evidence.baselineContractId.trim(),
+    availableCount: evidence.availableCount,
+    evidenceDigest: evidence.evidenceDigest,
+    checkedAt: evidence.checkedAt
+  })).sort((left, right) =>
+    `${left.resourceType}:${left.baselineContractId}`.localeCompare(
+      `${right.resourceType}:${right.baselineContractId}`
+    )
+  );
+}
+
+function parseCaseScopes(value: unknown): ExecutionCaseScope[] {
+  if (!Array.isArray(value)) throw new Error("execution-authorization-v4 caseScopes must be an array.");
+  return normalizeCaseScopes(value as ExecutionCaseScope[]);
+}
+
+function parseResourcePoolBudgets(value: unknown): ExecutionResourcePoolBudget[] {
+  if (!Array.isArray(value)) throw new Error("execution-authorization-v4 resourcePoolBudgets must be an array.");
+  return normalizeResourcePoolBudgets(value as ExecutionResourcePoolBudget[]);
+}
+
+function parseResourcePoolEvidence(value: unknown): ExecutionResourcePoolEvidence[] {
+  if (!Array.isArray(value)) throw new Error("execution-authorization-v4 resourcePoolEvidence must be an array.");
+  return normalizeResourcePoolEvidence(value as ExecutionResourcePoolEvidence[]);
+}
+
+function normalizeExternalTransitions(
+  values: ExecutionExternalTransitionSummary[]
+): ExecutionExternalTransitionSummary[] {
+  return values.map((item) => ({
+    caseId: item.caseId.trim(),
+    stageId: item.stageId.trim(),
+    transitionId: item.transitionId.trim(),
+    actionSummary: item.actionSummary.trim(),
+    allowedOutcomes: [...new Set(item.allowedOutcomes.map((outcome) => outcome.trim()))].sort(),
+    requiredAttestationKeys: [
+      ...new Set(item.requiredAttestationKeys.map((key) => key.trim()))
+    ].sort()
+  })).sort((left, right) => left.transitionId.localeCompare(right.transitionId));
+}
+
+function parseExternalTransitions(value: unknown): ExecutionExternalTransitionSummary[] {
+  if (!Array.isArray(value)) {
+    throw new Error("execution-authorization-v4 externalTransitions must be an array.");
+  }
+  return normalizeExternalTransitions(value as ExecutionExternalTransitionSummary[]);
+}
+
+function isReadinessAuthorizationSchema(value: string): value is
+  | typeof READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+  | typeof EXECUTION_AUTHORIZATION_SCHEMA_VERSION {
+  return value === READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+    || value === EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
+}
+
+function isReadinessDigestBase(
+  value: ExecutionAuthorizationDigestBase
+): value is ExecutionAuthorizationDigestBaseV3 | ExecutionAuthorizationDigestBaseV4 {
+  return isReadinessAuthorizationSchema(value.schemaVersion);
+}
+
+function isV4DigestBase(
+  value: ExecutionAuthorizationDigestBase
+): value is ExecutionAuthorizationDigestBaseV4 {
+  return value.schemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
+}
+
+function normalizeDeferredCases(
+  values: ExecutionDeferredCase[]
+): ExecutionDeferredCase[] {
+  return values.map((item) => ({
+    caseId: item.caseId.trim(),
+    blockers: item.blockers.map((blocker) => ({
+      code: blocker.code.trim(),
+      source: blocker.source.trim(),
+      unblockCondition: blocker.unblockCondition.trim()
+    })).sort((left, right) =>
+      `${left.code}:${left.source}`.localeCompare(`${right.code}:${right.source}`)
+    )
+  })).sort((left, right) => left.caseId.localeCompare(right.caseId));
+}
+
+function normalizeCapabilityEvidence(
+  values: ExecutionCapabilityEvidence[]
+): ExecutionCapabilityEvidence[] {
+  return values.map((item) => ({
+    capabilityId: item.capabilityId.trim(),
+    available: item.available,
+    evidenceDigest: item.evidenceDigest,
+    checkedAt: item.checkedAt,
+    ...(item.expiresAt ? { expiresAt: item.expiresAt } : {})
+  })).sort((left, right) => left.capabilityId.localeCompare(right.capabilityId));
+}
+
+function normalizeScriptReview(
+  value: ExecutionScriptReviewSummary | undefined
+): ExecutionScriptReviewSummary {
+  const normalized = value ?? { level: "light" as const, evidenceDigests: [] };
+  if (!["light", "standard", "strict"].includes(normalized.level)) {
+    throw new Error("Execution script review level is invalid.");
+  }
+  return {
+    level: normalized.level,
+    evidenceDigests: [...new Set(normalized.evidenceDigests)].sort()
+  };
+}
+
+function parseDeferredCases(value: unknown): ExecutionDeferredCase[] {
+  if (!Array.isArray(value)) {
+    throw new Error("Execution authorization deferredCases must be an array.");
+  }
+  return normalizeDeferredCases(value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error("Execution authorization deferredCases contains an invalid entry.");
+    }
+    const record = item as Record<string, unknown>;
+    if (!Array.isArray(record.blockers)) {
+      throw new Error("Every deferred case requires blockers.");
+    }
+    return {
+      caseId: requireString(record.caseId, "deferred caseId"),
+      blockers: record.blockers.map((blocker) => {
+        if (!blocker || typeof blocker !== "object" || Array.isArray(blocker)) {
+          throw new Error("Execution authorization contains an invalid readiness blocker.");
+        }
+        const parsed = blocker as Record<string, unknown>;
+        return {
+          code: requireString(parsed.code, "blocker code"),
+          source: requireString(parsed.source, "blocker source"),
+          unblockCondition: requireString(
+            parsed.unblockCondition,
+            "blocker unblockCondition"
+          )
+        };
+      })
+    };
+  }));
+}
+
+function parseCapabilityEvidence(value: unknown): ExecutionCapabilityEvidence[] {
+  if (!Array.isArray(value)) {
+    throw new Error("Execution authorization capabilityEvidence must be an array.");
+  }
+  return normalizeCapabilityEvidence(value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error("Execution authorization capabilityEvidence contains an invalid entry.");
+    }
+    const record = item as Record<string, unknown>;
+    if (typeof record.available !== "boolean") {
+      throw new Error("Capability evidence available must be boolean.");
+    }
+    return {
+      capabilityId: requireString(record.capabilityId, "capabilityId"),
+      available: record.available,
+      evidenceDigest: requireDigest(record.evidenceDigest, "capability evidenceDigest"),
+      checkedAt: requireString(record.checkedAt, "capability checkedAt"),
+      ...(record.expiresAt === undefined
+        ? {}
+        : { expiresAt: requireString(record.expiresAt, "capability expiresAt") })
+    };
+  }));
+}
+
+function parseScriptReview(value: unknown): ExecutionScriptReviewSummary {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Execution authorization scriptReview must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  const level = requireString(record.level, "script review level");
+  if (!["light", "standard", "strict"].includes(level)) {
+    throw new Error("Execution authorization script review level is invalid.");
+  }
+  return normalizeScriptReview({
+    level: level as ExecutionScriptReviewSummary["level"],
+    evidenceDigests: parseStringArray(
+      record.evidenceDigests,
+      "scriptReview.evidenceDigests"
+    ).map((digest) => requireDigest(digest, "script review evidenceDigest"))
+  });
 }
 
 function parsePathDigests(

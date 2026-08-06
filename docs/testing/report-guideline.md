@@ -4,7 +4,7 @@
 
 ## 1. 目的与适用范围
 
-本文规范 Web、App、API、MQTT 和 IoT 链路自动化测试的结果采集、报告生成、失败证据、脱敏和 Codex 失败分析流程。
+本文规范 Web、App、API、MQTT 和 IoT 链路自动化测试的结果采集、报告生成、失败证据、脱敏和 Agent 失败分析流程。
 
 测试报告用于说明“执行了什么、在哪个环境执行、结果如何、证据在哪里、下一步做什么”。报告不是产品问题结论本身；失败必须结合证据进行分类和审核。
 
@@ -16,7 +16,7 @@
 - 测试结果、截图、Trace、视频、日志和协议摘要统一放在 `artifacts/`，不得提交到 Git。
 - 失败证据必须足以支持失败分类；证据不足时分类为“未知问题”，不能猜测为产品问题。
 - 报告和日志必须满足[环境规范的敏感采集边界](./environment-guideline.md#61-运行模式)，只保存完成审核所需的脱敏信息。
-- Codex 可读取报告并输出分析、修复建议和 diff，但不能自动修改正式脚本或重新执行，必须等待用户审核。
+- 主 Agent 可读取报告并输出分析、修复建议和 diff，但不能自动修改正式脚本或重新执行，必须等待用户审核。
 - 报告必须基于“测试范围完成判定”，不能仅转述 Runner 的通过数。存在阻塞、未知或未执行范围时，结论必须标记为“部分完成”或“未完成”。
 - 偏好与经验采用双通道沉淀：用户明确的长期协作偏好即时写入 Git 忽略的 `.local/testing-memory.md` 并立即用于当前任务；未验证的项目观察写入 Git 忽略的项目候选队列，已验证的项目经验直接写入当前项目经验库。报告完成后只做复盘、合并、失效清理和状态汇总，不是唯一提升时点。原始需求、协议和接口契约仍属于 `sources/` 原始知识资料库。两者都不替代正式报告。
 - Playwright 受控探索记录不是正式测试结果；可在报告“测试依据”中以脱敏形式引用，但不得写为通过、失败、跳过或执行证据。
@@ -26,14 +26,13 @@
 
 | 目录 | 内容 | 生成方 |
 | --- | --- | --- |
-| `artifacts/test-results/` | JUnit XML、Runner 原始结果和结构化结果摘要。 | Playwright、WebdriverIO、CI。 |
-| `artifacts/playwright-report/` | Playwright HTML 报告。 | Playwright。 |
-| `artifacts/allure-results/` | Allure 原始结果。 | Playwright / WebdriverIO。 |
-| `artifacts/allure-report/` | 由 Allure 原始结果生成的可查看报告。 | `npm run report:allure`。 |
-| `artifacts/screenshots/` | 逐用例关键检查点与失败截图。 | Runner 或脚本。 |
-| `artifacts/traces/` | Playwright Trace 等调试证据。 | Playwright。 |
-| `artifacts/videos/` | 无敏感输入场景组的连续录屏或失败场景录屏。 | Playwright / Appium。 |
-| `artifacts/test-results/*.md` | 面向用户的中文执行摘要、范围完成判定和后续建议。 | Codex / CI。 |
+| `artifacts/test-results/formal/<摘要>/run-summary.json` | runner、逐 case 状态、重试、失败分类、能力和清理事实。 | 正式 Runner。 |
+| `artifacts/test-results/formal/<摘要>/execution-summary.md` | 从同一结构化结果确定性生成的中文摘要。 | 正式报告生成器。 |
+| `artifacts/test-results/formal/<摘要>/case-evidence/` | 每个已执行 case 的结构化证据索引。 | 正式 Runner。 |
+| `artifacts/playwright-report/` | Web 本地默认可视化报告。 | Playwright。 |
+| `artifacts/test-results/junit.xml` | CI 需要时生成的 JUnit 结果。 | CI report profile。 |
+| `artifacts/allure-results/`、`artifacts/allure-report/` | 只有趋势分析 profile 才生成的 Allure 产物。 | `AUTOMATION_REPORT_PROFILE=trend`。 |
+| `artifacts/screenshots/`、`artifacts/traces/` | 失败、首次重试或明确审计需要的非敏感附件。 | Runner。 |
 
 路径由 Runner 配置统一控制；测试脚本不得自行写入临时目录、用户桌面或仓库外的未受控路径。
 
@@ -51,11 +50,11 @@
 
 禁止通过吞掉异常、无断言结束、默认重试成功或把失败标记为 `skipped` 的方式提高通过率。
 
-正式中文摘要以原子结果存储为分类依据，Allure/Playwright 保留原始 Runner 结果。统一授权中的每个 `caseId` 必须恰好出现一次；缺失、重复或仍为 `unknown` 都使范围完成检查失败。依赖框架在运行层显示的跳过不得覆盖原子存储中的 `blocked`。
+正式中文摘要以原子结果存储为分类依据，Allure/Playwright 保留原始 Runner 结果。统一授权中的每个 runnable `caseId` 必须在 runner 结果中恰好出现一次；缺失、重复或仍为 `unknown` 都使范围完成检查失败。deferred `caseId` 只出现在 readiness 与确定性报告的延期清单中。依赖框架在运行层显示的跳过不得覆盖运行时能力漂移形成的原子 `blocked`。
 
 ### 4.1 逐用例可审计证据包
 
-每个正式 `caseId` 必须形成一个 `CaseEvidenceBundle`。它是报告证据索引，不保存业务凭据或测试数据原文：
+每个实际进入 runner 的 `caseId` 必须形成一个 `CaseEvidenceBundle`；readiness 已判定为 `deferred` 的 case 不启动 runner，也不伪造证据包，而是在执行摘要中单列 blocker 与解除条件。证据包是报告证据索引，不保存业务凭据或测试数据原文：
 
 ```text
 caseId
@@ -66,20 +65,26 @@ checkpointScreenshots
 videoReference
 traceReference
 sanitizedNetworkSummary
+operationEvidence (operation / source / contractId / method / path / status / outcome / finality / fallback / reconciliation)
+stageProgress (completedStages / waitingTransitions / resolvedTransitions)
 sanitizedConsoleSummary
 redactionStatus
 ```
 
-默认使用“审计均衡”证据策略：
+证据按结果和风险按需采集：
 
 - 每个业务操作和断言都用可读的 `test.step` 或等价 Runner 步骤记录；步骤名描述业务动作或可观察结果，不记录输入值、凭据或内部实现细节。
-- 每个 case 至少保留一张基线或操作后截图、一张最终断言截图，以及视频区间、Trace、脱敏接口摘要或等价协议证据中的至少一种。写入 case 还必须保留脱敏请求方法/路径/状态码或后台结果证据。
-- 无敏感输入的 `PageSessionGroup` 保留连续视频；证据包记录该 case 在视频中的开始和结束时间。不得为了切分视频而逐 case 重启 Chrome。
-- `failed`、`blocked`、`unknown` 必须保留非敏感采集区间的完整 Trace、失败截图以及适用的脱敏控制台和网络摘要。环境规范禁止采集的区间使用下一条定义的安全替代证据；证据不足时状态只能为 `unknown`，不得猜测失败分类。
-- `passed` 默认保留步骤日志、关键截图和视频区间；高风险写入通过时，仅在能够证明脱敏完整的前提下额外保留 Trace。
+- 普通 `passed` 只要求结构化步骤、断言结果、耗时和环境/构建摘要，不强制截图、视频或 Trace。
+- DOM/ARIA、文本或浏览器响应可稳定判断时，不额外使用模型识图。需模型判断的 UI 证据只保留脱敏最小局部截图、截图 SHA-256、冻结 rubric、结论和不含敏感值的理由摘要；不得保存提示词推理过程，不得将该结论计为后端写入、短信送达或 cleanup 证据。
+- 首次失败或重试使用 Playwright `on-first-retry` Trace 和失败截图；`flaky` 同时保留首次失败与最终结果。证据不足时状态只能为 `unknown`，不得猜测失败分类。
+- 高风险写入必须保留脱敏的操作 intent 与结构化 `operationEvidence`；根据 manifest 策略记录浏览器响应、响应加查询或后置查询，不强制每次都调用后台查询。证据只保存方法、无查询参数路径、状态码、契约 ID、业务结论、稳定身份是否已观察、fallback 和 reconciliation 状态，不保存响应正文、资源 ID、手机号或凭据。
+- Runner 不得把缺少终态结构化操作证据的已执行写入 case 标记为 `passed`。同步最终响应足以定案时不重复查询；异步受理、清理、最终一致性或未知结果仍必须查询或 reconciliation。
+- 多阶段 case 在等待外部转换时必须报告已完成阶段、冻结检查点摘要和最小用户动作，不得统计为最终失败或重新执行已完成写入。恢复后报告同一授权下的最终结果；人工证明只登记允许结果、布尔证明摘要和恢复次数，不保存通知正文、账号或业务标识。
+- 正式 manifest 中包含密码、OTP、Token 或其他禁止采集区间的 case 必须声明 `evidencePolicy: "sensitive"`；同一批次存在此类 runnable case 时，Runner 对整批关闭截图和 Trace，以安全性优先于混合批次的附件完整度。
 - 对[环境规范](./environment-guideline.md#61-运行模式)标记为禁止图像或正文采集的步骤，分割录制并使用步骤前后安全截图、步骤日志和脱敏接口/后台摘要作为替代证据；替代情况必须写入 `redactionStatus`。
+- 正式 Playwright reporter 只把通过泄漏检查且位于 `artifacts/` 的附件关联到 `CaseEvidenceBundle`；HTML、JUnit、Allure 和附件在报告收口前统一执行文本清洗与泄漏扫描，无法安全清洗的二进制附件直接删除且不得保留引用。
 - `redactionStatus` 只能为“已验证脱敏”“使用安全替代证据”或“脱敏未确认”。值为“脱敏未确认”时不得发布产物，也不得将 case 标记为 `passed`。
-- Playwright HTML、Allure 和中文摘要必须逐 case 链接证据包内的实际附件或报告条目；只给运行目录、只记录 Runner 通过数或只为失败项提供证据均不满足报告门禁。
+- `run-summary.json`、中文摘要和启用的 Runner 报告必须引用同一 `CaseEvidenceBundle`；未启用的 JUnit、Allure、视频或 Trace 不构成证据缺口。
 
 ## 5. 报告最小字段
 
@@ -92,9 +97,10 @@ redactionStatus
 - 执行命令、Runner、浏览器/设备信息和脚本版本或提交标识。
 - 通过、失败、跳过、阻塞和未知的数量。
 - 每个失败/阻塞用例的失败步骤、错误摘要、证据路径和分类。
-- 每个 `caseId` 的 `CaseEvidenceBundle` 索引、证据完整性和脱敏状态；通过用例也不得省略。
+- 每个已运行 `caseId` 的 `CaseEvidenceBundle` 索引、证据完整性和脱敏状态；通过用例也不得省略。延期用例单列 readiness blocker 和解除条件。
+- 多阶段用例的已完成阶段、当前等待转换、恢复次数及最终自动验证结果；待审核、审核通过后晋升、驳回后重新发起和受控残留分别统计。
 - 按 [environment-guideline.md](./environment-guideline.md) 汇总测试数据准备、清理结果、台账脱敏摘要与残留风险；不得在报告正文回显资源 ID、合成值或敏感数据。
-- 分别输出 `functionalStatus` 与 `dataHygieneStatus`：前者只依据可靠的功能断言，后者汇总清理、受控残留、过期和未知归属。不得用清理失败覆盖已判定的功能结果，也不得把功能通过表述为数据卫生通过。
+- 分别输出 `functionalStatus` 与 `dataHygieneStatus`：前者只依据可靠的功能断言，后者分类汇总已清理的临时资源、已晋升或归还的可复用 fixture、已隔离或退役的异常资源、受控残留、过期和未知归属。已登记且基线合格的 `reusable_fixture` 结论为“已登记且可复用”，不记为未清理残留。不得用清理或恢复失败覆盖已判定的功能结果，也不得把功能通过表述为数据卫生通过。
 - 最终工作流摘要：引用 `task:status` 的阶段、未完成或受阻 Activity、等待项及最小下一动作。
 
 面向用户的摘要还必须包含：
@@ -103,9 +109,9 @@ redactionStatus
 - 测试对象或接口数量、计划用例数、已执行用例数。
 - 通过、失败、跳过、阻塞和未知数量；通过率与失败率。
 - 每个失败、阻塞、未知或未执行项的通俗原因和下一步最小操作。
-- 若存在数据残留或清理异常：按 [environment-guideline.md](./environment-guideline.md) 说明关联 `caseId`、脱敏台账摘要位置、处理状态和后续路径；分别陈述功能结论与数据卫生结论。
-- 可视化报告入口（Playwright HTML / Allure）或脱敏 Markdown 摘要路径。
-- 本次复盘状态：用户偏好、项目经验候选分别为“已更新 / 已提升 / 保留待验证 / 无需更新”，并附不含敏感信息的原因摘要、验证证据定位或未提升原因。
+- 若存在可复用 fixture、数据残留或清理/恢复异常：按 [environment-guideline.md](./environment-guideline.md) 说明关联 `caseId`、脱敏台账摘要位置、晋升/归还/隔离/退役/到期状态和后续路径；分别陈述功能结论与数据卫生结论。
+- 确定性 JSON/Markdown 摘要路径，以及本次 profile 实际启用的 Playwright HTML、JUnit 或 Allure 入口。
+- 本次复盘状态：用户偏好、项目经验分别为“已更新 / 待验证 / 已验证 / 已覆盖 / 无需更新”，并附不含敏感信息的原因摘要和证据定位。未完成验证不得延迟经验登记，只影响证据状态。
 - 正式执行来源：例如 Playwright Chromium、Playwright Chrome、Appium、API Client 或 MQTT Client；并明确列出不计入统计的探索依据。
 
 通过率使用 `passed ÷ (passed + failed)`，失败率使用 `failed ÷ (passed + failed)`。`skipped`、`blocked` 和 `unknown` 不进入通过率分母，但必须单独列出；分母为零时显示“不适用”。Web 测试对象统计页面或用户旅程，API 统计接口，App 统计页面或功能流，IoT 统计已验证链路。
@@ -156,9 +162,9 @@ redactionStatus
 
 同一失败可提出多个候选分类，但最终报告必须说明主分类、置信度和待确认项。
 
-## 8. Codex 失败分析输出
+## 8. Agent 失败分析输出
 
-Codex 分析失败报告时，输出应采用以下结构：
+主 Agent 分析失败报告时，输出应采用以下结构：
 
 ```text
 执行摘要
@@ -185,20 +191,20 @@ Codex 分析失败报告时，输出应采用以下结构：
 ## 9. 报告审核清单
 
 - 是否先完成测试计划、用例与实际结果的范围核对，并给出“已完成 / 部分完成 / 未完成”结论。
-- 是否完成复盘：用户偏好仅在存在新偏好时更新 `.local/testing-memory.md`；项目经验候选逐项记录“已提升 / 保留待验证 / 无需更新”及原因；只有已验证的新经验才更新当前被测项目对应的 `docs/testing/knowledge/<project>-testing-knowledge.md`。
-- 是否提供用户可直接查看的 HTML/Allure 报告入口，或在敏感场景提供脱敏 Markdown 替代。
+- 是否完成复盘：用户偏好仅在存在新偏好时更新 `.local/testing-memory.md`；项目经验一经形成就立即更新当前被测项目对应的 `docs/testing/knowledge/<project>-testing-knowledge.md`，并逐项记录“待验证 / 已验证 / 已覆盖 / 无需更新”及原因。
+- 是否提供确定性 JSON/Markdown 摘要，并只引用本次 profile 实际生成的 HTML、JUnit 或 Allure。
 - 是否以友好格式给出测试对象/接口数、用例数量、通过率、失败率和未覆盖项。
 - 是否关联了正确的测试计划、确认用例、目标环境和脚本版本。
 - 是否关联 `plan.md` 中已确认的工程层设计、代码提交和图谱新鲜度判断，且未把图谱作为唯一事实依据。
 - 是否完整记录了通过、失败、跳过、阻塞和未知结果。
-- 是否为授权范围内每个 `caseId` 建立完整且可打开的 `CaseEvidenceBundle`；通过用例是否同时满足断言、证据完整性和脱敏资格。
-- `failed`、`blocked`、`unknown` 是否保留非敏感区间 Trace、失败截图和适用摘要；敏感区间是否具备安全替代证据及明确的 `redactionStatus`。
+- 是否为每个已运行 `caseId` 建立完整且可打开的 `CaseEvidenceBundle`；通过用例是否同时满足断言、证据完整性和脱敏资格；延期用例是否只出现在 readiness 与报告的延期清单中。
+- `failed`、首次重试和高风险写入是否具备对应强度的非敏感证据；敏感区间是否具备安全替代证据及明确的 `redactionStatus`。
 - 失败是否附有足够证据，且分类未超出证据范围。
 - 是否泄露密码、Token、密钥、真实用户信息或敏感 Payload。
 - 是否区分产品问题、环境问题、测试数据问题和脚本问题。
 - 是否记录测试数据清理结果和残留风险。
 - 是否从 `task:status` 获取最终阶段、未完成项、阻断原因或待确认项，并确保这些动态信息没有写回 `plan.md`。
-- Codex 的建议是否包含依据、置信度、风险和待审核操作。
+- 主 Agent 的建议是否包含依据、置信度、风险和待审核操作。
 
 ## 10. 用户偏好与项目测试经验
 
@@ -210,7 +216,7 @@ Codex 分析失败报告时，输出应采用以下结构：
 - 未验证项目观察在发现时立即写入 `.local/project-knowledge-candidates/<project>.json`，包含候选编号、适用范围、观察、建议策略、证据定位和待验证条件；`plan.md` 只可引用候选编号，不得复制候选正文。一旦本次受控探索或正式执行提供可审查验证证据，经验可直接写入 `<project>-testing-knowledge.md`，首次满足条件时创建该文件；候选随即标记“已提升”并保留经验库引用。提升不必等待报告完成，但必须在后续报告复盘中可追溯。手机号格式、验证码阈值、OAuth 业务分支等需求事实即使资料明确，也只保留在原始资料和 `REQ → RULE → caseId` 追溯中。
 - 每个项目最多保留 10 条“待验证”候选；达到上限时先合并重复候选或放弃最旧且无新增证据的候选。项目经验与用户偏好每个主题最多保留 10 条有效记录；过期或重复内容应合并。
 - 严禁在任一文件记录账号、密码、验证码、Cookie、Token、密钥、完整生产地址、设备唯一标识、真实用户信息或敏感业务数据。
-- 没有新增内容时不改写对应文件；报告摘要分别说明用户偏好、项目经验候选的“即时更新 / 已提升 / 保留待验证 / 已合并或失效 / 无需更新”状态及脱敏原因。
+- 没有新增内容时不改写对应文件；报告摘要分别说明用户偏好、项目经验的“即时更新 / 待验证 / 已验证 / 已覆盖或失效 / 无需更新”状态及脱敏原因。
 
 ## 11. 保留与清理
 

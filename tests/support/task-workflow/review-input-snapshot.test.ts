@@ -7,6 +7,8 @@ import test from "node:test";
 import {
   ReviewInputSnapshotStore
 } from "../../../src/support/task-workflow/index.js";
+import { assessCaseReviewRisk } from "../../../src/support/task-workflow/caseReviewRisk.js";
+import { buildReviewBatchScopeV3 } from "../../../src/support/task-workflow/reviewBatchScope.js";
 
 test("review input identity inspection is read-only", async (context) => {
   const workspaceRoot = await mkdtemp(resolve(tmpdir(), "review-input-inspect-"));
@@ -63,6 +65,126 @@ test("review input snapshot freezes immutable plan, case, and controlled source 
   await assert.rejects(
     store.freeze("REV-DEMO-01", [casesPath, planPath, sourcePath, knowledgePath]),
     /already exists with another input digest/
+  );
+});
+
+test("v2 semantic snapshot ignores generated records but detects testcase semantics", async (context) => {
+  const workspaceRoot = await mkdtemp(resolve(tmpdir(), "review-input-semantic-"));
+  context.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  const requestId = "web/demo/semantic-review";
+  const requestRoot = resolve(workspaceRoot, "testcases/web/demo/semantic-review");
+  await mkdir(requestRoot, { recursive: true });
+  const planPath = resolve(requestRoot, "plan.md");
+  const casesPath = resolve(requestRoot, "cases-main.md");
+  const plan = "# Plan\n\n## 测试范围\n\n- 认证状态。\n\n## 需求追溯矩阵\n\n| REQ | caseId |\n| --- | --- |\n| REQ-AUTH-001 | DEMO-AUTH-001 |\n\n## 多角色评审记录\n\n- 尚未评审。\n";
+  const cases = `# Cases
+
+## 用例目录
+
+| 用例编号 | 标题 |
+| --- | --- |
+| DEMO-AUTH-001 | 认证状态 |
+
+## 测试用例：认证状态
+
+## 基本信息
+| 用例编号 | DEMO-AUTH-001 |
+| 需求追溯编号 | REQ-AUTH-001 |
+| 规则覆盖编号 | RULE-AUTH-001 |
+| 数据策略 | no_write |
+| 风险等级 | 中 |
+
+## 前置条件
+- test 环境。
+
+## 操作步骤
+| 序号 | 操作 | 输入 | 预期 |
+| --- | --- | --- | --- |
+| 1 | 查询认证状态 | 无 | 显示当前状态 |
+`;
+  await writeFile(planPath, plan, "utf8");
+  await writeFile(casesPath, cases, "utf8");
+  const assessment = assessCaseReviewRisk(cases);
+  const scope = buildReviewBatchScopeV3({
+    allActivityIds: ["case-review-combined"],
+    caseRiskAssessment: assessment,
+    activityRoles: [{ activityId: "case-review-combined", role: "combined" }],
+    reviewEpochDigest: "d".repeat(64),
+    semanticEvolutionCycle: 0
+  });
+  const store = new ReviewInputSnapshotStore(requestId, { workspaceRoot });
+  const frozen = await store.freeze("REV-SEMANTIC-01", [planPath, casesPath], scope);
+  assert.equal(frozen.schemaVersion, "review-input-snapshot-v2");
+  assert.deepEqual(Object.keys(frozen.roleInputDigests ?? {}), ["case-review-combined"]);
+
+  await writeFile(
+    planPath,
+    plan
+      .replace("DEMO-AUTH-001", "DEMO-AUTH-009")
+      .replace("- 尚未评审。", "- reviewer 正式记录已写入。"),
+    "utf8"
+  );
+  await writeFile(
+    casesPath,
+    cases.replace("| DEMO-AUTH-001 | 认证状态 |", "| DEMO-AUTH-001 | 认证状态（索引更新） |"),
+    "utf8"
+  );
+  await store.verifyCurrentSources("REV-SEMANTIC-01");
+
+  await writeFile(
+    casesPath,
+    (await readFile(casesPath, "utf8")).replace("查询认证状态", "修改认证状态"),
+    "utf8"
+  );
+  await assert.rejects(store.verifyCurrentSources("REV-SEMANTIC-01"), /input drifted/);
+});
+
+test("role input digests isolate safety-only changes to impact", async (context) => {
+  const workspaceRoot = await mkdtemp(resolve(tmpdir(), "review-input-role-scope-"));
+  context.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  const requestId = "web/demo/role-scope";
+  const requestRoot = resolve(workspaceRoot, "testcases/web/demo/role-scope");
+  await mkdir(requestRoot, { recursive: true });
+  const planPath = resolve(requestRoot, "plan.md");
+  const casesPath = resolve(requestRoot, "cases-main.md");
+  await writeFile(planPath, "# Plan\n\n## 测试范围\n\n- OTP 流程。\n", "utf8");
+  const cases = `## 测试用例：OTP
+## 基本信息
+| 用例编号 | DEMO-OTP-001 |
+| 需求追溯编号 | REQ-OTP-001 |
+| 规则覆盖编号 | RULE-OTP-001 |
+| 数据策略 | tracked_residual |
+| 风险等级 | 高 |
+## 前置条件
+- test 环境。
+## 操作步骤
+| 序号 | 操作 | 输入 | 预期 |
+| --- | --- | --- | --- |
+| 1 | 发送一次 OTP 验证码 | 合成手机号 | 进入等待输入状态 |
+`;
+  await writeFile(casesPath, cases, "utf8");
+  const assessment = assessCaseReviewRisk(cases);
+  const scope = buildReviewBatchScopeV3({
+    allActivityIds: ["case-review-combined", "case-review-impact"],
+    caseRiskAssessment: assessment,
+    activityRoles: [
+      { activityId: "case-review-combined", role: "combined" },
+      { activityId: "case-review-impact", role: "impact" }
+    ],
+    reviewEpochDigest: "e".repeat(64),
+    semanticEvolutionCycle: 0
+  });
+  const store = new ReviewInputSnapshotStore(requestId, { workspaceRoot });
+  await store.freeze("REV-ROLE-01", [planPath, casesPath], scope);
+  await writeFile(
+    casesPath,
+    cases.replace("tracked_residual", "ephemeral_cleanup"),
+    "utf8"
+  );
+  await store.verifyCurrentSources("REV-ROLE-01", "case-review-combined");
+  await assert.rejects(
+    store.verifyCurrentSources("REV-ROLE-01", "case-review-impact"),
+    /input drifted/
   );
 });
 
