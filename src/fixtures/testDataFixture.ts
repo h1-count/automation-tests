@@ -1,6 +1,7 @@
 import { test as base } from "@playwright/test";
 import { CleanupActionRegistry } from "../support/test-data/cleanupRegistry.js";
 import { TestDataManager } from "../support/test-data/testDataManager.js";
+import { isAcceptedTestDataSummary } from "../support/test-data/summary.js";
 import type {
   DataWritePolicy,
   ResourceValidator,
@@ -53,7 +54,13 @@ export function createTestDataFixture(options: TestDataFixtureOptions) {
         throw error;
       } finally {
         const summary = await manager.cleanupRun(run.runId);
-        await manager.endRun(run.runId, runStatus);
+        if (isAcceptedTestDataSummary(summary)) {
+          await manager.endRun(
+            run.runId,
+            runStatus,
+            runStatus === "failed" ? "failed" : "passed"
+          );
+        }
         await testInfo.attach("test-data-summary", {
           path: `artifacts/test-results/${run.runId}/test-data-summary.json`,
           contentType: "application/json"

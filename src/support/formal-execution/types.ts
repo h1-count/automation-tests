@@ -5,6 +5,7 @@ import type {
 } from "./authorization.js";
 import type { TestDataManager } from "../test-data/testDataManager.js";
 import type {
+  DataHygieneStatus,
   DataWritePolicy,
   ResourceValidator,
   ResourceLeaseMode,
@@ -14,8 +15,55 @@ import type {
 } from "../test-data/types.js";
 
 export type FormalCaseStatus = "passed" | "failed" | "blocked" | "skipped" | "unknown";
+export type FormalAttemptFinality = "pending" | "terminal";
+export type FormalBusinessOracleOutcome = "satisfied" | "violated" | "indeterminate";
+export type FormalBusinessOracleEvaluationBasis =
+  | "normal_return"
+  | "assertion_violation"
+  | "explicit_indeterminate"
+  | "evaluator_error";
+export type FormalFailureClassification =
+  | { code: "product"; basis: "business_oracle_violated" }
+  | {
+      code: "script";
+      basis: "missing_business_oracle" | "runtime_error" | "oracle_evaluator_error";
+    }
+  | {
+      code: "environment";
+      basis: "authorization_scope" | "capability_unavailable" | "external_transition";
+    }
+  | { code: "test_data"; basis: "required_resource_unavailable" }
+  | { code: "infrastructure"; basis: "worker_interrupted" }
+  | { code: "unknown"; basis: "business_oracle_indeterminate" };
+/** Legacy v1/v2 records used free-form strings. New v3 writes accept only the
+ * structured variant through the Store API. */
+export type FormalStoredFailureClassification = FormalFailureClassification | string;
 export type FormalDataWritePolicy = DataWritePolicy;
 export type FormalPermissionProfile = "read_only" | "test_write" | "privileged_test";
+export type FormalExecutionScopeStatus = "complete" | "partial";
+export type FormalExecutionTestOutcome = "passed" | "failed" | "mixed" | "inconclusive";
+export type FormalExecutionDataHygieneStatus = DataHygieneStatus | "unknown";
+
+export interface FormalExecutionCompletionSeal {
+  schemaVersion: "formal-execution-completion-seal-v1";
+  resultDigest: string;
+  sealedAt: string;
+}
+
+export interface FormalExecutionSealInput {
+  authorizationDigest: string;
+  requestId: string;
+  environment: string;
+  manifestDigest: string;
+  targetBuildDigest?: string;
+  runnableCaseIds: string[];
+  deferredCaseIds: string[];
+}
+
+export interface FormalExecutionReportArtifact {
+  path: string;
+  digest: string;
+}
 
 export interface FormalConsumedResourceContract {
   name: string;
@@ -72,6 +120,63 @@ export interface FormalCaseImplementation {
   pendingCapabilityIds?: string[];
 }
 
+export type FormalBusinessOracleObservationKind =
+  | "dom"
+  | "browser_response"
+  | "postcondition_query"
+  | "runtime_state";
+
+export type FormalBusinessOracleAuthority =
+  | {
+      kind: "registered_source";
+      materialId: string;
+      sectionId: string;
+      sourceSha256: string;
+    }
+  | {
+      kind: "formal_user_decision";
+      decisionType: string;
+      subjectDigest: string;
+    };
+
+export interface FormalBusinessOracleDefinition {
+  oracleId: string;
+  ruleRef: string;
+  observationKind: FormalBusinessOracleObservationKind;
+  /** Required only when the observation is bound to a browser response or
+   * postcondition query contract. DOM and runtime-state evaluators do not need
+   * to invent an external contract identity. */
+  contractId?: string;
+  authorities: FormalBusinessOracleAuthority[];
+}
+
+export interface FormalBusinessOracleIndeterminate {
+  kind: "indeterminate";
+  reason: string;
+}
+
+export type FormalBusinessOracleEvaluator = () =>
+  | void
+  | FormalBusinessOracleIndeterminate
+  | Promise<void | FormalBusinessOracleIndeterminate>;
+
+export interface FormalBusinessOracleResult {
+  oracleId: string;
+  ruleRef: string;
+  observationKind: FormalBusinessOracleObservationKind;
+  contractId?: string;
+  authorityDigest: string;
+  outcome: FormalBusinessOracleOutcome;
+  evaluationBasis: FormalBusinessOracleEvaluationBasis;
+  evidenceRefs: string[];
+  reason?: string;
+}
+
+export type FormalBlockEvidence =
+  | { cause: "capability_unavailable"; capabilityId: string }
+  | { cause: "external_transition"; transitionId: string }
+  | { cause: "required_resource_unavailable"; resourceName: string };
+
 export interface FormalCapabilityRequirement {
   capabilityId: string;
   /** The capability is checked only after this external transition resolves. */
@@ -123,6 +228,8 @@ export interface FormalCaseDefinition {
   implementation?: FormalCaseImplementation;
   /** Required for effectful operations in newly generated v5 scripts. */
   operationEvidence?: FormalOperationEvidenceDefinition[];
+  /** Required and non-empty for every formal-execution-manifest-v3 case. */
+  businessOracles?: FormalBusinessOracleDefinition[];
   /** Optional durable stage graph for cases that cross a real external state transition. */
   executionStages?: FormalCaseExecutionStage[];
 }
@@ -150,7 +257,7 @@ export interface FormalBuildEvidenceDefinition {
   path: string;
   /** Required only for test_asset evidence. */
   assetId?: string;
-  /** Actual Git asset bytes digest; required only for test_asset evidence. */
+  /** Required for every v3 evidence item; v1/v2 require it only for test_asset. */
   sha256?: string;
   /** Optional project-specific asset scope that must match test-assets/manifest.yaml. */
   scope?: string;
@@ -166,7 +273,10 @@ export interface FormalPageSessionGroupDefinition {
 }
 
 export interface FormalExecutionManifest {
-  schemaVersion: "formal-execution-manifest-v1" | "formal-execution-manifest-v2";
+  schemaVersion:
+    | "formal-execution-manifest-v1"
+    | "formal-execution-manifest-v2"
+    | "formal-execution-manifest-v3";
   requestId: string;
   projectId: string;
   environment: string;
@@ -194,14 +304,19 @@ export interface FormalCapabilityResult {
 export interface FormalCaseAttempt {
   attempt: number;
   status: FormalCaseStatus;
+  /** Required on v3 records; absent legacy values are derived from endedAt when read. */
+  finality?: FormalAttemptFinality;
   startedAt: string;
   endedAt?: string;
   reason?: string;
   evidenceRefs?: string[];
   assertions?: string[];
   durationMs?: number;
-  failureClassification?: string;
+  failureClassification?: FormalStoredFailureClassification;
+  /** Persisted non-business fact required for every v3 blocked result. */
+  blockEvidence?: FormalBlockEvidence;
   operationEvidence?: FormalOperationEvidenceRecord[];
+  oracleResults?: FormalBusinessOracleResult[];
 }
 
 export interface FormalStageCheckpoint {
@@ -266,12 +381,17 @@ export interface FormalCaseDataEvidence {
 }
 
 export interface FormalExecutionRecord {
-  schemaVersion: "formal-execution-record-v1" | "formal-execution-record-v2";
+  schemaVersion:
+    | "formal-execution-record-v1"
+    | "formal-execution-record-v2"
+    | "formal-execution-record-v3";
   requestId: string;
   projectId: string;
   environment: string;
   authorizationDigest: string;
   manifestDigest: string;
+  /** Required on v3 records and derived only from immutable case oracle definitions. */
+  businessOracleContractDigest?: string;
   targetBuildDigest?: string;
   testDataRunId: string;
   startedAt: string;
@@ -279,14 +399,22 @@ export interface FormalExecutionRecord {
   cases: Record<string, FormalCaseResult>;
   capabilities: Record<string, FormalCapabilityResult>;
   resources: Record<string, FormalNamedResource>;
-  /** Present on v2 records; v1 records remain readable and resumable without stages. */
+  /** Present on v2/v3 records; v1/v2 records remain readable but are not writable. */
   stageProgress?: Record<string, FormalCaseStageProgress>;
   deferredCases?: ExecutionDeferredCase[];
   caseEvidencePolicies?: Record<string, "standard" | "sensitive">;
+  /** Immutable per-case oracle contracts; required on v3 records. */
+  caseBusinessOracles?: Record<string, FormalBusinessOracleDefinition[]>;
+  /** Immutable identifiers that a v3 Store may verify before accepting a blocked result. */
+  caseBlockContracts?: Record<string, {
+    capabilityIds: string[];
+    resourceNames: string[];
+  }>;
   cleanup?: {
     status: "passed" | "failed" | "not_required" | "unknown";
     completedAt?: string;
     reason?: string;
+    dataHygieneStatus?: DataHygieneStatus;
   };
   dataEvidence?: Record<string, FormalCaseDataEvidence>;
   /** Local, authorization-bound idempotency keys; never copied to history or reports. */
@@ -294,6 +422,7 @@ export interface FormalExecutionRecord {
     operation: ExecutionOperationKind;
     reservedAt: string;
   }>>;
+  completionSeal?: FormalExecutionCompletionSeal;
 }
 
 export interface FormalExecutionSummary {
@@ -302,7 +431,11 @@ export interface FormalExecutionSummary {
   environment: string;
   authorizationDigest: string;
   manifestDigest: string;
+  businessOracleContractDigest?: string;
   targetBuildDigest?: string;
+  scopeStatus: FormalExecutionScopeStatus;
+  testOutcome: FormalExecutionTestOutcome;
+  dataHygieneStatus: FormalExecutionDataHygieneStatus;
   complete: boolean;
   counts: Record<FormalCaseStatus, number>;
   cases: Array<{
@@ -310,10 +443,12 @@ export interface FormalExecutionSummary {
     status: FormalCaseStatus;
     reason?: string;
     attempts: number;
+    attemptFinality: FormalAttemptFinality | "not_started";
     evidenceRefs: string[];
-    failureClassification?: string;
+    failureClassification?: FormalStoredFailureClassification;
     dataEvidence?: FormalCaseDataEvidence;
     operationEvidence?: FormalOperationEvidenceRecord[];
+    oracleResults?: FormalBusinessOracleResult[];
   }>;
   capabilities: FormalCapabilityResult[];
   resources: FormalNamedResource[];
@@ -329,7 +464,18 @@ export interface FormalExecutionSummary {
     status: "passed" | "failed" | "not_required" | "unknown";
     completedAt?: string;
     reason?: string;
+    dataHygieneStatus: FormalExecutionDataHygieneStatus;
   };
+}
+
+export interface FormalExecutionSealResult {
+  seal: FormalExecutionCompletionSeal;
+  summary: FormalExecutionSummary;
+}
+
+export interface FormalExecutionSealedReport {
+  summary: FormalExecutionSummary;
+  artifacts: FormalExecutionReportArtifact[];
 }
 
 export interface FormalCaseRuntime {
@@ -350,6 +496,11 @@ export interface FormalCaseRuntime {
   addEvidence(reference: string): void;
   addAssertion(description: string): void;
   addOperationEvidence(evidence: FormalOperationEvidenceRecord): void;
+  verifyBusinessOracle(
+    oracleId: string,
+    evaluator: FormalBusinessOracleEvaluator
+  ): Promise<FormalBusinessOracleOutcome>;
+  /** Legacy v1/v2 source compatibility only; v3 source and runtime reject this API. */
   classifyFailure(classification: string): void;
   stageCompleted(stageId: string): Promise<boolean>;
   completeStage(stageId: string, evidenceRefs?: string[]): Promise<void>;

@@ -24,15 +24,20 @@ import {
   sanitizeOperationEvidenceRecord
 } from "./operationEvidence.js";
 import type {
+  FormalBusinessOracleDefinition,
+  FormalBusinessOracleResult,
+  FormalBlockEvidence,
   FormalCaseDefinition,
   FormalCaseRuntime,
   FormalExecutionManifest,
   FormalExecutionSummary,
+  FormalFailureClassification,
   FormalResourceHandle,
   FormalOperationEvidenceRecord
 } from "./types.js";
 import { assertLocalResourceHandoff } from "./resourceHandoff.js";
 import { registerFormalPageSessionGroups } from "./pageSessionGroups.js";
+import { assertFormalBuildAuthorizationCompatibility } from "./selectorBuildIdentity.js";
 
 type FormalFixtures = {
   page: Page;
@@ -50,6 +55,7 @@ interface InternalRuntime extends Omit<
   | "addEvidence"
   | "addAssertion"
   | "addOperationEvidence"
+  | "verifyBusinessOracle"
   | "classifyFailure"
   | "useCapability"
   | "reserveOperation"
@@ -90,15 +96,20 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
     const definition = requireDefinition(runtime.manifest, caseId);
     const record = await runtime.store.read(runtime.snapshot.digest);
     const prior = record?.cases[caseId];
-    if (prior?.status === "passed") {
-      testInfo.annotations.push({ type: "formalStatus", description: "passed: restored from the same authorization run" });
+    const latestPriorAttempt = prior?.attempts.at(-1);
+    const hasOpenRetryAttempt = latestPriorAttempt !== undefined
+      && (latestPriorAttempt.finality === "pending"
+        || (latestPriorAttempt.finality === undefined && latestPriorAttempt.endedAt === undefined));
+    if (prior && (prior.status !== "unknown" || prior.attempts.length > 0) && !hasOpenRetryAttempt) {
+      testInfo.annotations.push({
+        type: "formalStatus",
+        description: `${prior.status}: restored from the same authorization run`
+      });
       return;
     }
     const executionScopeBlock = caseExecutionScopeBlock(definition, runtime.snapshot);
     if (executionScopeBlock) {
-      await runtime.store.markBlocked(runtime.snapshot.digest, caseId, executionScopeBlock);
-      testInfo.annotations.push({ type: "formalStatus", description: `blocked: ${executionScopeBlock}` });
-      test.skip(true, executionScopeBlock);
+      throw new Error(executionScopeBlock);
     }
     const activeCapabilityIds = definition.requiredCapabilities.flatMap((requirement) => {
       const capabilityId = formalCapabilityId(requirement);
@@ -115,14 +126,27 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
       .find((item) => item && !item.available);
     if (capabilityBlock) {
       const reason = capabilityBlock.reason ?? `Capability ${capabilityBlock.capabilityId} is unavailable.`;
-      await runtime.store.markBlocked(runtime.snapshot.digest, caseId, reason);
+      await runtime.store.markBlocked(
+        runtime.snapshot.digest,
+        caseId,
+        reason,
+        {
+          cause: "capability_unavailable",
+          capabilityId: capabilityBlock.capabilityId
+        }
+      );
       testInfo.annotations.push({ type: "formalStatus", description: `blocked: ${reason}` });
       test.skip(true, reason);
     }
     for (const resource of definition.requiredResources) {
       if (!(await runtime.store.resourceAvailable(runtime.snapshot.digest, resource))) {
         const reason = `Named resource ${resource} is not confirmed; only dependent case ${caseId} is blocked.`;
-        await runtime.store.markBlocked(runtime.snapshot.digest, caseId, reason);
+        await runtime.store.markBlocked(
+          runtime.snapshot.digest,
+          caseId,
+          reason,
+          { cause: "required_resource_unavailable", resourceName: resource }
+        );
         testInfo.annotations.push({ type: "formalStatus", description: `blocked: ${reason}` });
         test.skip(true, reason);
       }
@@ -132,7 +156,6 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
     const evidenceRefs: string[] = [];
     const assertions: string[] = [];
     const operationEvidence: FormalOperationEvidenceRecord[] = [];
-    let failureClassification: string | undefined;
     try {
       await body({ page, browser, context }, {
         snapshot: runtime.snapshot,
@@ -220,11 +243,41 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
           }
           operationEvidence.push(sanitizeOperationEvidenceRecord(evidence));
         },
-        classifyFailure: (classification) => {
-          failureClassification = classification;
+        verifyBusinessOracle: async (oracleId, evaluator) => {
+          const oracle = definition.businessOracles?.find((item) => item.oracleId === oracleId);
+          if (!oracle) {
+            throw new Error(
+              `${caseId} verified business oracle ${oracleId} outside its immutable manifest.`
+            );
+          }
+          return runtime.store.verifyBusinessOracle({
+            authorizationDigest: runtime.snapshot.digest,
+            caseId,
+            attempt,
+            oracleId,
+            evaluator,
+            evidenceRefs
+          });
+        },
+        classifyFailure: () => {
+          if (runtime.manifest.schemaVersion === "formal-execution-manifest-v3") {
+            throw new Error(
+              `${caseId} cannot use legacy classifyFailure() in formal-execution-manifest-v3.`
+            );
+          }
         }
       }, testInfo);
-      const completion = resolveFormalCompletion(testInfo.errors);
+      const persistedAttempt = await readAttemptOracleResults(
+        runtime.store,
+        runtime.snapshot.digest,
+        caseId,
+        attempt
+      );
+      const completion = resolveFormalOracleCompletion({
+        definitions: definition.businessOracles ?? [],
+        oracleResults: persistedAttempt,
+        errors: testInfo.errors
+      });
       if (completion.status === "passed") {
         const persisted = await runtime.store.read(runtime.snapshot.digest);
         const accumulatedOperationEvidence = [
@@ -250,12 +303,23 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
         completion.status,
         completion.reason,
         evidenceRefs,
-        { assertions, failureClassification, operationEvidence }
+        {
+          assertions,
+          ...(completion.failureClassification?.basis === "runtime_error"
+            ? { runtimeFailure: true }
+            : {}),
+          operationEvidence
+        }
       );
       testInfo.annotations.push({ type: "formalStatus", description: completion.status });
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Unknown formal case failure.";
-      if (error instanceof FormalBlockedError || error instanceof FormalExternalTransitionRequired) {
+      const blockEvidence = error instanceof FormalExternalTransitionRequired
+        ? { cause: "external_transition" as const, transitionId: error.transitionId }
+        : error instanceof FormalBlockedError
+          ? error.blockEvidence
+          : undefined;
+      if (blockEvidence) {
         await runtime.store.finishCase(
           runtime.snapshot.digest,
           caseId,
@@ -265,11 +329,7 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
           evidenceRefs,
           {
             assertions,
-            failureClassification: failureClassification ?? (
-              error instanceof FormalExternalTransitionRequired
-                ? "external_transition_required"
-                : "environment_blocked"
-            ),
+            blockEvidence,
             operationEvidence
           }
         );
@@ -277,20 +337,35 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
         test.skip(true, reason);
         return;
       }
+      const persistedAttempt = await readAttemptOracleResults(
+        runtime.store,
+        runtime.snapshot.digest,
+        caseId,
+        attempt
+      );
+      const completion = resolveFormalOracleCompletion({
+        definitions: definition.businessOracles ?? [],
+        oracleResults: persistedAttempt,
+        errors: [...testInfo.errors, error],
+        runtimeError: true
+      });
       await runtime.store.finishCase(
         runtime.snapshot.digest,
         caseId,
         attempt,
-        "failed",
+        completion.status,
         reason,
         evidenceRefs,
         {
           assertions,
-          failureClassification: failureClassification ?? "script_or_product_failure",
+          ...(completion.status === "unknown" ? { runtimeFailure: true } : {}),
           operationEvidence
         }
       );
-      testInfo.annotations.push({ type: "formalStatus", description: `failed: ${reason.slice(0, 200)}` });
+      testInfo.annotations.push({
+        type: "formalStatus",
+        description: `${completion.status}: ${reason.slice(0, 200)}`
+      });
       throw error;
     }
   });
@@ -342,8 +417,86 @@ export function resolveFormalCompletion(errors: ReadonlyArray<unknown>): {
   };
 }
 
+export function resolveFormalOracleCompletion(input: {
+  definitions: FormalBusinessOracleDefinition[];
+  oracleResults: Array<Pick<FormalBusinessOracleResult, "oracleId" | "outcome" | "evaluationBasis">>;
+  errors: ReadonlyArray<unknown>;
+  runtimeError?: boolean;
+}): {
+  status: "passed" | "failed" | "unknown";
+  reason?: string;
+  failureClassification?: FormalFailureClassification;
+} {
+  if (input.definitions.length === 0) {
+    throw new Error("formal-execution-manifest-v3 cases require immutable business oracles.");
+  }
+  const expected = input.definitions.map((item) => item.oracleId).sort();
+  const actual = input.oracleResults.map((item) => item.oracleId).sort();
+  if (new Set(actual).size !== actual.length) {
+    throw new Error("A formal case cannot record the same business oracle more than once.");
+  }
+  const unknownOracleIds = actual.filter((oracleId) => !expected.includes(oracleId));
+  if (unknownOracleIds.length > 0) {
+    throw new Error(`Business oracle results are outside the immutable case contract: ${unknownOracleIds.join(", ")}.`);
+  }
+  const complete = JSON.stringify(expected) === JSON.stringify(actual);
+  const hasViolation = input.oracleResults.some((item) => item.outcome === "violated");
+  const hasIndeterminate = input.oracleResults.some((item) => item.outcome === "indeterminate");
+  const hasEvaluatorError = input.oracleResults.some((item) =>
+    item.evaluationBasis === "evaluator_error"
+  );
+  const hasRuntimeFailure = input.runtimeError === true || input.errors.length > 0;
+
+  if (hasViolation) {
+    return {
+      status: "failed",
+      reason: "At least one business oracle result was violated.",
+      failureClassification: { code: "product", basis: "business_oracle_violated" }
+    };
+  }
+  if (hasRuntimeFailure) {
+    return {
+      status: "unknown",
+      reason: input.errors.length > 0
+        ? `${input.errors.length} runtime or soft assertion failure(s) left the business result indeterminate.`
+        : "The runtime failed before the business result could be determined.",
+      failureClassification: { code: "script", basis: "runtime_error" }
+    };
+  }
+  if (!complete) {
+    const missing = expected.filter((oracleId) => !actual.includes(oracleId));
+    return {
+      status: "unknown",
+      reason: `Business oracle results are incomplete: ${missing.join(", ")}.`,
+      failureClassification: { code: "script", basis: "missing_business_oracle" }
+    };
+  }
+  if (hasIndeterminate) {
+    return {
+      status: "unknown",
+      reason: "At least one business oracle result is indeterminate.",
+      failureClassification: hasEvaluatorError
+        ? { code: "script", basis: "oracle_evaluator_error" }
+        : { code: "unknown", basis: "business_oracle_indeterminate" }
+    };
+  }
+  return { status: "passed" };
+}
+
+async function readAttemptOracleResults(
+  store: FormalExecutionStore,
+  authorizationDigest: string,
+  caseId: string,
+  attempt: number
+): Promise<FormalBusinessOracleResult[]> {
+  const record = await store.read(authorizationDigest);
+  return structuredClone(
+    record?.cases[caseId]?.attempts.find((item) => item.attempt === attempt)?.oracleResults ?? []
+  );
+}
+
 export class FormalBlockedError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly blockEvidence?: FormalBlockEvidence) {
     super(message);
     this.name = "FormalBlockedError";
   }
@@ -377,6 +530,10 @@ async function createRuntime(): Promise<InternalRuntime> {
   const manifest = configuredManifest;
   if (!manifest) throw new Error("Call configureFormalSuite(manifest) before registering formalCase tests.");
   const snapshot = await loadConfirmedExecutionAuthorization(manifest.requestId, manifest.environment);
+  assertFormalBuildAuthorizationCompatibility({
+    manifest,
+    authorizationSchemaVersion: snapshot.schemaVersion
+  });
   const declared = new Set(manifest.cases.map((item) => item.caseId));
   if (snapshot.caseIds.some((caseId) => !declared.has(caseId))) {
     throw new Error("Formal manifest must declare every authorized runnable caseId.");

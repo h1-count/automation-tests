@@ -305,6 +305,7 @@ function appendBuildReadinessAndExecution(
     dependencies: ["execution-authorization"],
     required: true,
     metadata: {
+      completionContract: "formal-execution-completion-seal-v1",
       maxWorkers: parallelExecutionEligible ? 2 : 1,
       transaction: [
         "capability_recheck",
@@ -333,6 +334,7 @@ function appendBuildReadinessAndExecution(
     required: true,
     publishesArtifacts: true,
     metadata: {
+      completionContract: "formal-execution-completion-seal-v1",
       deterministic: true,
       outputs: ["run-summary.json", "execution-summary.md"],
       completesWorkflow: true

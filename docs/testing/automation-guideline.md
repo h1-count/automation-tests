@@ -120,6 +120,8 @@ Activity 状态仅由事件归约为 `PENDING`、`READY`、`RUNNING`、`SUCCEEDE
 
 父任务、阶段、整体进度和用例完整度都从事件历史与真实产物派生，不再独立持久化。上述 Activity 与 workflow state 是内部恢复契约，必须完整保留；用户可见的六阶段只是只读投影，不能反向驱动状态迁移。无关 blocker、下游确认或 reviewer 容量等待不得冻结仍可运行的独立分支。测试结果与工作流结果分离：产品测试可以为 `failed`、`mixed` 或 `inconclusive`；只要执行、清理/残留登记和报告流程完成，工作流仍可成功闭环。
 
+`run` 与 `report` 使用 `formal-execution-completion-seal-v1` 完成契约。通用 `activity-succeed`、`artifact-publish-succeed` 和普通 `reconcile --outcome confirmed` 均不得关闭这两个 Activity；只能分别使用 `task:manage execution-run-finalize --request <id> --claim <lease>` 与 `task:manage execution-report-finalize --request <id> --claim <lease>`。专用入口从已确认执行 subject、正式记录和 completion seal 派生结论，不接受调用方填写验证结果、测试结论、文件路径或摘要。新定义中的 completion marker 要求 `ActivitySucceeded` 携带 `formal-execution-workflow-evidence-v1`；旧 v5 history 没有 marker 时仍按原事件只读回放，v3/v4 继续只读，不升级定义或重写历史。
+
 #### 阶段 DAG、Activity 命令与恢复
 
 顶层阶段固定为：资料筛选与计划校验 → 一次计划确认 callback → 用例包并行生成 → 关系同步、首稿 readiness、隔离评审、证据驱动演进与复审，直至收敛（后续复审优先定向） → 一次用例确认 callback → `build` → `readiness` → 一次不可变执行清单 callback → `run` → `report`。`build` 合并工程分析、脚本生成、selector 证据和差异化脚本评审；`run` 在一个可恢复事务中按需完成能力复核、惰性 setup、执行、必要的外部 postcondition、`finally` cleanup 和 reconciliation；`report` 成功后原子写入工作流完成事件。报告后的正式资产修改属于新的明确决定，不是本工作流的固定确认阶段。
@@ -322,7 +324,9 @@ Web/H5 在 `build` Activity 内按“源码契约分析 → 缓存命中或自�
 
 用例已确认，且已确认版本的源码、组件状态或接口契约足以推导业务步骤时，即可登记完整的正式候选脚本。零写入无法穿越保存、注册、提交等边界时，允许生成 `runtime_validation_pending` 脚本：正文必须包含边界前完整步骤和边界后明确候选实现，manifest 必须登记 `reachableBoundary` 和 `pendingCapabilityIds`。目标环境部署、运行时 selector、OTP/fixture、已实现 provider、资源预算和实际 cleanup 能力当前不可用时，应在 `readiness` 将受影响 case 标记为 `deferred`；引用未实现 provider 则是 `invalid` 并返回 build 修复。两者都不得将候选脚本改成固定阻断占位。只有缺少真正生成依据，例如无法确定 UI 主路径、业务动作或可观察预期时，才保持 `build` blocker。
 
-`build` 的确定性门禁包括项目感知的 TypeScript 编译、完整且唯一的 `caseId` 映射、敏感字面量扫描、每个 case 的 `requiredOperations`/`operationBudgets`/`dataWritePolicy`/`implementation` 声明及正式 source gate。每个外部操作的数量上限必须按 case 冻结，Runner 在真实操作前以脱敏幂等 key 原子预留；同 key 恢复不得重放，超出上限必须停止。source gate 必须拒绝空 callback、纯 guard、固定 `blockForMissingContracts`、仅 capability 检查或无条件以 `FormalBlockedError` 结束且没有业务动作/断言的实现。条件性运行时保护可以保留，但不能代替可审查的业务正文。真实写入与下游验证仍只能进入执行清单确认后的正式 `run`。
+`build` 的确定性门禁包括项目感知的 TypeScript 编译、完整且唯一的 `caseId` 映射、敏感字面量扫描、每个 case 的 `requiredOperations`/`operationBudgets`/`dataWritePolicy`/`implementation` 声明及正式 source gate。新 readiness 只接受 `formal-execution-manifest-v3`：每个 runnable case 必须声明与已登记资料或正式用户决定绑定的业务 Oracle，并以 `verifyBusinessOracle()` 产生结构化结果。source gate 必须拒绝空 callback、纯 guard、固定 `blockForMissingContracts`、仅 capability 检查、action-only、`addAssertion()`-only、人工构造 Oracle 结果或无条件结束的实现。每个外部操作的数量上限必须按 case 冻结，Runner 在真实操作前以脱敏幂等 key 原子预留；同 key 恢复不得重放，超出上限必须停止。条件性运行时保护可以保留，但不能代替可审查的业务正文。真实写入与下游验证仍只能进入执行清单确认后的正式 `run`。
+
+正式脚本身份必须使用同一候选依赖闭包解析器贯穿脚本评审、授权发布、Runner 和 completion finalize：入口 manifest 与全部 `*.formal.spec.ts`、同请求 helper 以及递归导入的 `actions/clients/env/web/test-assets` 等本地运行依赖都进入 reviewer 输入和 `scriptDigests`；`import type` 不属于运行闭包。直接导入的 `src/support/formal-execution/` Runner 模块按 runtime leaf 冻结其文件字节但不递归展开基础设施全图，避免把共享治理实现重复计入每次业务评审。候选闭包中的未解析依赖、非字面量动态导入、路径或 realpath 越界，以及授权后新增、删除、遗漏或摘要漂移的 formal spec/helper/runtime leaf 都是 invalid input；finalize 必须在动态加载 manifest 前完成同一精确闭包校验。
 
 ### 6.1 统一执行清单与范围重开
 
@@ -330,11 +334,15 @@ Web/H5 在 `build` Activity 内按“源码契约分析 → 缓存命中或自�
 
 `readiness` 只复核真实运行条件：账号、OTP 通道、远端 fixture/动态测试数据、外部观察器、Runner adapter、资源池租约与已授权替代预算。ARIA、selector、浏览器响应解析、源码契约，以及已纳入 Git 的静态测试资产与本地确定性生成器都属于冻结 `buildEvidence`，不是 Capability Provider。新 manifest 使用 `requiredTestAssetIds` 关联资产，并用 `test_asset` 证据冻结 `assetId`、路径和实际 SHA-256；资产缺失、非 active、项目/平台/范围不匹配或摘要漂移直接作为 `invalid build` 返回，不能降级为 capability unavailable。资源池暂时为空但清单已授权惰性创建时可 runnable；既无合格资源又无创建预算时才 deferred。这些状态不得将已有实现的 case 改为空脚本或固定 blocker。
 
+v3 build identity 同时冻结 Oracle 契约、来源索引与全部 build evidence 内容摘要。evidence `kind` 必须与 JSON schema 一致，其顶层路径与嵌套 `sourceFiles[]` 都必须在 `realpath` 后仍位于当前工作区，且 `sourceFiles[].sha256` 必须与真实文件一致。`formal-execution-manifest-v3` 只能与 readiness 冻结的 `execution-authorization-v3/v4` 组合；旧 v2 授权可读历史，不得用来启动或封印 v3 执行。Runner 必须在启动 BrowserServer/Provider 前重算身份，`execution-run-finalize` 必须在封印前使用同一验证器再算一次。任一资料、章节、脚本、Oracle 或 build evidence 漂移都是 `invalid input`，不得降级为 deferred，也不得从 CLI 接受人工摘要覆盖。
+
 只有整条 case 从第一阶段启动就必需的真实运行能力才能放入用例级 `requiredCapabilities`；某个可选参数、精确边界样本或后续分支专用条件不得延期同一 case 的其他独立等价类。资料给出数值阈值但未定义十进制/二进制等单位换算时，优先使用对所有合理口径都成立的明显低于与明显高于代表值；精确等号、相邻一单位等无法定案的边界只记录为未断言，不得虚构口径，也不得阻塞格式、非法值和明确区间场景。
 
 多阶段用例的 readiness 只判断第一阶段能否开始。后续阶段才需要的审核状态、测试账号、通知确认或状态 fixture 必须在 manifest 中绑定 `checkAfterTransitionId`，不得提前把整条用例延期。`buildExecutionDependencyPlan(manifest, selectedCaseIds)` 只从 `producesResources → requiredResources` 和同一基线的唯一资源池生产者推导有向无环图，不允许再声明 `dependsOnCaseIds` 或依赖文件发现顺序；未知生产者、多生产者歧义、未授权生产者和循环均是 `invalid build`。当前清单内存在可启动生产者时，消费者与生产者一同进入 `runnableCaseIds`，并分别展示 `initialRunnableCaseIds`、`scheduledCaseIds`、`executionWaves` 和确定性 `graphDigest`；只有生产者、资源池和已授权创建预算均不存在时才 deferred。执行清单必须展示依赖路径和外部转换摘要，但转换仍属于同一次执行授权，不新增 callback。
 
-`run` 遇到真实外部状态转换时，先完成当前波次并持久化 `formal-execution-record-v2` 阶段检查点，再以 `external_transition_required` 的 `BlockerRaised` 释放 Runner lease。用户只提交 manifest 允许的结果和布尔脱敏证明；`execution-transition-resolve` 验证检查点摘要后用 `BlockerResolved` 恢复同一 Activity、同一授权和同一测试数据 run。已完成阶段和外部写入不得重放。一次只解除部分转换时先执行已满足分支，其他转换在下一波次继续等待。等待审核属于可恢复暂停，不得把宿主长期任务标记为阻塞终态。
+`run` 遇到真实外部状态转换时，先完成当前波次并持久化新执行使用的 `formal-execution-record-v3` 阶段检查点，再以 `external_transition_required` 的 `BlockerRaised` 释放 Runner lease。旧 v1/v2 record 只读回放，不能追加检查点或封印。用户只提交 manifest 允许的结果和布尔脱敏证明；`execution-transition-resolve` 验证检查点摘要后用 `BlockerResolved` 恢复同一 Activity、同一授权和同一测试数据 run。已完成阶段和外部写入不得重放。一次只解除部分转换时先执行已满足分支，其他转换在下一波次继续等待。等待审核属于可恢复暂停，不得把宿主长期任务标记为阻塞终态。
+
+等待中的 external transition 一律使 settlement 返回 `parked`：Runner 只能关闭进程级 BrowserServer 和 Capability Provider，不得调用业务资源 cleanup、结束 test-data run 或把未知清理写成成功。转换解析后，Store 只为同一 case 建立新的 pending attempt，并从冻结 checkpoint 继续；不得恢复为旧 blocked 终态、重复已完成阶段或重放写入。没有等待转换时才进入 terminal settlement，并以 cleanup 返回的结构化资源摘要判定数据卫生，不能用“没有抛异常”代替成功。清理未闭环时保持已经形成的功能结果，自动为 `run` 登记确定性数据卫生 blocker；恢复后只重做 settlement/finalize，不重跑已完成 case、阶段或写入。BrowserServer 关闭、settlement、Capability Provider 清理和制品扫描按此顺序分别捕获错误，任一阶段失败都不得跳过后续阶段。
 
 短信 OTP 的页面内人工输入不等同于跨回合外部状态转换：当用例以 `ui_state` 声明 `send_test_otp` 时，Runner 在一个显式 `--headed` 会话内保持 Context/Page，用户直接在受控页面输入，脚本通过输入状态自动继续。该等待不新增 callback、不释放浏览器、不轮询模型，也不将验证码持久化。未以 `--headed` 启动时必须在发送前失败关闭。
 
@@ -383,9 +391,13 @@ Web 正式执行默认复用 Runner 持有的 browser process，但每个 case �
 
 发送 OTP、上传、提交或等待人工输入前，脚本必须先完成该阶段之后仍会使用的确定性控件预检：唯一性、可见性、可操作容器和已知静态状态均须在副作用发生前验证。预检不得执行真实写入，也不得把尚未满足业务前置条件造成的按钮禁用误判为脚本失败。这样，定位或组件封装错误应在验证码发送、文件上传和提交 intent 之前暴露；已进入人工输入阶段后，不得因尚可提前发现的 selector 错误关闭页面并要求用户重做。
 
-每一波结束后，Runner 只从 `formal-execution-record-v2` 读取已完成阶段和已确认命名资源：阶段资源一旦由生产者使用 `publishResource(name, ledgerResourceId, evidence)` 登记，即可解锁消费者，不必等待生产者整个 case 终态；无身份的兼容证据仅可用 `confirmResource`，不得向需要本地资源句柄的消费者伪造身份。`consumeResource(name)` 只能返回当前授权、当前环境、当前 run 且由本机 Runner 登记的句柄，真实 ID、手机号、OTP 和凭据不得进入 history、授权或报告。生产者失败只阻塞其后代并保存根因路径，其他分支继续；没有可执行节点时合并全部当前可达外部转换一次请求，既无转换又有未完成节点才判定依赖死锁。
+每一波结束后，Runner 只从当前 `formal-execution-record-v3` 读取已完成阶段和已确认命名资源：阶段资源一旦由生产者使用 `publishResource(name, ledgerResourceId, evidence)` 登记，即可解锁消费者，不必等待生产者整个 case 终态；无身份的兼容证据仅可用 `confirmResource`，不得向需要本地资源句柄的消费者伪造身份。`consumeResource(name)` 只能返回当前授权、当前环境、当前 run 且由本机 Runner 登记的句柄，真实 ID、手机号、OTP 和凭据不得进入 history、授权或报告。生产者失败只阻塞其后代并保存根因路径，其他分支继续；没有可执行节点时合并全部当前可达外部转换一次请求，既无转换又有未完成节点才判定依赖死锁。
 
-正式 Runner 不启用失败即停；worker 并发与隔离只按[环境规范](./environment-guideline.md#61-运行模式)决定。一个 `caseId` 失败后继续执行所有无依赖用例；只有缺少已声明能力或未精确确认前置资源的消费者进入 `blocked`。产品断言失败不得批量改写为 `skipped`，也不得阻止执行事务汇总所有可执行用例；仍有 `blocked` 或 `unknown` 时，执行事务保持可恢复阻塞。
+正式 Runner 不启用失败即停；worker 并发与隔离只按[环境规范](./environment-guideline.md#61-运行模式)决定。一个 `caseId` 失败后继续执行所有无依赖用例；只有缺少已声明能力或未精确确认前置资源的消费者进入 `blocked`。v3 case 只有在全部必需 Oracle 为 `satisfied` 时才能 `passed`，任一 `violated` 形成产品 `failed`；观察不可定案、未类型化异常或 worker 中断形成 terminal `unknown`，不得伪装为产品失败。产品 Oracle 失败不得批量改写为 `skipped`，也不得阻止执行事务汇总所有可执行用例；仍有 `blocked` 或 `unknown` 时，执行事务保持可恢复阻塞。
+
+terminal settlement 完成后，`execution-run-finalize` 只有在正式记录的 request、环境、manifest、目标构建、执行 subject、runnable/deferred case 集一致，且不存在 `unknown`、等待转换或未接受的数据卫生状态时，才建立幂等 completion seal 并关闭 `run`。`failed`、`blocked` 或 `deferred` 是可封印的真实产品/范围结果，不得伪装为全范围通过。`execution-report-finalize` 只能由同一 seal 确定性重建并发布授权摘要目录中的 `run-summary.json` 与 `execution-summary.md`；其 evidence 必须与 `run` 一致，`report` 的 `ActivitySucceeded` 与 `WorkflowCompleted` 在同一次原子追加中提交。seal 后正式 case、cleanup、能力、资源与证据均不可继续写入；需要改变结果时必须建立新的授权运行。
+
+terminal `unknown` 是“尝试已结束但业务结果无法可靠定案”，与尚未结束的 pending attempt 分开保存。它仍禁止 seal 和 Workflow 完成；专用 finalize 必须为 `run` 登记绑定当前 execution subject 的确定性 outcome blocker 并 park。通用 success、普通 reconciliation、手工 blocker resolve 或 CLI 结论参数不得清除该 blocker；只有同一冻结授权下的新可信 attempt，或重新 readiness/授权后的新 run 才能进入专用 finalize。阻塞、unknown 或数据卫生未闭环退出码为 `2`；产品 Oracle 失败或已证明的脚本/基础设施失败为 `1`；全部正常为 `0`。
 
 统一正式入口为 `npm run test:execute -- --request <type/project/request>`；Web/H5 兼容入口为 `npm run test:web:execute -- --request <type/project/request>`。两者仅接受同一授权的 `--resume` 和显式调试用 `--headed`，拒绝用户提供 `--grep` 或文件路径；case 子集只能来自不可变执行清单。尚未实现正式 adapter 的 App/API/MQTT/IoT 必须在 readiness 保持 deferred，不得回退到未治理的普通命令。
 

@@ -26,8 +26,8 @@
 
 | 目录 | 内容 | 生成方 |
 | --- | --- | --- |
-| `artifacts/test-results/formal/<摘要>/run-summary.json` | runner、逐 case 状态、重试、失败分类、能力和清理事实。 | 正式 Runner。 |
-| `artifacts/test-results/formal/<摘要>/execution-summary.md` | 从同一结构化结果确定性生成的中文摘要。 | 正式报告生成器。 |
+| `artifacts/test-results/formal/<摘要>/run-summary.json` | `formal-run-summary-v2`：逐 case 状态、Oracle 契约/结果摘要、受控分类、范围、测试结论、能力和数据卫生事实。旧 v1 和已封印的 legacy 投影只读保留。 | completion seal 报告生成器。 |
+| `artifacts/test-results/formal/<摘要>/execution-summary.md` | 从同一 completion seal 确定性生成的中文摘要。 | completion seal 报告生成器。 |
 | `artifacts/test-results/formal/<摘要>/case-evidence/` | 每个已执行 case 的结构化证据索引。 | 正式 Runner。 |
 | `artifacts/playwright-report/` | Web 本地默认可视化报告。 | Playwright。 |
 | `artifacts/test-results/junit.xml` | CI 需要时生成的 JUnit 结果。 | CI report profile。 |
@@ -42,13 +42,14 @@
 
 | 状态 | 含义 | 报告处理 |
 | --- | --- | --- |
-| `passed` | 所有已定义断言通过，证据包完整且脱敏状态有效。 | 记录执行时间、环境、关联用例和逐 case 证据索引。 |
-| `failed` | 执行完成但至少一个断言或前置检查失败。 | 附失败步骤、错误、证据和初步分类。 |
-| `skipped` | 已批准为不适用于当前范围。 | 记录不适用依据和审批信息；能力、数据或依赖不足不得归入此状态。 |
-| `blocked` | 因环境、数据、权限、设备或依赖不可用而无法执行。 | 记录阻塞条件，不计为产品失败。 |
-| `unknown` | Runner 无法可靠判定结果或证据不足。 | 保留原始证据并要求人工分析。 |
+| `passed` | v3 用例的全部必需业务 Oracle 都产生 `satisfied`，证据包完整且脱敏状态有效。 | 记录执行时间、环境、Oracle 契约摘要、关联用例和逐 case 证据索引。 |
+| `failed` | 执行完成且至少一个已绑定业务 Oracle 产生 `violated`。 | 附 Oracle、失败步骤、安全原因码、证据和 `PRODUCT` 分类；前置、脚本或基础设施失败不得伪装为该状态。 |
+| `skipped` | 仅供旧记录回放或已在授权前批准为不适用的历史投影。 | v3 runnable case 禁止由 Runner 写成 `skipped`；应在授权范围形成前通过正式决定移出 runnable 集。能力、数据、依赖或 Oracle 不足必须分别形成 `blocked`、`deferred` 或 `unknown`。 |
+| `blocked` | 已持久化且可校验的能力不可用、命名资源不可用或 waiting transition 使执行无法继续。 | 必须绑定对应的非业务事实；调用方原因、普通异常或无事实的 `FormalBlockedError` 不能直接写入该状态，而应保守形成 `unknown`。不得记为产品失败。 |
+| `unknown` | attempt 可以已终结，但 Oracle 缺失、`indeterminate`、观察存在歧义、未类型化异常或执行中断，Runner 无法可靠定案业务结果。 | 保留安全证据和分类依据，标记范围部分完成；不得封印或完成 Workflow。 |
 
 禁止通过吞掉异常、无断言结束、默认重试成功或把失败标记为 `skipped` 的方式提高通过率。
+任一 attempt 一旦形成 `violated` Oracle，该 case 必须归为 `failed`，即使其他 Oracle 尚未执行；后续 attempt、环境 blocker 或手工分类不得覆盖这一产品结论。公开 `beginCase()` 不能重开任何 terminal attempt，只有受控的安全 retry 或已解析 external transition 可以建立新的 pending attempt。
 
 正式中文摘要以原子结果存储为分类依据，Allure/Playwright 保留原始 Runner 结果。统一授权中的每个 runnable `caseId` 必须在 runner 结果中恰好出现一次；缺失、重复或仍为 `unknown` 都使范围完成检查失败。deferred `caseId` 只出现在 readiness 与确定性报告的延期清单中。依赖框架在运行层显示的跳过不得覆盖运行时能力漂移形成的原子 `blocked`。
 
@@ -61,6 +62,8 @@ caseId
 startedAt / endedAt
 businessSteps
 assertionResults
+businessOracleContractDigest
+oracleResults (oracleId / ruleRef / observationKind / outcome / evaluationBasis / safe reason / evidenceRefs)
 checkpointScreenshots
 videoReference
 traceReference
@@ -74,6 +77,7 @@ redactionStatus
 证据按结果和风险按需采集：
 
 - 每个业务操作和断言都用可读的 `test.step` 或等价 Runner 步骤记录；步骤名描述业务动作或可观察结果，不记录输入值、凭据或内部实现细节。
+- v3 证据包必须绑定当前 `businessOracleContractDigest`，并为每个必需 Oracle 保存唯一结构化结果。JSON 与中文摘要只展示 Oracle/Rule 标识、观察类型、outcome、平台派生的 `evaluationBasis`、固定安全原因和 evidence refs，不保存 evaluator 提交的原始说明或观察到的业务原值。`addAssertion()` 与手写 operation evidence 不能代替 Oracle 结果。
 - 普通 `passed` 只要求结构化步骤、断言结果、耗时和环境/构建摘要，不强制截图、视频或 Trace。
 - DOM/ARIA、文本或浏览器响应可稳定判断时，不额外使用模型识图。需模型判断的 UI 证据只保留脱敏最小局部截图、截图 SHA-256、冻结 rubric、结论和不含敏感值的理由摘要；不得保存提示词推理过程，不得将该结论计为后端写入、短信送达或 cleanup 证据。
 - 首次失败或重试使用 Playwright `on-first-retry` Trace 和失败截图；`flaky` 同时保留首次失败与最终结果。证据不足时状态只能为 `unknown`，不得猜测失败分类。
@@ -88,6 +92,16 @@ redactionStatus
 
 ## 5. 报告最小字段
 
+正式摘要必须分别输出以下三个维度，不能再用一个“已完成”文案互相替代：
+
+| 字段 | 值 | 判定 |
+| --- | --- | --- |
+| `scopeStatus` | `complete` / `partial` | `failed` 是已完成的产品结果，不降低范围完整度；`blocked`、`skipped`、`deferred`、`unknown` 或 waiting transition 均为 `partial`。 |
+| `testOutcome` | `passed` / `failed` / `mixed` / `inconclusive` | 完整范围按已判定的通过/失败组合派生；部分范围只要已有可判定结果即为 `mixed`，完全无法判定才为 `inconclusive`。 |
+| `dataHygieneStatus` | `clean` / `reusable` / `retained` / `cleanup_failed` / `manual_required` / `unknown` | 只反映 terminal cleanup 与受控残留，不覆盖功能结论。 |
+
+兼容字段 `complete` 只在 `scopeStatus=complete` 且数据卫生为 `clean`、`reusable` 或 `retained` 时派生为 `true`。completion seal 要求没有 `unknown`、没有 waiting transition、数据卫生已接受，并且每个 runnable case 都有 teardown 后的数据证据；`failed`、`blocked` 与 `deferred` 可以如实封印，但必须展示部分范围或失败结论。Workflow 是否闭环只由 workflow gate 与 `WorkflowCompleted` 表达，报告中的 `complete` 不得替代该事实。
+
 每次测试执行的报告或 CI 摘要至少包含：
 
 - 运行标识、开始/结束时间、执行人或触发来源。
@@ -100,7 +114,7 @@ redactionStatus
 - 每个已运行 `caseId` 的 `CaseEvidenceBundle` 索引、证据完整性和脱敏状态；通过用例也不得省略。延期用例单列 readiness blocker 和解除条件。
 - 多阶段用例的已完成阶段、当前等待转换、恢复次数及最终自动验证结果；待审核、审核通过后晋升、驳回后重新发起和受控残留分别统计。
 - 按 [environment-guideline.md](./environment-guideline.md) 汇总测试数据准备、清理结果、台账脱敏摘要与残留风险；不得在报告正文回显资源 ID、合成值或敏感数据。
-- 分别输出 `functionalStatus` 与 `dataHygieneStatus`：前者只依据可靠的功能断言，后者分类汇总已清理的临时资源、已晋升或归还的可复用 fixture、已隔离或退役的异常资源、受控残留、过期和未知归属。已登记且基线合格的 `reusable_fixture` 结论为“已登记且可复用”，不记为未清理残留。不得用清理或恢复失败覆盖已判定的功能结果，也不得把功能通过表述为数据卫生通过。
+- 分别输出 `testOutcome` 与 `dataHygieneStatus`：前者只依据可靠的功能断言和范围状态，后者分类汇总已清理的临时资源、已晋升或归还的可复用 fixture、已隔离或退役的异常资源、受控残留、过期和未知归属。逐 run 的 `functionalStatus` 保留为功能事实，不参与数据卫生反推。已登记且基线合格的 `reusable_fixture` 结论为“已登记且可复用”，不记为未清理残留。不得用清理或恢复失败覆盖已判定的功能结果，也不得把功能通过表述为数据卫生通过。
 - 最终工作流摘要：引用 `task:status` 的阶段、未完成或受阻 Activity、等待项及最小下一动作。
 
 面向用户的摘要还必须包含：

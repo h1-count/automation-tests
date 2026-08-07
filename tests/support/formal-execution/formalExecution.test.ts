@@ -6,6 +6,7 @@ import test from "node:test";
 import { FormalExecutionStore } from "../../../src/support/formal-execution/formalExecutionStore.js";
 import {
   defineFormalExecutionManifest,
+  digestFormalExecutionManifest,
   evaluateCapabilities
 } from "../../../src/support/formal-execution/manifest.js";
 import {
@@ -71,6 +72,61 @@ function manifest(): FormalExecutionManifest {
       }
     ]
   };
+}
+
+function writableManifest(): FormalExecutionManifest {
+  const value = manifest();
+  value.schemaVersion = "formal-execution-manifest-v3";
+  value.buildEvidence = [{
+    kind: "source_contract",
+    path: "contracts/formal-source-contract.json",
+    sha256: "a".repeat(64)
+  }];
+  for (const definition of value.cases) {
+    definition.permissionProfile = definition.caseId === "CASE-001" ? "test_write" : "read_only";
+    definition.dataWritePolicy = definition.caseId === "CASE-001" ? "tracked_residual" : "no_write";
+    definition.requiredOperations = [];
+    definition.implementation = { status: "source_complete" };
+    definition.businessOracles = [{
+      oracleId: `ORACLE-${definition.caseId}`,
+      ruleRef: `RULE-${definition.caseId}`,
+      observationKind: "runtime_state",
+      authorities: [{
+        kind: "formal_user_decision",
+        decisionType: "confirmed_test_contract",
+        subjectDigest: "b".repeat(64)
+      }]
+    }];
+    definition.producesResources = definition.producesResources.map((resource) =>
+      typeof resource === "string"
+        ? {
+            name: resource,
+            resourceType: "tenant",
+            disposition: "tracked_residual"
+          }
+        : resource
+    );
+  }
+  return value;
+}
+
+async function verifyCase(
+  store: FormalExecutionStore,
+  authorizationDigest: string,
+  caseId: string,
+  attempt: number,
+  outcome: "satisfied" | "violated" = "satisfied"
+): Promise<void> {
+  await store.verifyBusinessOracle({
+    authorizationDigest,
+    caseId,
+    attempt,
+    oracleId: `ORACLE-${caseId}`,
+    evaluator: async () => {
+      if (outcome === "violated") assert.fail("reviewed business assertion violated");
+      assert.equal(outcome, "satisfied");
+    }
+  });
 }
 
 test("rejects duplicate caseIds and cyclic named-resource dependencies", () => {
@@ -310,7 +366,7 @@ test("capability preflight stores availability only and maps exactly the affecte
 test("a failed case does not change an independent case and only missing resources block consumers", async (context) => {
   const root = await mkdtemp(resolve(tmpdir(), "formal-execution-"));
   context.after(() => rm(root, { recursive: true, force: true }));
-  const definition = defineFormalExecutionManifest(manifest());
+  const definition = defineFormalExecutionManifest(writableManifest());
   const store = new FormalExecutionStore(resolve(root, "ledger"), resolve(root, "artifacts"));
   const authorizationDigest = "d".repeat(64);
   await store.initialize({
@@ -322,8 +378,10 @@ test("a failed case does not change an independent case and only missing resourc
 
   const failedAttempt = await store.beginCase(authorizationDigest, "CASE-001");
   await store.confirmResource(authorizationDigest, "company-a", "CASE-001", "Exact synthetic company confirmed.");
+  await verifyCase(store, authorizationDigest, "CASE-001", failedAttempt, "violated");
   await store.finishCase(authorizationDigest, "CASE-001", failedAttempt, "failed", "Administrator assertion failed.");
   const independentAttempt = await store.beginCase(authorizationDigest, "CASE-003");
+  await verifyCase(store, authorizationDigest, "CASE-003", independentAttempt);
   await store.finishCase(authorizationDigest, "CASE-003", independentAttempt, "passed");
 
   const record = await store.read(authorizationDigest);
@@ -335,7 +393,7 @@ test("a failed case does not change an independent case and only missing resourc
 test("summary keeps every declared caseId and treats unexecuted cases as unknown", async (context) => {
   const root = await mkdtemp(resolve(tmpdir(), "formal-summary-"));
   context.after(() => rm(root, { recursive: true, force: true }));
-  const definition = defineFormalExecutionManifest(manifest());
+  const definition = defineFormalExecutionManifest(writableManifest());
   const store = new FormalExecutionStore(resolve(root, "ledger"), resolve(root, "artifacts"));
   const digest = "e".repeat(64);
   await store.initialize({
@@ -344,7 +402,10 @@ test("summary keeps every declared caseId and treats unexecuted cases as unknown
     testDataRunId: "run-two",
     capabilities: evaluateCapabilities(definition.capabilities, {})
   });
-  await store.markBlocked(digest, "CASE-002", "Test phone unavailable.");
+  await store.markBlocked(digest, "CASE-002", "Test phone unavailable.", {
+    cause: "capability_unavailable",
+    capabilityId: "test-phone"
+  });
   const summary = await store.summarize(digest);
   assert.deepEqual(summary.counts, { passed: 0, failed: 0, blocked: 1, skipped: 0, unknown: 2 });
   assert.equal(summary.complete, false);
@@ -354,7 +415,7 @@ test("summary keeps every declared caseId and treats unexecuted cases as unknown
 test("multi-stage checkpoints survive resume and external transitions resolve idempotently", async (context) => {
   const root = await mkdtemp(resolve(tmpdir(), "formal-stages-"));
   context.after(() => rm(root, { recursive: true, force: true }));
-  const definition = manifest();
+  const definition = writableManifest();
   definition.cases[0]!.executionStages = [{
     stageId: "submit",
     title: "submit registration",
@@ -379,9 +440,24 @@ test("multi-stage checkpoints survive resume and external transitions resolve id
     testDataRunId: "run-staged",
     capabilities: evaluateCapabilities(frozen.capabilities, {})
   });
-  assert.equal(initialized.schemaVersion, "formal-execution-record-v2");
+  assert.equal(initialized.schemaVersion, "formal-execution-record-v3");
+  const waitingAttempt = await store.beginCase(digest, "CASE-001");
   await store.completeStage(digest, frozen.cases[0]!, "submit");
   await store.awaitExternalTransition(digest, frozen.cases[0]!, "registration-approved");
+  await store.finishCase(
+    digest,
+    "CASE-001",
+    waitingAttempt,
+    "blocked",
+    "Waiting for the reviewed external transition.",
+    undefined,
+    {
+      blockEvidence: {
+        cause: "external_transition",
+        transitionId: "registration-approved"
+      }
+    }
+  );
   assert.equal((await store.pendingTransitions(digest)).length, 1);
   await assert.rejects(
     () => store.resolveExternalTransition({
@@ -417,6 +493,10 @@ test("multi-stage checkpoints survive resume and external transitions resolve id
     }
   });
   assert.equal(resolved.duplicate, false);
+  const resumedRecord = await store.read(digest);
+  assert.equal(resumedRecord?.cases["CASE-001"]?.status, "unknown");
+  assert.equal(resumedRecord?.cases["CASE-001"]?.attempts.length, 2);
+  assert.equal(resumedRecord?.cases["CASE-001"]?.attempts.at(-1)?.finality, "pending");
   assert.equal((await store.resolveExternalTransition({
     authorizationDigest: digest,
     manifest: frozen,
@@ -427,6 +507,7 @@ test("multi-stage checkpoints survive resume and external transitions resolve id
       credential_sms_received: true
     }
   })).duplicate, true);
+  assert.equal((await store.read(digest))?.cases["CASE-001"]?.attempts.length, 2);
   await assert.rejects(
     () => store.resolveExternalTransition({
       authorizationDigest: digest,
@@ -450,7 +531,7 @@ test("multi-stage checkpoints survive resume and external transitions resolve id
 test("per-case operation budgets are durable and idempotent across resume", async (context) => {
   const root = await mkdtemp(resolve(tmpdir(), "formal-operation-budget-"));
   context.after(() => rm(root, { recursive: true, force: true }));
-  const definition = manifest();
+  const definition = writableManifest();
   definition.cases[0]!.requiredOperations = ["upload_synthetic_file"];
   definition.cases[0]!.operationBudgets = [{
     operation: "upload_synthetic_file",
@@ -511,7 +592,10 @@ test("v3 authorizations inherit operation budgets from their frozen manifest", (
 test("resume reopens only terminal cases without durable side effects", async (context) => {
   const root = await mkdtemp(resolve(tmpdir(), "formal-safe-resume-"));
   context.after(() => rm(root, { recursive: true, force: true }));
-  const definition = defineFormalExecutionManifest(manifest());
+  const candidate = writableManifest();
+  candidate.capabilities[0]!.requiredForCaseIds.push("CASE-001");
+  candidate.cases[0]!.requiredCapabilities.push("test-phone");
+  const definition = defineFormalExecutionManifest(candidate);
   const store = new FormalExecutionStore(resolve(root, "ledger"), resolve(root, "artifacts"));
   const digest = "9".repeat(64);
   await store.initialize({
@@ -520,13 +604,17 @@ test("resume reopens only terminal cases without durable side effects", async (c
     testDataRunId: "run-safe-resume",
     capabilities: evaluateCapabilities(definition.capabilities, {})
   });
-  await store.markBlocked(digest, "CASE-001", "Environment unavailable.");
+  await store.markBlocked(digest, "CASE-001", "Environment unavailable.", {
+    cause: "capability_unavailable",
+    capabilityId: "test-phone"
+  });
   const passedAttempt = await store.beginCase(digest, "CASE-003");
+  await verifyCase(store, digest, "CASE-003", passedAttempt);
   await store.finishCase(digest, "CASE-003", passedAttempt, "passed");
   assert.deepEqual(await store.reopenSafeRetryableCases(digest), ["CASE-001"]);
   const record = await store.read(digest);
   assert.equal(record?.cases["CASE-001"]?.status, "unknown");
-  assert.equal(record?.cases["CASE-001"]?.attempts.length, 1);
+  assert.equal(record?.cases["CASE-001"]?.attempts.length, 2);
   assert.equal(record?.cases["CASE-003"]?.status, "passed");
   assert.equal(record?.cleanup?.status, "unknown");
 });
@@ -534,15 +622,16 @@ test("resume reopens only terminal cases without durable side effects", async (c
 test("deterministic report separates deferred cases and keeps retry-aware redacted evidence", async (context) => {
   const root = await mkdtemp(resolve(tmpdir(), "formal-report-"));
   context.after(() => rm(root, { recursive: true, force: true }));
-  const definition = defineFormalExecutionManifest(manifest());
+  const definition = defineFormalExecutionManifest(writableManifest());
   definition.cases[0]!.evidencePolicy = "sensitive";
   const artifactRoot = resolve(root, "artifacts");
   const store = new FormalExecutionStore(resolve(root, "ledger"), artifactRoot);
   const digest = "1".repeat(64);
+  const targetBuildDigest = "2".repeat(64);
   await store.initialize({
     manifest: definition,
     authorizationDigest: digest,
-    targetBuildDigest: "2".repeat(64),
+    targetBuildDigest,
     testDataRunId: "run-report",
     capabilities: evaluateCapabilities(definition.capabilities, {}),
     caseIds: ["CASE-001"],
@@ -556,6 +645,7 @@ test("deterministic report separates deferred cases and keeps retry-aware redact
     }]
   });
   const attempt = await store.beginCase(digest, "CASE-001");
+  await verifyCase(store, digest, "CASE-001", attempt);
   await store.finishCase(
     digest,
     "CASE-001",
@@ -568,8 +658,26 @@ test("deterministic report separates deferred cases and keeps retry-aware redact
   await store.appendEvidenceRefs(digest, "CASE-001", [
     "artifacts/test-results/playwright/case-001-trace.zip"
   ]);
-  await store.recordCleanup(digest, "passed");
-  const summary = await store.summarize(digest);
+  await store.recordDataEvidence(digest, {
+    "CASE-001": { intents: [], resources: [] }
+  });
+  await store.recordCleanup(
+    digest,
+    "passed",
+    undefined,
+    { dataHygieneStatus: "clean" }
+  );
+  const sealed = await store.sealForWorkflow({
+    authorizationDigest: digest,
+    requestId: definition.requestId,
+    environment: definition.environment,
+    manifestDigest: digestFormalExecutionManifest(definition),
+    targetBuildDigest,
+    runnableCaseIds: ["CASE-001"],
+    deferredCaseIds: ["CASE-002"]
+  });
+  await store.materializeSealedReport(digest);
+  const summary = sealed.summary;
   assert.equal(summary.cases.length, 1);
   assert.equal(summary.deferredCases[0]?.caseId, "CASE-002");
   assert.equal(summary.cleanup.status, "passed");
@@ -598,7 +706,7 @@ test("deterministic report separates deferred cases and keeps retry-aware redact
 test("teardown reconciliation closes only interrupted open attempts", async (context) => {
   const root = await mkdtemp(resolve(tmpdir(), "formal-reconcile-"));
   context.after(() => rm(root, { recursive: true, force: true }));
-  const definition = defineFormalExecutionManifest(manifest());
+  const definition = defineFormalExecutionManifest(writableManifest());
   const store = new FormalExecutionStore(resolve(root, "ledger"), resolve(root, "artifacts"));
   const digest = "f".repeat(64);
   await store.initialize({
@@ -612,7 +720,8 @@ test("teardown reconciliation closes only interrupted open attempts", async (con
   assert.deepEqual(await store.reconcileOpenAttempts(digest, "Worker timeout."), ["CASE-001"]);
   assert.deepEqual(await store.reconcileOpenAttempts(digest, "Duplicate teardown."), []);
   const summary = await store.summarize(digest);
-  assert.equal(summary.cases.find((item) => item.caseId === "CASE-001")?.status, "failed");
+  assert.equal(summary.cases.find((item) => item.caseId === "CASE-001")?.status, "unknown");
+  assert.equal(summary.cases.find((item) => item.caseId === "CASE-001")?.attemptFinality, "terminal");
   assert.equal(summary.cases.find((item) => item.caseId === "CASE-002")?.status, "unknown");
   assert.equal(summary.complete, false);
 });

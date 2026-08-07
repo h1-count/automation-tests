@@ -16,6 +16,7 @@
 | 需要了解的内容 | 查看位置 |
 | --- | --- |
 | 强制门禁与安全边界 | [AGENTS.md](./AGENTS.md) |
+| 工程架构、组件与数据流 | [architecture-design.md](./docs/architecture-design.md) |
 | 生命周期、统一执行清单与人工挑战恢复 | [automation-guideline.md](./docs/testing/automation-guideline.md) |
 | 环境、运行模式、账号、验证码和测试数据 | [environment-guideline.md](./docs/testing/environment-guideline.md) |
 | 测试计划与用例格式 | [testcase-guideline.md](./docs/testing/testcase-guideline.md) |

@@ -19,13 +19,15 @@ import {
 } from "./capabilityProvider.js";
 import { operationEvidenceDefinitionIssues } from "./operationEvidence.js";
 
+const formalOracleIdentifier = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u;
+
 export function defineFormalExecutionManifest(manifest: FormalExecutionManifest): FormalExecutionManifest {
   validateFormalExecutionManifest(manifest);
   return manifest;
 }
 
 export function validateFormalExecutionManifest(manifest: FormalExecutionManifest): void {
-  if (!["formal-execution-manifest-v1", "formal-execution-manifest-v2"].includes(manifest.schemaVersion)) {
+  if (!["formal-execution-manifest-v1", "formal-execution-manifest-v2", "formal-execution-manifest-v3"].includes(manifest.schemaVersion)) {
     throw new Error("Unsupported formal execution manifest schema.");
   }
   if (!manifest.requestId.trim() || !manifest.projectId.trim() || !manifest.environment.trim()) {
@@ -35,9 +37,10 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
   assertUnique(caseIds, "caseId");
   if (caseIds.length === 0) throw new Error("Formal execution manifest must contain at least one case.");
   assertUnique(manifest.capabilities.map((item) => item.id), "capability");
-  if (manifest.schemaVersion === "formal-execution-manifest-v2") {
+  const usesFrozenBuildEvidence = manifest.schemaVersion !== "formal-execution-manifest-v1";
+  if (usesFrozenBuildEvidence) {
     if (!manifest.buildEvidence?.length) {
-      throw new Error("formal-execution-manifest-v2 requires frozen buildEvidence.");
+      throw new Error(`${manifest.schemaVersion} requires frozen buildEvidence.`);
     }
     assertUnique(manifest.buildEvidence.map((item) => item.path), "build evidence path");
     if (manifest.buildEvidence.some((item) => {
@@ -45,12 +48,15 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
         || !["source_contract", "selector_contract", "browser_response_contract", "test_asset"].includes(item.kind)) {
         return true;
       }
-      return item.kind === "test_asset" && (
-        !item.assetId?.trim()
-        || !/^[a-f0-9]{64}$/u.test(item.sha256 ?? "")
+      return (
+        item.kind === "test_asset"
+        && (!item.assetId?.trim() || !/^[a-f0-9]{64}$/u.test(item.sha256 ?? ""))
+      ) || (
+        manifest.schemaVersion === "formal-execution-manifest-v3"
+        && !/^[a-f0-9]{64}$/u.test(item.sha256 ?? "")
       );
     })) {
-      throw new Error("formal-execution-manifest-v2 contains invalid build evidence.");
+      throw new Error(`${manifest.schemaVersion} contains invalid build evidence.`);
     }
     assertUnique(
       manifest.buildEvidence
@@ -58,6 +64,12 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
         .map((item) => item.assetId!),
       "test asset build evidence"
     );
+    if (
+      manifest.schemaVersion === "formal-execution-manifest-v3"
+      && manifest.buildEvidence.filter((item) => item.kind === "source_contract").length !== 1
+    ) {
+      throw new Error("formal-execution-manifest-v3 requires exactly one source_contract build evidence file.");
+    }
   }
 
   const caseSet = new Set(caseIds);
@@ -119,9 +131,9 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
     assertUnique(item.requiredTestAssetIds ?? [], `${item.caseId} required test asset`);
     assertUnique(item.requiredResources, `${item.caseId} required resource`);
     assertUnique(item.producesResources.map(producedResourceName), `${item.caseId} produced resource`);
-    if (manifest.schemaVersion === "formal-execution-manifest-v2") {
+    if (usesFrozenBuildEvidence) {
       if (!item.permissionProfile || !item.dataWritePolicy || !item.requiredOperations || !item.implementation) {
-        throw new Error(`${item.caseId} v2 requires permissionProfile, operations, data policy and implementation.`);
+        throw new Error(`${item.caseId} ${manifest.schemaVersion} requires permissionProfile, operations, data policy and implementation.`);
       }
       if (item.permissionProfile === "read_only" && item.dataWritePolicy !== "no_write") {
         throw new Error(`${item.caseId} read_only must use no_write.`);
@@ -140,7 +152,7 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
       }
       for (const resource of item.producesResources) {
         if (typeof resource === "string") {
-          throw new Error(`${item.caseId} v2 produced resources require an explicit disposition contract.`);
+          throw new Error(`${item.caseId} ${manifest.schemaVersion} produced resources require an explicit disposition contract.`);
         }
         validateProducedResourceContract(item.caseId, resource);
       }
@@ -150,6 +162,9 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
         }
         referencedTestAssetIds.add(assetId);
       }
+    }
+    if (manifest.schemaVersion === "formal-execution-manifest-v3") {
+      validateBusinessOracles(item);
     }
     if (item.requiredOperations !== undefined) {
       assertUnique(item.requiredOperations, `${item.caseId} required operation`);
@@ -261,7 +276,7 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
   }
   for (const capability of manifest.capabilities) {
     if (
-      manifest.schemaVersion === "formal-execution-manifest-v2"
+      usesFrozenBuildEvidence
       && capability.source.kind === "provider"
       && /(?:selector|aria|browser[_-]?response|source[_-]?contract)/iu.test(capability.source.providerId)
     ) {
@@ -409,6 +424,81 @@ function validateProducedResourceContract(
       || resource.retirementPolicy !== "validate_quarantine_replace"
     ) {
       throw new Error(`${caseId} reusable_fixture requires baseline, lease, capacity and retirement contracts.`);
+    }
+  }
+}
+
+function validateBusinessOracles(item: FormalExecutionManifest["cases"][number]): void {
+  const oracles = item.businessOracles ?? [];
+  if (oracles.length === 0) {
+    throw new Error(`${item.caseId} v3 requires at least one business oracle.`);
+  }
+  assertUnique(oracles.map((oracle) => oracle.oracleId), `${item.caseId} business oracleId`);
+  const observationKinds = new Set([
+    "dom",
+    "browser_response",
+    "postcondition_query",
+    "runtime_state"
+  ]);
+  for (const oracle of oracles) {
+    if (
+      !formalOracleIdentifier.test(oracle.oracleId)
+      || !formalOracleIdentifier.test(oracle.ruleRef)
+      || (oracle.contractId !== undefined && !formalOracleIdentifier.test(oracle.contractId))
+      || !observationKinds.has(oracle.observationKind)
+      || oracle.authorities.length === 0
+    ) {
+      throw new Error(`${item.caseId}/${oracle.oracleId || "unknown"} contains an invalid business oracle.`);
+    }
+    const authorityKeys = oracle.authorities.map((authority) => {
+      if (authority.kind === "registered_source") {
+        if (
+          !formalOracleIdentifier.test(authority.materialId)
+          || !formalOracleIdentifier.test(authority.sectionId)
+          || !/^[a-f0-9]{64}$/u.test(authority.sourceSha256)
+        ) {
+          throw new Error(`${item.caseId}/${oracle.oracleId} contains an invalid registered source authority.`);
+        }
+        return `${authority.kind}:${authority.materialId}:${authority.sectionId}:${authority.sourceSha256}`;
+      }
+      if (
+        !formalOracleIdentifier.test(authority.decisionType)
+        || !/^[a-f0-9]{64}$/u.test(authority.subjectDigest)
+      ) {
+        throw new Error(`${item.caseId}/${oracle.oracleId} contains an invalid formal user decision authority.`);
+      }
+      return `${authority.kind}:${authority.decisionType}:${authority.subjectDigest}`;
+    });
+    assertUnique(authorityKeys, `${item.caseId}/${oracle.oracleId} authority`);
+    if (oracle.observationKind === "browser_response") {
+      if (!oracle.contractId) {
+        throw new Error(
+          `${item.caseId}/${oracle.oracleId} browser_response requires a response contractId.`
+        );
+      }
+      const responseDefinitions = (item.operationEvidence ?? []).filter((definition) =>
+        definition.responseContractId === oracle.contractId
+      );
+      if (responseDefinitions.length !== 1) {
+        throw new Error(
+          `${item.caseId}/${oracle.oracleId} browser_response contractId must match exactly one responseContractId.`
+        );
+      }
+    }
+    if (oracle.observationKind === "postcondition_query") {
+      if (!oracle.contractId) {
+        throw new Error(
+          `${item.caseId}/${oracle.oracleId} postcondition_query requires a query contractId.`
+        );
+      }
+      const queryDefinitions = (item.operationEvidence ?? []).filter((definition) =>
+        definition.queryCapabilityId === oracle.contractId
+      );
+      if (queryDefinitions.length !== 1) {
+        throw new Error(
+          `${item.caseId}/${oracle.oracleId} postcondition_query contractId must match exactly one queryCapabilityId.`
+        );
+      }
     }
   }
 }

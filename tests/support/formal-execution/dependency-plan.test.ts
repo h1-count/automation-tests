@@ -121,6 +121,29 @@ test("scheduler unlocks consumers only after exact resources are confirmed", () 
   assert.deepEqual(selectNextExecutionWave(plan, record).runnableCaseIds, ["DELETE"]);
 });
 
+test("scheduler does not rerun terminal unknown or blocked cases", () => {
+  const plan = buildExecutionDependencyPlan(manifest(), ["INDEPENDENT"]);
+  const record = executionRecord(["INDEPENDENT"]);
+  record.cases.INDEPENDENT!.attempts = [{
+    attempt: 1,
+    status: "unknown",
+    finality: "terminal",
+    startedAt: "2026-08-05T00:00:00.000Z",
+    endedAt: "2026-08-05T00:00:01.000Z"
+  }];
+  let decision = selectNextExecutionWave(plan, record);
+  assert.deepEqual(decision.runnableCaseIds, []);
+  assert.equal(decision.complete, true);
+
+  record.cases.INDEPENDENT!.status = "blocked";
+  record.cases.INDEPENDENT!.attempts[0]!.status = "blocked";
+  record.stageProgress!.INDEPENDENT = transitionProgress("resolved-transition");
+  record.stageProgress!.INDEPENDENT!.transitions["resolved-transition"]!.status = "resolved";
+  decision = selectNextExecutionWave(plan, record);
+  assert.deepEqual(decision.runnableCaseIds, []);
+  assert.equal(decision.complete, true);
+});
+
 test("scheduler blocks only descendants of a failed producer and aggregates transitions", () => {
   const value = manifest();
   value.cases.push({

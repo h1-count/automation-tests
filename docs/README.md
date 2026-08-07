@@ -6,4 +6,6 @@
 | --- | --- | --- |
 | `testing/` | 自动化测试规则、环境、用例、定位、报告与失败分类规范。 | 是 |
 
+项目的组件、数据流、运行时、可靠性与扩展边界见[自动化测试工程架构设计说明](./architecture-design.md)。
+
 测试规范的唯一责任划分见 [testing/README.md](./testing/README.md)。

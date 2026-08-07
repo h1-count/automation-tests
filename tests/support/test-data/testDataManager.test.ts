@@ -501,7 +501,7 @@ test("creation_unknown is reconciled by exact identity without duplicate resourc
   assert.equal((await manager.store.listResources()).filter((item) => item.resourceId === replay.resourceId).length, 1);
 });
 
-test("an expired tracked residual freezes later writes but preserves functional status", async (context) => {
+test("an expired tracked residual freezes later writes and keeps the run open for recovery", async (context) => {
   const { root, manager } = await createHarness();
   context.after(() => rm(root, { recursive: true, force: true }));
   const run = await manager.startRun({
@@ -531,10 +531,27 @@ test("an expired tracked residual freezes later writes but preserves functional 
     resourceType: "tenant",
     syntheticKey: "autotest-after-expiry"
   }), /expired tracked residual/);
-  const ended = await manager.endRun(run.runId, "passed");
-  assert.equal(ended.status, "passed");
-  assert.equal(ended.functionalStatus, "passed");
-  assert.equal(ended.dataHygieneStatus, "manual_required");
+  await assert.rejects(
+    () => manager.endRun(run.runId, "passed", "passed"),
+    /run remains open because cleanup is unresolved: manual_required/
+  );
+  const openRun = await manager.store.readRun(run.runId);
+  assert.equal(openRun?.status, "running");
+  assert.equal(openRun?.endedAt, undefined);
+  assert.equal(openRun?.functionalStatus, undefined);
+  assert.equal(openRun?.dataHygieneStatus, undefined);
+});
+
+test("endRun persists an explicit functional status only after accepted cleanup", async (context) => {
+  const { root, manager } = await createHarness();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const run = await createRun(manager);
+
+  const ended = await manager.endRun(run.runId, "failed", "blocked");
+
+  assert.equal(ended.status, "failed");
+  assert.equal(ended.functionalStatus, "blocked");
+  assert.equal(ended.dataHygieneStatus, "clean");
 });
 
 test("an expired ledger lock is recovered without removing a live owner lock", async (context) => {

@@ -4,6 +4,7 @@ import {
   type ActivityProjection,
   type ActivityState,
   type CallbackResolution,
+  type FormalExecutionWorkflowEvidence,
   type ReviewPolicy,
   type SafeEventPayload,
   type TestOutcome,
@@ -15,6 +16,11 @@ import {
   type WorkflowState,
   type WorkflowWait
 } from "./types.js";
+import {
+  formalReportOutputPaths,
+  parseFormalExecutionWorkflowEvidence,
+  sameFormalExecutionWorkflowEvidence
+} from "./formalCompletionEvidence.js";
 import {
   reviewInputDigest,
   reviewRoleInputDigests,
@@ -45,6 +51,7 @@ interface ReducerRuntime {
     kind: WorkflowActivityDefinition["kind"];
     outcome?: string;
     outputDigests: Map<string, string>;
+    formalExecutionEvidence?: FormalExecutionWorkflowEvidence;
   }>;
   blockedPreviousStates: Map<string, ActivityState>;
   reviewerJoinRequirements: Map<string, string[]>;
@@ -212,6 +219,63 @@ function applyTestOutcome(payload: SafeEventPayload, runtime: ReducerRuntime): v
     throw new WorkflowTransitionError(`Unsupported test outcome ${String(outcome)}.`);
   }
   runtime.testOutcome = outcome as TestOutcome;
+}
+
+function formalCompletionEvidenceForEvent(
+  activity: ActivityProjection,
+  payload: SafeEventPayload,
+  runtime: ReducerRuntime
+): FormalExecutionWorkflowEvidence | undefined {
+  const contract = activity.definition.metadata?.completionContract;
+  const requiresEvidence = contract === "formal-execution-completion-seal-v1";
+  if (contract !== undefined && !requiresEvidence) {
+    throw new WorkflowTransitionError(
+      `Activity ${activity.id} declares an unsupported completion contract.`
+    );
+  }
+  if (!requiresEvidence && payload.formalExecutionEvidence === undefined) return undefined;
+  if (!["run", "report"].includes(activity.definition.kind)) {
+    throw new WorkflowTransitionError(
+      `Activity ${activity.id} cannot contain formal execution workflow evidence.`
+    );
+  }
+  let evidence: FormalExecutionWorkflowEvidence;
+  try {
+    evidence = parseFormalExecutionWorkflowEvidence(payload.formalExecutionEvidence);
+  } catch (error) {
+    throw new WorkflowTransitionError(
+      error instanceof Error ? error.message : "Formal execution workflow evidence is invalid."
+    );
+  }
+  if (payload.testOutcome !== evidence.testOutcome) {
+    throw new WorkflowTransitionError(
+      `Activity ${activity.id} testOutcome differs from its formal execution evidence.`
+    );
+  }
+  if (activity.definition.kind === "report") {
+    const runEvidence = runtime.succeededActivityDetails.get("run")?.formalExecutionEvidence;
+    if (requiresEvidence && !runEvidence) {
+      throw new WorkflowTransitionError(
+        "Formal report completion requires evidence from the succeeded run activity."
+      );
+    }
+    if (runEvidence && !sameFormalExecutionWorkflowEvidence(runEvidence, evidence)) {
+      throw new WorkflowTransitionError(
+        "Formal report evidence differs from the succeeded run evidence."
+      );
+    }
+    const expectedPaths = formalReportOutputPaths(evidence.executionSubjectDigest).sort();
+    const actualPaths = [...succeededOutputDigests(payload).keys()].sort();
+    if (
+      actualPaths.length !== expectedPaths.length
+      || actualPaths.some((path, index) => path !== expectedPaths[index])
+    ) {
+      throw new WorkflowTransitionError(
+        `Formal report must publish exactly ${expectedPaths.join(", ")}.`
+      );
+    }
+  }
+  return evidence;
 }
 
 function requireConcurrencyCapacity(
@@ -440,6 +504,11 @@ function applyActivityEvent(
           );
         }
       }
+      const formalExecutionEvidence = formalCompletionEvidenceForEvent(
+        activity,
+        payload,
+        runtime
+      );
       verifyArtifactPublicationEvidence(event, activity, runtime);
       if (activity.definition.kind === "review_resolution") {
         const outcome = typeof payload.outcome === "string" ? payload.outcome : "";
@@ -462,7 +531,8 @@ function applyActivityEvent(
         ...(activity.outcome ? { outcome: activity.outcome } : {}),
         outputDigests: Array.isArray(payload.outputDigests)
           ? succeededOutputDigests(payload)
-          : new Map()
+          : new Map(),
+        ...(formalExecutionEvidence ? { formalExecutionEvidence } : {})
       });
       applyTestOutcome(payload, runtime);
       activity.state = "SUCCEEDED";
@@ -769,6 +839,26 @@ function applyActivityEvent(
       const resolutionCondition = stringField(payload, "resolutionCondition");
       const projectedDetail = `原因：${detail}；分类：${category}；解除条件：${resolutionCondition}`;
       const affected = payload.affectedActivityIds === undefined ? [] : stringArray(payload, "affectedActivityIds");
+      if (blockerId.startsWith("deterministic-outcome-") && (
+        event.actorType !== "runner"
+        || category !== "deterministic_outcome_unknown"
+        || affected.length !== 1
+        || affected[0] !== "run"
+      )) {
+        throw new WorkflowTransitionError(
+          "Deterministic outcome blockers require the dedicated formal run parking event."
+        );
+      }
+      if (blockerId.startsWith("data-hygiene-") && (
+        event.actorType !== "runner"
+        || category !== "data_hygiene_incomplete"
+        || affected.length !== 1
+        || affected[0] !== "run"
+      )) {
+        throw new WorkflowTransitionError(
+          "Data hygiene blockers require the dedicated formal run parking event."
+        );
+      }
       runtime.blockerDetails.set(blockerId, projectedDetail);
       if (!affected.length) runtime.globalBlockers.set(blockerId, projectedDetail);
       for (const activityId of affected) {
@@ -787,6 +877,15 @@ function applyActivityEvent(
     }
     case "BlockerResolved": {
       const blockerId = stringField(payload, "blockerId");
+      if (
+        (blockerId.startsWith("deterministic-outcome-")
+          || blockerId.startsWith("data-hygiene-"))
+        && event.actorType !== "system"
+      ) {
+        throw new WorkflowTransitionError(
+          "Reserved formal blockers require system resolution from dedicated finalize."
+        );
+      }
       runtime.globalBlockers.delete(blockerId);
       runtime.blockerDetails.delete(blockerId);
       for (const activity of Object.values(activities)) {
@@ -1477,6 +1576,20 @@ export function reduceWorkflow(
       );
       if (incomplete.length) {
         throw new WorkflowTransitionError(`WorkflowCompleted has incomplete activities: ${incomplete.map((item) => item.id).join(", ")}.`);
+      }
+      const formalReport = Object.values(activities).find((activity) =>
+        activity.definition.kind === "report"
+        && activity.definition.metadata?.completionContract
+          === "formal-execution-completion-seal-v1"
+      );
+      if (formalReport) {
+        const evidence = runtime.succeededActivityDetails.get(formalReport.id)
+          ?.formalExecutionEvidence;
+        if (!evidence || event.payload.testOutcome !== evidence.testOutcome) {
+          throw new WorkflowTransitionError(
+            "WorkflowCompleted must retain the sealed formal report test outcome."
+          );
+        }
       }
       const completion = Object.values(activities).find((activity) => activity.definition.kind === "complete");
       if (completion) completion.state = "SUCCEEDED";

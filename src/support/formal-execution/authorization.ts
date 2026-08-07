@@ -7,6 +7,10 @@ import {
 } from "../task-workflow/executionAuthorizationSubject.js";
 import { DurableWorkflowManager } from "../task-workflow/workflowManager.js";
 import type { SafeJsonValue, WorkflowEvent } from "../task-workflow/types.js";
+import {
+  assertExactLocalScriptDependencyClosure,
+  resolveLocalScriptDependencyClosure
+} from "./scriptDependencyClosure.js";
 
 export const executionOperationKinds = [
   "authenticate_test_account",
@@ -331,11 +335,15 @@ export function buildExecutionAuthorizationManifest(
   const planPath = resolve(input.planPath ?? manager.planPath);
   const schemaVersion = input.schemaVersion
     ?? LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
+  const scriptPaths = resolveLocalScriptDependencyClosure({
+    workspaceRoot,
+    entryPaths: input.scriptPaths
+  }).paths;
   const common: ExecutionAuthorizationCommon = {
     requestId: input.requestId,
     environment: input.environment,
     planDigest: digestPlanForExecutionAuthorization(planPath),
-    scriptDigests: input.scriptPaths.map((path) => {
+    scriptDigests: scriptPaths.map((path) => {
       const safePath = safeWorkspaceRelativePath(workspaceRoot, path, "script path");
       return { path: safePath, digest: digestFile(resolve(workspaceRoot, safePath)) };
     }),
@@ -426,13 +434,11 @@ export function assertCurrentAuthorizedScripts(
 ): void {
   const root = resolve(workspaceRoot);
   const authorized = new Map(snapshot.scriptDigests.map((item) => [item.path, item.digest]));
-  const normalizedPaths = [...new Set(
-    scriptPaths.map((path) => safeWorkspaceRelativePath(root, path, "script path"))
-  )];
-  const unauthorized = normalizedPaths.filter((path) => !authorized.has(path));
-  if (unauthorized.length) {
-    throw new Error(`Formal Runner discovered scripts outside the confirmed authorization: ${unauthorized.join(", ")}.`);
-  }
+  const normalizedPaths = assertExactLocalScriptDependencyClosure({
+    workspaceRoot: root,
+    entryPaths: scriptPaths,
+    frozenPaths: snapshot.scriptDigests.map((item) => item.path)
+  });
   for (const path of normalizedPaths) {
     if (digestFile(resolve(root, path)) !== authorized.get(path)) {
       throw new Error(`Script changed after execution authorization: ${path}`);
@@ -641,6 +647,19 @@ function assertRequestedExecutionScope(
   assertEnvironmentAndOperations(manifest, expectedEnvironment, requiredOperations);
   if (digestPlanForExecutionAuthorization(planPath) !== manifest.planDigest) {
     throw new Error("plan.md changed after execution authorization; reopen engineering design and review.");
+  }
+  if (isReadinessAuthorizationSchema(manifest.schemaVersion)) {
+    const frozenPaths = manifest.scriptDigests.map((script) => script.path);
+    const entryPaths = frozenPaths.filter((path) =>
+      /(?:^|\/)execution\.manifest\.ts$/u.test(path) || /\.formal\.spec\.[cm]?[jt]sx?$/u.test(path)
+    );
+    if (entryPaths.length) {
+      assertExactLocalScriptDependencyClosure({
+        workspaceRoot,
+        entryPaths,
+        frozenPaths
+      });
+    }
   }
   for (const script of manifest.scriptDigests) {
     if (digestFile(resolve(workspaceRoot, script.path)) !== script.digest) {

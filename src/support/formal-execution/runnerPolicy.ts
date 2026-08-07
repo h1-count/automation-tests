@@ -1,4 +1,7 @@
-import { inspectFormalSpecSources } from "./sourceGate.js";
+import {
+  inspectFormalSpecSources,
+  type FormalSpecInspectionOptions
+} from "./sourceGate.js";
 import type { ExecutionAuthorizationSnapshot } from "./authorization.js";
 import type { FormalExecutionManifest } from "./types.js";
 import type { WorkflowProjection } from "../task-workflow/types.js";
@@ -42,10 +45,11 @@ export function interactiveOtpCaseIds(
 
 export function assertFormalSpecSources(
   sources: Array<{ path: string; source: string }>,
-  expectedCaseIds: string[]
+  expectedCaseIds: string[],
+  options: FormalSpecInspectionOptions = {}
 ): void {
   if (!sources.length) throw new Error("Formal Runner found no formal spec sources.");
-  const inspection = inspectFormalSpecSources(sources, expectedCaseIds);
+  const inspection = inspectFormalSpecSources(sources, expectedCaseIds, options);
   if (inspection.issues.length) {
     throw new Error(`Formal source gate failed: ${inspection.issues.join(" ")}`);
   }

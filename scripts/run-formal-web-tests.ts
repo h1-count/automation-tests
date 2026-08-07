@@ -14,6 +14,10 @@ import { sanitizeFormalArtifactTrees } from "../src/support/formal-execution/art
 import { FormalExecutionStore } from "../src/support/formal-execution/formalExecutionStore.js";
 import { finalizeFormalExecution } from "../src/support/formal-execution/finalize.js";
 import {
+  formalRunnerExitCode,
+  runFormalTeardown
+} from "../src/support/formal-execution/runnerLifecycle.js";
+import {
   assertCurrentAuthorizedScripts,
   loadConfirmedExecutionAuthorization
 } from "../src/support/formal-execution/authorization.js";
@@ -26,6 +30,10 @@ import { DurableWorkflowManager } from "../src/support/task-workflow/workflowMan
 import { buildExecutionDependencyPlan } from "../src/support/formal-execution/dependencyPlan.js";
 import { selectNextExecutionWave } from "../src/support/formal-execution/executionScheduler.js";
 import { pageSessionGroupsRequireSingleWorker } from "../src/support/formal-execution/pageSessionGroups.js";
+import {
+  assertFormalBuildAuthorizationCompatibility,
+  verifyFrozenBuildIdentity
+} from "../src/support/formal-execution/selectorBuildIdentity.js";
 
 const { requestId, resume, headed } = parseArgs(process.argv.slice(2));
 const snapshot = await loadConfirmedExecutionAuthorization(requestId);
@@ -48,16 +56,29 @@ const reviewedCaseIds = [
   ...snapshot.caseIds,
   ...(snapshot.deferredCases ?? []).map((item) => item.caseId)
 ];
+const manifest = await loadFormalExecutionManifest(requestId);
+assertFormalBuildAuthorizationCompatibility({
+  manifest,
+  authorizationSchemaVersion: snapshot.schemaVersion
+});
 assertFormalSpecSources(
   await Promise.all(formalSpecPaths.map(async (path) => ({
     path,
     source: await readFile(resolve(process.cwd(), path), "utf8")
   }))),
-  reviewedCaseIds
+  reviewedCaseIds,
+  { manifestSchemaVersion: manifest.schemaVersion }
 );
-const manifest = await loadFormalExecutionManifest(requestId);
 if (snapshot.environment !== manifest.environment) {
   throw new Error("Execution environment differs from the confirmed authorization.");
+}
+if (["execution-authorization-v3", "execution-authorization-v4"].includes(snapshot.schemaVersion)) {
+  await verifyFrozenBuildIdentity({
+    manifest,
+    workspaceRoot: process.cwd(),
+    targetBuildDigest: snapshot.targetBuildDigest!,
+    selectorEvidenceDigests: snapshot.selectorEvidenceDigests ?? []
+  });
 }
 const declared = new Set(manifest.cases.map((item) => item.caseId));
 if (snapshot.caseIds.some((caseId) => !declared.has(caseId))) {
@@ -88,11 +109,16 @@ if (existing && !resume) {
 if (!existing && resume) {
   throw new Error("--resume requires an existing formal run for the same authorization.");
 }
+if (existing?.cleanup?.status === "failed") {
+  throw new Error(
+    "Formal case execution is already terminal and only data hygiene remains; recover test data, then use execution-run-finalize instead of --resume."
+  );
+}
 if (existing && resume) {
   const reopenedCaseIds = await store.reopenSafeRetryableCases(snapshot.digest);
   if (reopenedCaseIds.length > 0) {
     process.stdout.write(
-      `[正式执行] 已恢复 ${reopenedCaseIds.length} 条无业务副作用的失败/阻塞用例；既有写入意图、资源和阶段检查点均未重放。\n`
+      `[正式执行] 已恢复 ${reopenedCaseIds.length} 条无业务副作用的非通过或未定案用例；既有写入意图、资源和阶段检查点均未重放。\n`
     );
   }
 }
@@ -139,17 +165,18 @@ const defaultWorkers = formalWorkerCount(await workflow.projection(), snapshot);
 
 const executable = resolve(process.cwd(), "node_modules/.bin/playwright");
 if (!existsSync(executable)) throw new Error("The local Playwright executable is unavailable.");
-const preparedCapabilities = await capabilityRegistry.setupForCases(
-  manifest.capabilities.filter((definition) => runnableCapabilityIds.has(definition.id)),
-  snapshot.caseIds,
-  capabilityContext
-);
+let preparedCapabilities = manifest.capabilities.slice(0, 0);
 let browserServer: Awaited<ReturnType<typeof chromium.launchServer>> | undefined;
-let exitCode = 0;
 let playwrightFailed = false;
 let runnerError: Error | undefined;
-let summary: Awaited<ReturnType<typeof finalizeFormalExecution>> | undefined;
+let requestedSettlement: "terminal" | "park" = "terminal";
+let teardownResult: Awaited<ReturnType<typeof runFormalTeardown>> | undefined;
 try {
+  preparedCapabilities = await capabilityRegistry.setupForCases(
+    manifest.capabilities.filter((definition) => runnableCapabilityIds.has(definition.id)),
+    snapshot.caseIds,
+    capabilityContext
+  );
   if (manualOtpCases.length > 0) {
     process.stdout.write(
       `[正式执行] ${manualOtpCases.join(", ")} 将在短信发送后等待用户直接在浏览器输入验证码；验证码不会进入终端、Secret 或测试产物。\n`
@@ -162,84 +189,103 @@ try {
   process.stdout.write(
     `[正式执行] Runner 已持有浏览器进程 PID ${browserServer.process()?.pid ?? "unknown"}；worker 失败时只重连该进程。\n`
   );
-  try {
-    let currentRecord = await store.read(snapshot.digest);
-    let nextCaseIds = currentRecord
-      ? selectNextExecutionWave(dependencyPlan, currentRecord).runnableCaseIds
-      : dependencyPlan.initialCaseIds;
-    while (nextCaseIds.length > 0) {
-      const artifactWaveNumber = executionBatchNumber(currentRecord);
-      const waveWorkers = pageSessionGroupsRequireSingleWorker(manifest, nextCaseIds)
-        ? 1
-        : defaultWorkers;
-      const waveExitCode = await run(executable, ["test", "--config=playwright.config.ts"], {
-        ...process.env,
-        AUTOMATION_REQUEST_ID: requestId,
-        FORMAL_EXECUTION_RESUME: resume || currentRecord ? "1" : "0",
-        PLAYWRIGHT_FORMAL_WORKERS: String(waveWorkers),
-        PLAYWRIGHT_FORMAL_BROWSER_WS_ENDPOINT: browserServer.wsEndpoint(),
-        PLAYWRIGHT_AUTHORIZATION_DIGEST: snapshot.digest,
-        PLAYWRIGHT_AUTHORIZED_CASE_IDS: nextCaseIds.join(","),
-        PLAYWRIGHT_EXECUTION_WAVE: String(artifactWaveNumber),
-        PLAYWRIGHT_HAS_SENSITIVE_CASES: containsSensitiveEvidenceCase ? "1" : "0",
-        PLAYWRIGHT_CAPABILITY_RESULTS: JSON.stringify(currentCapabilities)
-      });
-      if (waveExitCode !== 0) playwrightFailed = true;
-      currentRecord = await store.read(snapshot.digest);
-      if (!currentRecord) {
-        throw new Error("Formal dependency wave ended without durable execution state.");
-      }
-      let decision = selectNextExecutionWave(dependencyPlan, currentRecord);
-      for (const blocked of decision.blockedCases) {
-        await store.markBlocked(snapshot.digest, blocked.caseId, blocked.reason);
-      }
-      if (decision.blockedCases.length > 0) {
-        currentRecord = await store.read(snapshot.digest);
-        decision = selectNextExecutionWave(dependencyPlan, currentRecord!);
-      }
-      nextCaseIds = decision.runnableCaseIds;
-      if (nextCaseIds.length === 0 && decision.waitingTransitionIds.length > 0) {
-        process.stdout.write(
-          `[正式执行] 当前可执行波次已完成；等待外部转换：${decision.waitingTransitionIds.join(", ")}。\n`
-        );
-        exitCode = 2;
-        break;
-      }
-      if (nextCaseIds.length === 0 && !decision.complete) {
-        throw new Error("Formal dependency scheduler made no progress and has no pending external transition.");
-      }
+  let currentRecord = await store.read(snapshot.digest);
+  let nextCaseIds = currentRecord
+    ? selectNextExecutionWave(dependencyPlan, currentRecord).runnableCaseIds
+    : dependencyPlan.initialCaseIds;
+  while (nextCaseIds.length > 0) {
+    const artifactWaveNumber = executionBatchNumber(currentRecord);
+    const waveWorkers = pageSessionGroupsRequireSingleWorker(manifest, nextCaseIds)
+      ? 1
+      : defaultWorkers;
+    const waveExitCode = await run(executable, ["test", "--config=playwright.config.ts"], {
+      ...process.env,
+      AUTOMATION_REQUEST_ID: requestId,
+      FORMAL_EXECUTION_RESUME: resume || currentRecord ? "1" : "0",
+      PLAYWRIGHT_FORMAL_WORKERS: String(waveWorkers),
+      PLAYWRIGHT_FORMAL_BROWSER_WS_ENDPOINT: browserServer.wsEndpoint(),
+      PLAYWRIGHT_AUTHORIZATION_DIGEST: snapshot.digest,
+      PLAYWRIGHT_AUTHORIZED_CASE_IDS: nextCaseIds.join(","),
+      PLAYWRIGHT_EXECUTION_WAVE: String(artifactWaveNumber),
+      PLAYWRIGHT_HAS_SENSITIVE_CASES: containsSensitiveEvidenceCase ? "1" : "0",
+      PLAYWRIGHT_CAPABILITY_RESULTS: JSON.stringify(currentCapabilities)
+    });
+    if (waveExitCode !== 0) playwrightFailed = true;
+    currentRecord = await store.read(snapshot.digest);
+    if (!currentRecord) {
+      throw new Error("Formal dependency wave ended without durable execution state.");
     }
-  } catch (error) {
-    runnerError = error instanceof Error ? error : new Error("Unknown formal runner failure.");
-  } finally {
-    await browserServer.close();
-    browserServer = undefined;
+    let decision = selectNextExecutionWave(dependencyPlan, currentRecord);
+    for (const blocked of decision.blockedCases) {
+      await store.markBlocked(
+        snapshot.digest,
+        blocked.caseId,
+        blocked.reason,
+        {
+          cause: "required_resource_unavailable",
+          resourceName: blocked.resourceName
+        }
+      );
+    }
+    if (decision.blockedCases.length > 0) {
+      currentRecord = await store.read(snapshot.digest);
+      decision = selectNextExecutionWave(dependencyPlan, currentRecord!);
+    }
+    nextCaseIds = decision.runnableCaseIds;
+    if (nextCaseIds.length === 0 && decision.waitingTransitionIds.length > 0) {
+      process.stdout.write(
+        `[正式执行] 当前可执行波次已完成；等待外部转换：${decision.waitingTransitionIds.join(", ")}。\n`
+      );
+      requestedSettlement = "park";
+      break;
+    }
+    if (nextCaseIds.length === 0 && !decision.complete) {
+      throw new Error("Formal dependency scheduler made no progress and has no pending external transition.");
+    }
   }
-  const removedArtifacts = await sanitizeFormalArtifactTrees([
-    resolve(process.cwd(), "artifacts/playwright-report"),
-    resolve(process.cwd(), "artifacts/test-results"),
-    resolve(process.cwd(), "artifacts/allure-results"),
-  ]);
-  if (removedArtifacts.length > 0) {
-    process.stderr.write(
-      `[正式执行] 已删除 ${removedArtifacts.length} 个未通过敏感信息泄漏检查的附件。\n`
-    );
-  }
-  if (await store.read(snapshot.digest)) {
-    summary = await finalizeFormalExecution(requestId);
-  } else if (!runnerError) {
-    throw new Error("Formal Runner ended without initializing structured execution state.");
-  }
+} catch (error) {
+  runnerError = error instanceof Error ? error : new Error("Unknown formal runner failure.");
 } finally {
-  if (browserServer) await browserServer.close();
-  await capabilityRegistry.cleanup(preparedCapabilities, capabilityContext);
+  teardownResult = await runFormalTeardown({
+    closeBrowser: async () => {
+      const server = browserServer;
+      browserServer = undefined;
+      if (server) await server.close();
+    },
+    settle: async () => {
+      if (await store.read(snapshot.digest)) {
+        return finalizeFormalExecution(requestId, { requested: requestedSettlement });
+      }
+      if (!runnerError) {
+        throw new Error("Formal Runner ended without initializing structured execution state.");
+      }
+      return undefined;
+    },
+    cleanupCapabilities: () => capabilityRegistry.cleanup(preparedCapabilities, capabilityContext),
+    sanitizeArtifacts: () => sanitizeFormalArtifactTrees([
+      resolve(process.cwd(), "artifacts/playwright-report"),
+      resolve(process.cwd(), "artifacts/test-results"),
+      resolve(process.cwd(), "artifacts/allure-results")
+    ])
+  });
 }
 if (runnerError) {
   process.stderr.write(`[正式执行] ${runnerError.message}\n`);
 }
-if (!summary || summary.counts.failed > 0 || playwrightFailed || runnerError) process.exitCode = 1;
-else if (exitCode === 2 || !summary.complete || summary.counts.blocked > 0 || summary.cleanup.status === "failed") process.exitCode = 2;
-else process.exitCode = 0;
+for (const failure of teardownResult.errors) {
+  process.stderr.write(`[正式执行] ${failure.phase} teardown failed: ${failure.error.message}\n`);
+}
+if (teardownResult.removedArtifacts.length > 0) {
+  process.stderr.write(
+    `[正式执行] 已删除 ${teardownResult.removedArtifacts.length} 个未通过敏感信息泄漏检查的附件。\n`
+  );
+}
+process.exitCode = formalRunnerExitCode({
+  settlement: teardownResult.settlement,
+  runnerError,
+  playwrightFailed,
+  teardownErrors: teardownResult.errors
+});
 
 function executionBatchNumber(
   record: Awaited<ReturnType<FormalExecutionStore["read"]>>

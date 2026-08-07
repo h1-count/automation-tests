@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { CleanupActionRegistry } from "./cleanupRegistry.js";
 import { LedgerStore } from "./ledgerStore.js";
 import { getMachineId } from "./machine.js";
-import { buildSummary, writeArtifactSummary } from "./summary.js";
+import { buildSummary, isAcceptedTestDataSummary, writeArtifactSummary } from "./summary.js";
 import {
   assertCleanupAction,
   assertNonProductionEnvironment,
@@ -19,6 +19,7 @@ import {
   type ConfirmCreatedResourceInput,
   type CreateIntentRecord,
   type DataWritePolicy,
+  type FunctionalStatus,
   type PromoteReusableResourceInput,
   type ReconcileCreateIntentInput,
   type RegisterCreatedResourceInput,
@@ -204,17 +205,22 @@ export class TestDataManager {
     });
   }
 
-  async endRun(runId: string, status: TestRunStatus): Promise<TestRunRecord> {
+  async endRun(
+    runId: string,
+    status: TestRunStatus,
+    functionalStatus: FunctionalStatus
+  ): Promise<TestRunRecord> {
     const run = await this.requireRun(runId);
     if (run.status !== "running") {
       throw new Error(`Run ${runId} has already ended with status ${run.status}.`);
     }
     const summary = await this.summarizeRun(runId);
-    run.functionalStatus = status === "failed"
-      ? "failed"
-      : status === "interrupted"
-        ? "interrupted"
-        : "passed";
+    if (!isAcceptedTestDataSummary(summary)) {
+      throw new Error(
+        `Test-data run remains open because cleanup is unresolved: ${summary.dataHygieneStatus}.`
+      );
+    }
+    run.functionalStatus = functionalStatus;
     run.dataHygieneStatus = summary.dataHygieneStatus;
     run.status = status;
     run.endedAt = new Date().toISOString();

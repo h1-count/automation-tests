@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 import {
   GENESIS_DIGEST,
+  DurableWorkflowManager,
   WorkflowHistoryConflictError,
   WorkflowHistoryIntegrityError,
   WorkflowHistoryStore,
@@ -14,6 +15,7 @@ import {
   buildWorkflowDefinition,
   calculateEventDigest,
   canonicalJson,
+  formalDeterministicOutcomeBlockerId,
   reduceWorkflow,
   reviewInputDigest,
   workflowStartedPayload,
@@ -40,6 +42,61 @@ function definition(
     ...overrides
   });
 }
+
+function minimalFormalWorkflow(marked = true): WorkflowDefinition {
+  const base = definition();
+  const completionMetadata: Record<string, SafeJsonValue> = marked
+    ? { completionContract: "formal-execution-completion-seal-v1" }
+    : {};
+  const unsigned: Omit<WorkflowDefinition, "graphDigest"> = {
+    schemaVersion: base.schemaVersion,
+    definitionId: base.definitionId,
+    definitionVersion: base.definitionVersion,
+    requestId: base.requestId,
+    planDigest: base.planDigest,
+    capabilities: base.capabilities,
+    writesData: false,
+    reviewPolicy: base.reviewPolicy,
+    activities: [{
+      id: "run",
+      kind: "run",
+      phase: "execution",
+      dependencies: [],
+      required: true,
+      metadata: completionMetadata
+    }, {
+      id: "report",
+      kind: "report",
+      phase: "reporting",
+      dependencies: ["run"],
+      required: true,
+      publishesArtifacts: true,
+      metadata: { ...completionMetadata, completesWorkflow: true }
+    }]
+  };
+  return {
+    ...unsigned,
+    graphDigest: sha256(canonicalJson(unsigned as unknown as SafeJsonValue))
+  };
+}
+
+const formalEvidence = {
+  schemaVersion: "formal-execution-workflow-evidence-v1",
+  executionSubjectDigest: "b".repeat(64),
+  manifestDigest: "c".repeat(64),
+  resultDigest: "d".repeat(64),
+  caseCounts: {
+    passed: 1,
+    failed: 0,
+    blocked: 0,
+    skipped: 0,
+    unknown: 0,
+    deferred: 0
+  },
+  scopeStatus: "complete",
+  dataHygieneStatus: "clean",
+  testOutcome: "passed"
+} as const;
 
 function eventInput(
   workflow: WorkflowDefinition,
@@ -434,6 +491,230 @@ test("explicit isolation is the only way a read execution receives two workers",
   }).metadata?.maxWorkers, 2);
   assert.equal(definition({ writesData: true }).activities
     .find((activity) => activity.id === "run")?.metadata?.maxWorkers, 1);
+});
+
+test("formal completion marker requires sealed evidence and preserves legacy unmarked replay", async (context) => {
+  const root = await mkdtemp(resolve(tmpdir(), "workflow-formal-evidence-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const marked = minimalFormalWorkflow();
+  const markedStore = await initialized(resolve(root, "marked"), marked);
+  await markedStore.append(eventInput(marked, "ActivityAttemptStarted", "run-start", {
+    activityId: "run",
+    attempt: 1
+  }));
+  await assert.rejects(
+    markedStore.append(eventInput(marked, "ActivitySucceeded", "run-unbound", {
+      activityId: "run",
+      testOutcome: "passed"
+    })),
+    /structured workflow evidence/
+  );
+  await assert.rejects(
+    markedStore.append(eventInput(marked, "ActivitySucceeded", "run-skipped-complete", {
+      activityId: "run",
+      formalExecutionEvidence: {
+        ...formalEvidence,
+        caseCounts: {
+          ...formalEvidence.caseCounts,
+          passed: 0,
+          skipped: 1
+        },
+        scopeStatus: "partial",
+        testOutcome: "inconclusive"
+      },
+      testOutcome: "inconclusive"
+    })),
+    /cannot contain skipped runnable cases/
+  );
+
+  const legacy = minimalFormalWorkflow(false);
+  const legacyStore = await initialized(resolve(root, "legacy"), legacy);
+  await legacyStore.append(eventInput(legacy, "ActivityAttemptStarted", "legacy-run-start", {
+    activityId: "run",
+    attempt: 1
+  }));
+  await legacyStore.append(eventInput(legacy, "ActivitySucceeded", "legacy-run-success", {
+    activityId: "run",
+    testOutcome: "passed"
+  }));
+  assert.equal(reduceWorkflow(await legacyStore.read()).activities.run?.state, "SUCCEEDED");
+});
+
+test("formal report and WorkflowCompleted must retain the run seal and outcome", async (context) => {
+  const root = await mkdtemp(resolve(tmpdir(), "workflow-formal-report-evidence-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const workflow = minimalFormalWorkflow();
+  const store = await initialized(root, workflow);
+  await store.append(eventInput(workflow, "ActivityAttemptStarted", "run-start", {
+    activityId: "run",
+    attempt: 1
+  }));
+  await store.append(eventInput(workflow, "ActivitySucceeded", "run-success", {
+    activityId: "run",
+    formalExecutionEvidence: formalEvidence,
+    testOutcome: "passed"
+  }));
+  await store.append(eventInput(workflow, "ActivityAttemptStarted", "report-start", {
+    activityId: "report",
+    attempt: 1
+  }));
+  const reportPaths = [
+    `artifacts/test-results/formal/${formalEvidence.executionSubjectDigest.slice(0, 12)}/run-summary.json`,
+    `artifacts/test-results/formal/${formalEvidence.executionSubjectDigest.slice(0, 12)}/execution-summary.md`
+  ];
+  const digests = reportPaths.map((path) => ({ path, digest: sha256(path) }));
+  await store.append(eventInput(workflow, "ArtifactPublishPrepared", "report-prepared", {
+    activityId: "report",
+    publishId: "formal-report",
+    manifestDigest: sha256("formal-report-manifest"),
+    artifacts: digests.map(({ path, digest }) => ({
+      targetPath: path,
+      digest,
+      expectedPreviousDigest: null,
+      sizeBytes: 1
+    }))
+  }));
+  const mismatched = {
+    ...formalEvidence,
+    resultDigest: "e".repeat(64)
+  };
+  await assert.rejects(
+    store.append(eventInput(workflow, "ActivitySucceeded", "report-mismatch", {
+      activityId: "report",
+      outputRefs: reportPaths,
+      outputDigests: digests,
+      formalExecutionEvidence: mismatched,
+      testOutcome: "passed"
+    })),
+    /differs from the succeeded run evidence/
+  );
+  await assert.rejects(
+    store.appendBatch([
+      eventInput(workflow, "ActivitySucceeded", "report-success", {
+        activityId: "report",
+        outputRefs: reportPaths,
+        outputDigests: digests,
+        formalExecutionEvidence: formalEvidence,
+        testOutcome: "passed"
+      }),
+      eventInput(workflow, "WorkflowCompleted", "workflow-wrong-outcome", {
+        testOutcome: "failed"
+      }, "system")
+    ]),
+    /must retain the sealed formal report test outcome/
+  );
+});
+
+test("deterministic outcome blocker replay permits only dedicated system resolution", async (context) => {
+  const root = await mkdtemp(resolve(tmpdir(), "workflow-deterministic-outcome-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const workflow = minimalFormalWorkflow();
+  const store = await initialized(root, workflow);
+  const blockerId = `deterministic-outcome-${formalEvidence.executionSubjectDigest.slice(0, 24)}`;
+  await store.append(eventInput(workflow, "ActivityAttemptStarted", "run-start", {
+    activityId: "run",
+    attempt: 1
+  }));
+  await store.append(eventInput(workflow, "BlockerRaised", "outcome-parked", {
+    blockerId,
+    affectedActivityIds: ["run"],
+    category: "deterministic_outcome_unknown",
+    detail: "Formal execution has one terminal unknown case outcome.",
+    resolutionCondition: "A trusted attempt must eliminate the terminal unknown."
+  }, "runner"));
+  assert.equal(reduceWorkflow(await store.read()).activities.run?.state, "BLOCKED");
+
+  await assert.rejects(
+    store.append(eventInput(workflow, "BlockerResolved", "ordinary-resolve", {
+      blockerId,
+      evidence: formalEvidence.resultDigest
+    })),
+    /dedicated finalize/
+  );
+
+  await store.appendBatch([
+    eventInput(workflow, "BlockerResolved", "formal-resolve", {
+      blockerId,
+      evidence: formalEvidence.resultDigest
+    }, "system"),
+    eventInput(workflow, "ActivitySucceeded", "run-success", {
+      activityId: "run",
+      formalExecutionEvidence: formalEvidence,
+      testOutcome: "passed"
+    })
+  ]);
+  const projection = reduceWorkflow(await store.read());
+  assert.equal(projection.activities.run?.state, "SUCCEEDED");
+  assert.deepEqual(projection.activities.run?.blockerIds, []);
+});
+
+test("ordinary manager blocker APIs cannot spoof or clear deterministic outcome parking", async (context) => {
+  const root = await mkdtemp(resolve(tmpdir(), "workflow-deterministic-manager-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const workflow = minimalFormalWorkflow();
+  const manager = new DurableWorkflowManager(workflow.requestId, root);
+  const runId = randomUUID();
+  const startedEventId = randomUUID();
+  await manager.history.appendBatch([{
+    runId,
+    requestId: workflow.requestId,
+    definitionId: workflow.definitionId,
+    definitionVersion: workflow.definitionVersion,
+    eventId: startedEventId,
+    type: "WorkflowStarted",
+    actorType: "system",
+    idempotencyKey: `${runId}/started`,
+    payload: workflowStartedPayload(workflow)
+  }, {
+    runId,
+    requestId: workflow.requestId,
+    definitionId: workflow.definitionId,
+    definitionVersion: workflow.definitionVersion,
+    type: "ActivitiesExpanded",
+    actorType: "system",
+    idempotencyKey: `${runId}/expanded`,
+    payload: activitiesExpandedPayload(workflow),
+    causationId: startedEventId
+  }], { seq: 0, digest: GENESIS_DIGEST });
+  const started = await manager.startActivity("run", "formal-runner");
+  const blockerId = formalDeterministicOutcomeBlockerId(
+    formalEvidence.executionSubjectDigest
+  );
+  const parked = await manager.parkRunForDeterministicOutcome({
+    claimToken: started.claimToken,
+    executionSubjectDigest: formalEvidence.executionSubjectDigest,
+    outcomeAssessment: {
+      status: "terminal_unknown",
+      pendingUnknownCount: 0,
+      terminalUnknownCount: 1
+    }
+  });
+  assert.equal(parked.projection.activities.run?.state, "BLOCKED");
+
+  await assert.rejects(
+    manager.resolveBlocker(blockerId, formalEvidence.resultDigest),
+    /dedicated formal finalize/
+  );
+  await assert.rejects(
+    manager.resumeRunAfterExternalTransition({
+      activityId: "run",
+      blockerId,
+      evidenceDigest: formalEvidence.resultDigest,
+      owner: "ordinary-resume"
+    }),
+    /dedicated formal finalize/
+  );
+  await assert.rejects(
+    manager.raiseBlocker({
+      blockerId,
+      affectedActivityIds: ["run"],
+      category: "ordinary",
+      detail: "spoof",
+      resolutionCondition: "ordinary"
+    }),
+    /dedicated finalize path/
+  );
+  assert.deepEqual((await manager.gate()).activities.run?.blockerIds, [blockerId]);
 });
 
 test("accepted plan callback immediately makes every case package ready", async (context) => {

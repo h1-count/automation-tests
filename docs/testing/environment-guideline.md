@@ -200,6 +200,7 @@ Web 自动化每次运行必须选择且只能选择一种模式：
 - 本地 mock、组件 fixture 和预置只读状态可以用于探索；会创建远端状态的 API/fixture 必须留在执行清单确认后的正式 setup。零写入无法穿越的边界只记录为 `reachableBoundary`，不能把下游写成已验证。
 - `execute` 中 UI 负责验证被测业务行为；API Client 只用于准备独立数据、后台状态验证和清理，不得替代需要验证的 UI 主路径。
 - 正式执行由 Runner 事务组织 `能力复核 → 惰性 setup → test/postcondition → finally cleanup/reconcile → report`。未被 runnable case 引用的 fixture 不初始化；每个 case 默认使用独立 Context，每个并行 worker 使用独立账号或数据命名空间。
+- waiting external transition 属于可恢复的 park，不是 terminal teardown。park 时不得运行资源 cleanup、结束 test-data run、改变业务资源状态或登记伪清理结论；解除转换后必须复用同一授权、run、预算、CreateIntent 和已确认资源继续。只有不存在 waiting transition 时才允许 terminal settlement。
 - 只有 `no_write` 用例且每个 worker 的 Browser Context、账号、设备和数据命名空间完全隔离时，正式执行才可并行，最多使用 2 个 worker；存在业务写入、设备动作、共享账号/资源或无法证明隔离时必须使用单 worker。文件发布不属于用例 worker 并发范围，始终串行提交。
 - Web 正式 Runner 在一次授权运行内只启动一个 BrowserServer，默认无头，只有显式 `--headed` 调试时可见。普通原子用例不得逐条重启浏览器；Context/Page 默认按 case 新建，复用必须由下述场景组契约明确允许。
 - worker 超时或被中断时，teardown 必须关闭已开始但未提交的原子尝试，并由同一授权的恢复入口继续；结果状态由[报告规范](./report-guideline.md#4-执行结果标准)判定。
@@ -260,6 +261,8 @@ executionOrder
 - 资源池唯一键为 `projectId + environment + resourceType + baselineContractId`。复用只允许 `available`、未污染、未过期且经 validator 确认可用的同机资源；不得按名称、时间、数据库或设备列表模糊匹配。
 - 只读用例可取得 `shared_read` 租约，任何修改必须取得 `exclusive` 租约。浏览器 Context、Cookie、storage 和 page 仍按用例隔离，共享的只是已校验服务端 fixture。
 - 资源状态按 `available → leased → used → available` 流转；基线恢复或校验失败时转为 `quarantined`，恢复失败或资源丢失时转为 `retired`。只有执行清单已授权创建预算时才能惰性补充替代资源。
+- terminal cleanup 必须按返回的完整摘要判定，不得以调用未抛异常视为成功。无资源为 `not_required/clean`；全部临时资源已清理为 `passed/clean`；未污染、未过期且已归还为 `available` 的可复用资源为 `passed/reusable`；未过期且符合已确认预算与 TTL 的受控残留为 `passed/retained`。存在 `cleanup_failed`、`manual_required`、`quarantined`、`retired`、过期残留、dirty 标记或任何非终态资源时必须失败，并且失败理由只保存状态与数量，不保存资源 ID 或业务值。
+- cleanup 失败只改变 `dataHygieneStatus`，不得覆盖已经形成的 `functionalStatus`；test-data run 保持未闭环，待 `test-data:recover` 或确定性恢复完成后重新 settlement。只有数据卫生被接受后才结束 run，结束接口必须显式接收功能状态，不能从 cleanup 结果反推产品结果。
 - 注册成功测试每次仍使用唯一合成数据创建新企业；满足稳定脱敏身份、版本化基线、池容量和退役策略后才可晋升。登录和查询可租用已校验企业；修改后必须恢复基线；删除用例优先创建一次性资源，不得删除标准共享企业。
 - 任何 CRUD 请求必须可独立运行：从资源池校验并租用，或按已确认预算创建。禁止依赖另一请求或前一用例恰好执行成功。
 - 同一已授权 run 内的显式生产者—消费者关系不属于偶然顺序依赖：生产者创建唯一合成资源并写入台账，消费者只通过命名资源和基线契约取得它。审核中的资源是合法阶段中间态，不记为脏数据；审核通过后必须再经登录或基线校验才能晋升 `reusable_fixture`。

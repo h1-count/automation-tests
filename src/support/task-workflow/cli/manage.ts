@@ -19,6 +19,10 @@ import {
 } from "../../formal-execution/manifest.js";
 import { createDefaultCapabilityProviderRegistry } from "../../formal-execution/capabilityProvider.js";
 import { FormalExecutionStore } from "../../formal-execution/formalExecutionStore.js";
+import {
+  finalizeFormalReportWorkflow,
+  finalizeFormalRunWorkflow
+} from "../../formal-execution/workflowCompletion.js";
 import { resolveSelectorBuildIdentity } from "../../formal-execution/selectorBuildIdentity.js";
 import { resolveFormalRunnerAdapter } from "../../formal-execution/runnerAdapters.js";
 import { assessExecutionReadiness } from "../../formal-execution/readiness.js";
@@ -62,6 +66,13 @@ function required(args: string[], name: string): string {
   const value = option(args, name);
   if (!value) throw new Error(`Missing ${name}.`);
   return value;
+}
+
+function rejectOptions(args: string[], names: string[], command: string): void {
+  const rejected = names.filter((name) => args.includes(name));
+  if (rejected.length > 0) {
+    throw new Error(`${command} does not accept ${rejected.join(", ")}; formal evidence is derived from the sealed execution record.`);
+  }
 }
 
 function parseBoolean(value: string, name: string): boolean {
@@ -221,12 +232,12 @@ function caseScopesFromManifest(
   const selected = new Set(caseIds);
   return manifest.cases.filter((definition) => selected.has(definition.caseId)).map((definition) => {
     if (
-      manifest.schemaVersion !== "formal-execution-manifest-v2"
+      manifest.schemaVersion !== "formal-execution-manifest-v3"
       || !definition.permissionProfile
       || !definition.requiredOperations
       || !definition.dataWritePolicy
     ) {
-      throw new Error(`${definition.caseId} must use formal-execution-manifest-v2 before publishing v4 authorization.`);
+      throw new Error(`${definition.caseId} must use formal-execution-manifest-v3 before publishing v4 authorization.`);
     }
     return {
       caseId: definition.caseId,
@@ -373,6 +384,7 @@ async function scriptReviewAssessment(
     caseRiskAssessments: input.caseRiskAssessments,
     caseReviewPolicy: view.reviewPolicy,
     formalCases: formalManifest.cases.filter((item) => requestedCaseIds.has(item.caseId)),
+    formalManifestSchemaVersion: formalManifest.schemaVersion,
     executionHasCleanupActivity: Boolean(
       view.activities.cleanup
       || view.activities.run?.definition.metadata?.transaction
@@ -394,10 +406,12 @@ async function main(): Promise<void> {
       "  reviewer-dispatch --batch <id> --activity <review-id> --agent-task <host-task-id>",
       "  reviewer-submit --batch <id> --activity <review-id> --agent-task <host-task-id> [--plan-evidence <plan.md>]",
       "  review-batch-invalidate --batch <id> --reason <text> [--activity <review-id> --revision-digest <sha256> --findings-digest <sha256>]",
-      "Execution: script-review-assess, execution-readiness-publish, execution-authorization-publish/request/verify, execution-scope-reopen, execution-transition-park/resolve, external-operation-start/reconcile",
+      "Execution: script-review-assess, execution-readiness-publish, execution-authorization-publish/request/verify, execution-scope-reopen, execution-run-finalize, execution-report-finalize, execution-transition-park/resolve, external-operation-start/reconcile",
       "  script-review-assess --environment <name> --script <path> --case-id <id> [--case-risk <id:level>] --operation <kind> [--budget <type:max>] --data-write-policy <no_write|ephemeral_cleanup|reusable_fixture|tracked_residual>",
       "  execution-readiness-publish --claim <lease> --environment <name> [--target-build-digest <sha256>] --script <path> --case-id <id> [--case-risk <id:level>] --operation <kind> [--selector-evidence-digest <sha256>] [--review-evidence <runtime-json>] --verified <evidence>",
       "  execution-authorization-publish --claim <lease> --environment <name> --script <path> --case-id <id> --operation <kind> [--budget <type:max>] --data-write-policy <no_write|ephemeral_cleanup|reusable_fixture|tracked_residual> [--review-evidence <runtime-json>] --verified <evidence>",
+      "  execution-run-finalize --claim <lease>",
+      "  execution-report-finalize --claim <lease>",
       "  execution-transition-resolve --transition <id> --outcome <safe-token> [--attestation <key=true>] [--owner <name>]",
       "Lifecycle: history-verify, complete, cancel"
     ].join("\n") + "\n");
@@ -1095,6 +1109,64 @@ async function main(): Promise<void> {
   if (command === "execution-scope-reopen") {
     const view = await manager.reopenExecutionScope(required(args, "--reason"));
     output(args, view, "工程设计、脚本评审和旧执行授权已失效；请从 engineering 重新推进。");
+    return;
+  }
+
+  if (command === "execution-run-finalize") {
+    rejectOptions(args, [
+      "--verified",
+      "--test-outcome",
+      "--outcome",
+      "--file",
+      "--digest",
+      "--output-digest",
+      "--result-digest",
+      "--manifest-digest",
+      "--execution-subject-digest",
+      "--source",
+      "--target",
+      "--publish"
+    ], command);
+    const result = await finalizeFormalRunWorkflow({
+      manager,
+      claimToken: required(args, "--claim")
+    });
+    output(
+      args,
+      result,
+      result.kind === "parked"
+        ? result.parkReason === "deterministic_outcome"
+          ? `run 已暂停；${result.outcomeAssessment.terminalUnknownCount} 个终态 unknown 必须由后续可信 attempt 消除。`
+          : `run 已暂停；等待数据卫生收口：${result.dataHygieneStatus}。`
+        : `run 已绑定 FormalExecutionStore 结果 ${result.evidence.resultDigest.slice(0, 12)}。`
+    );
+    return;
+  }
+
+  if (command === "execution-report-finalize") {
+    rejectOptions(args, [
+      "--verified",
+      "--test-outcome",
+      "--outcome",
+      "--file",
+      "--digest",
+      "--output-digest",
+      "--result-digest",
+      "--manifest-digest",
+      "--execution-subject-digest",
+      "--source",
+      "--target",
+      "--publish"
+    ], command);
+    const result = await finalizeFormalReportWorkflow({
+      manager,
+      claimToken: required(args, "--claim")
+    });
+    output(
+      args,
+      result,
+      `report 已绑定并发布 FormalExecutionStore 结果 ${result.evidence.resultDigest.slice(0, 12)}。`
+    );
     return;
   }
 

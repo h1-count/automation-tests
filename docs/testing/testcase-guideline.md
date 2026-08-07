@@ -171,6 +171,22 @@ testcases/iot-chain/<project>/<test-request>/cases-<module>.md
 
 每次评审发现映射到某一 `RULE` 后，自动演进必须复核该规则邻域：同一 `REQ`、同一字段或状态对象、同一提交/状态路径或同一数据前置组的全部适用规则。计划的“规则邻域复核”记录触发发现项、邻域 `RULE`、共同依据、修订 `caseId` 和复检结果；资料明确的邻域遗漏一次性自动修订。只有资料冲突或未定义验收才保留为用户裁决。
 
+#### 正式业务 Oracle 契约
+
+新建的正式执行清单使用 `formal-execution-manifest-v3`。每个 runnable `caseId` 至少声明一个业务 Oracle，且每个 Oracle 只能绑定当前 case 的一条 `RULE`。Oracle 的可观察预期从 `plan.md` 的规则设计矩阵派生，不得在 manifest 再复制一份自由文本预期。每个绑定必须形成 `REQ → RULE → caseId → oracleId` 的唯一链路；缺失、重复、孤立或跨 case 绑定都是 build 错误。
+
+Oracle 权威依据只允许两类：一是 `sources/manifest.yaml` 中 active 且适用当前项目、已由 reviewed knowledge index 登记的材料章节；二是 `plan.md` 中已接受的正式用户决定。材料路径、章节、项目适用性、实际文件 SHA-256、索引和用例包回链必须一致；代码、Graphify、selector 或运行截图只能证明实现可行性，不能作为业务预期来源。
+
+正式用户决定作为 Oracle 权威依据时，`plan.md` 必须使用以下固定表头；`subjectDigest` 是被裁决主题的 SHA-256，不是决定正文摘要。只有“正式决定”为 `accepted` 或“已接受”的唯一匹配行可用，普通备注、reviewer 建议或未完成 callback 不计入权威依据。
+
+| 决定类型 | subjectDigest | 正式决定 | 决定内容与适用范围 | 后续处理 |
+| --- | --- | --- | --- | --- |
+| `<safe-decision-type>` | `<64 位小写 SHA-256>` | `accepted` | 不含敏感数据的裁决及适用 `RULE/caseId` | `continue` |
+
+`contractId` 只在 Oracle 需要绑定已冻结的浏览器响应或 postcondition 查询契约时必填；DOM 与 runtime state 可以省略，不得为了通过校验虚构契约。`browser_response` 必须与唯一 `responseContractId` 一致，`postcondition_query` 必须与唯一 `queryCapabilityId` 一致；仅表示 `accepted` 的响应还必须有匹配的 postcondition Oracle，不能单独形成最终通过。
+
+`addAssertion()` 只是可读诊断文本，不计入 Oracle 完整度或通过资格。最终 `passed` / `failed` / `unknown` 的派生及封印门禁由流程和报告规范负责，本规范只维护业务规则、来源与 Oracle 的设计映射。
+
 #### 测试设计技术选择
 
 测试设计技术与其适用依据必须写入同一 `plan.md` 的“测试设计技术与依据”表，并关联需求追溯编号、计划覆盖范围和 `RULE-`；阶段二由同步工具生成实际 `caseId`。不另建决策表、状态图或边界分析文档。

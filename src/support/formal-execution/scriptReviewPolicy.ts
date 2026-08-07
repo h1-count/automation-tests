@@ -8,7 +8,8 @@ import type { ExecutionOperationKind } from "./authorization.js";
 import { operationEvidenceDefinitionIssues } from "./operationEvidence.js";
 import { assertFormalSpecSources } from "./runnerPolicy.js";
 import { formalCapabilityId } from "./manifest.js";
-import type { FormalCaseDefinition } from "./types.js";
+import { resolveLocalScriptDependencyClosure } from "./scriptDependencyClosure.js";
+import type { FormalCaseDefinition, FormalExecutionManifest } from "./types.js";
 import { canonicalJson } from "../task-workflow/canonicalJson.js";
 import type {
   ReviewPolicy,
@@ -57,6 +58,7 @@ export interface ScriptReviewAssessmentInput {
   caseReviewPolicy?: ReviewPolicy;
   executionHasCleanupActivity: boolean;
   formalCases?: FormalCaseDefinition[];
+  formalManifestSchemaVersion?: FormalExecutionManifest["schemaVersion"];
 }
 
 export interface ScriptReviewAssessment {
@@ -92,6 +94,8 @@ interface LoadedScript {
   path: string;
   digest: string;
   source: string;
+  dependencies: readonly string[];
+  runtimeLeaf: boolean;
   caseIds: string[];
   caseSources: Array<{ caseId: string; source: string }>;
   unscopedSource: string;
@@ -167,7 +171,8 @@ export async function assessScriptReview(
   input: ScriptReviewAssessmentInput
 ): Promise<ScriptReviewAssessment> {
   const workspaceRoot = resolve(input.workspaceRoot);
-  const scripts = await loadScripts(workspaceRoot, input.scriptPaths);
+  const loadedScripts = await loadScripts(workspaceRoot, input.scriptPaths);
+  const scripts = loadedScripts.scripts;
   const planPath = safeWorkspacePath(workspaceRoot, input.planPath, "plan path");
   const planDigest = sha256(await readFile(planPath));
   const capabilities = unique(input.capabilities).sort() as WorkflowCapability[];
@@ -219,7 +224,7 @@ export async function assessScriptReview(
     }
   }
   const executableScriptCount = scripts.filter((script) =>
-    !script.path.endsWith("/execution.manifest.ts")
+    !script.runtimeLeaf && !script.path.endsWith("/execution.manifest.ts")
   ).length;
   if (executableScriptCount > 1) {
     promoteStage("standard", `script_count:${executableScriptCount}`);
@@ -230,6 +235,7 @@ export async function assessScriptReview(
   }
 
   for (const script of scripts) {
+    if (script.runtimeLeaf) continue;
     if (script.path.endsWith("/execution.manifest.ts")) continue;
     if (script.caseSources.length) {
       for (const caseSource of script.caseSources) {
@@ -278,10 +284,16 @@ export async function assessScriptReview(
   }
 
   const blockingIssues = [
+    ...loadedScripts.dependencyIssues,
     ...compileIssues(workspaceRoot, scripts),
-    ...formalSourceIssues(input.requestId, scripts, caseIds),
+    ...formalSourceIssues(
+      input.requestId,
+      scripts,
+      caseIds,
+      input.formalManifestSchemaVersion
+    ),
     ...playwrightDiscoveryIssues(workspaceRoot, input.requestId, caseIds),
-    ...sensitiveLiteralIssues(scripts),
+    ...sensitiveLiteralIssues(scripts.filter((script) => !script.runtimeLeaf)),
     ...executionSafetyIssues({
       environment: input.environment,
       operations,
@@ -310,6 +322,9 @@ export async function assessScriptReview(
   const inputDigest = sha256(canonicalJson({
     schemaVersion: SCRIPT_REVIEW_POLICY_VERSION,
     requestId: input.requestId,
+    ...(input.formalManifestSchemaVersion
+      ? { formalManifestSchemaVersion: input.formalManifestSchemaVersion }
+      : {}),
     planDigest,
     scripts: scripts.map(({ path, digest }) => ({ path, digest })),
     caseIds,
@@ -518,26 +533,30 @@ function parseEvidence(value: unknown): ScriptReviewEvidence {
   return record as unknown as ScriptReviewEvidence;
 }
 
-async function loadScripts(workspaceRoot: string, scriptPaths: string[]): Promise<LoadedScript[]> {
-  if (!scriptPaths.length) throw new Error("Script review requires at least one script.");
-  const normalized = unique(scriptPaths.map((path) =>
-    relative(workspaceRoot, safeWorkspacePath(workspaceRoot, path, "script path"))
-  )).sort();
-  if (normalized.length !== scriptPaths.length) {
-    throw new Error("Script review script paths must be unique.");
-  }
-  return Promise.all(normalized.map(async (path) => {
+async function loadScripts(
+  workspaceRoot: string,
+  scriptPaths: string[]
+): Promise<{ scripts: LoadedScript[]; dependencyIssues: string[] }> {
+  const closure = resolveLocalScriptDependencyClosure({
+    workspaceRoot,
+    entryPaths: scriptPaths,
+    allowSyntaxErrors: true
+  });
+  const scripts = await Promise.all(closure.paths.map(async (path) => {
     const source = await readFile(resolve(workspaceRoot, path), "utf8");
     const { caseSources, unscopedSource } = extractFormalCaseSources(source);
     return {
       path,
       source,
       digest: sha256(source),
+      dependencies: closure.dependenciesByPath.get(path) ?? [],
+      runtimeLeaf: closure.runtimeLeafPaths.has(path),
       caseIds: unique(caseSources.map(({ caseId }) => caseId)).sort(),
       caseSources,
       unscopedSource
     };
   }));
+  return { scripts, dependencyIssues: closure.issues };
 }
 
 function extractFormalCaseSources(source: string): {
@@ -666,23 +685,7 @@ function localScriptDependencies(
   script: LoadedScript,
   scriptByPath: Map<string, LoadedScript>
 ): string[] {
-  const specifiers = [...script.source.matchAll(
-    /(?:\b(?:import|export)\b[^"']*?\bfrom\s*|\bimport\s*\()\s*["']([^"']+)["']/gu
-  )].map((match) => match[1]!).filter((specifier) => specifier.startsWith("."));
-  return unique(specifiers.flatMap((specifier) => {
-    const base = resolve("/", dirname(script.path), specifier).slice(1);
-    const candidates = [
-      base,
-      `${base}.ts`,
-      `${base}.tsx`,
-      `${base}.js`,
-      `${base}.mjs`,
-      `${base}/index.ts`,
-      `${base}/index.tsx`,
-      ...(base.endsWith(".js") ? [`${base.slice(0, -3)}.ts`, `${base.slice(0, -3)}.tsx`] : [])
-    ];
-    return candidates.filter((candidate) => scriptByPath.has(candidate));
-  }));
+  return script.dependencies.filter((dependency) => scriptByPath.has(dependency));
 }
 
 function compileIssues(workspaceRoot: string, scripts: LoadedScript[]): string[] {
@@ -753,14 +756,16 @@ function playwrightDiscoveryIssues(
 function formalSourceIssues(
   requestId: string,
   scripts: LoadedScript[],
-  expectedCaseIds: string[]
+  expectedCaseIds: string[],
+  manifestSchemaVersion?: FormalExecutionManifest["schemaVersion"]
 ): string[] {
   if (!["web", "h5"].includes(requestId.split("/")[0]!)) return [];
   const formalSpecs = scripts.filter((script) => script.path.endsWith(".formal.spec.ts"));
   try {
     assertFormalSpecSources(
       formalSpecs.map(({ path, source }) => ({ path, source })),
-      expectedCaseIds
+      expectedCaseIds,
+      { manifestSchemaVersion }
     );
     return [];
   } catch (error) {

@@ -81,8 +81,20 @@ import { CASE_RELATION_PROJECTION_MARKER, projectRelationProjection, validateRul
 import {
   assertExecutionAuthorizationInputsCurrent
 } from "./executionAuthorizationSubject.js";
+import {
+  formalReportOutputPaths,
+  parseFormalExecutionWorkflowEvidence,
+  sameFormalExecutionWorkflowEvidence
+} from "./formalCompletionEvidence.js";
+import {
+  deriveFormalReportCompletion,
+  deriveFormalRunCompletion,
+  type FormalDeterministicOutcomeAssessment
+} from "../formalCompletionService.js";
 import type {
+  ActivityProjection,
   CallbackResolution,
+  FormalExecutionWorkflowEvidence,
   NewWorkflowEvent,
   SafeEventPayload,
   SafeJsonValue,
@@ -185,6 +197,27 @@ export interface ActivityFailInput {
   maxAttempts?: number;
 }
 
+export interface FormalRunCompletionInput {
+  claimToken: string;
+}
+
+export interface FormalReportCompletionInput {
+  claimToken: string;
+}
+
+export interface PreparedFormalCompletionClaim {
+  claimToken: string;
+  acquired: boolean;
+  state: ActivityProjection["state"];
+}
+
+export interface FormalCompletionResult {
+  evidence: FormalExecutionWorkflowEvidence;
+  workflow: WorkflowGateView;
+}
+
+export type UnsettledDataHygieneStatus = "cleanup_failed" | "manual_required" | "unknown";
+
 interface WorkflowIdentity {
   runId: string;
   requestId: string;
@@ -211,6 +244,27 @@ function sha256(value: string | Buffer): string {
 function requireDigest(value: string, label: string): string {
   if (!digestPattern.test(value)) throw new Error(`${label} must be a lowercase SHA-256 digest.`);
   return value;
+}
+
+export function formalDataHygieneBlockerId(executionSubjectDigest: string): string {
+  return `data-hygiene-${requireDigest(
+    executionSubjectDigest,
+    "executionSubjectDigest"
+  ).slice(0, 24)}`;
+}
+
+export function formalDeterministicOutcomeBlockerId(
+  executionSubjectDigest: string
+): string {
+  return `deterministic-outcome-${requireDigest(
+    executionSubjectDigest,
+    "executionSubjectDigest"
+  ).slice(0, 24)}`;
+}
+
+function isReservedFormalBlockerId(blockerId: string): boolean {
+  return blockerId.startsWith("data-hygiene-")
+    || blockerId.startsWith("deterministic-outcome-");
 }
 
 function eventIdentity(events: readonly WorkflowEvent[]): WorkflowIdentity {
@@ -594,11 +648,43 @@ export class DurableWorkflowManager {
   private async succeedActivityInternal(
     activityId: string,
     input: ActivitySucceedInput,
-    publicationValidated: boolean
+    publicationValidated: boolean,
+    formalExecutionEvidence?: FormalExecutionWorkflowEvidence,
+    formalBlockerResolution?: { blockerId: string; evidence: string }
   ): Promise<WorkflowGateView> {
     const before = await this.gate();
     const activity = before.activities[activityId];
     if (!activity) throw new Error(`Unknown workflow activity: ${activityId}`);
+    const formalCompletionActivity = ["run", "report"].includes(activity.definition.kind);
+    if (formalCompletionActivity && !formalExecutionEvidence) {
+      throw new Error(
+        `Activity ${activityId} must use the dedicated formal execution completion path.`
+      );
+    }
+    if (!formalCompletionActivity && formalExecutionEvidence) {
+      throw new Error(`Activity ${activityId} cannot attach formal execution completion evidence.`);
+    }
+    if (formalBlockerResolution) {
+      const subjectDigest = formalExecutionEvidence?.executionSubjectDigest ?? "";
+      const acceptedBlockerIds = subjectDigest
+        ? [
+            formalDataHygieneBlockerId(subjectDigest),
+            formalDeterministicOutcomeBlockerId(subjectDigest)
+          ]
+        : [];
+      if (
+        activity.definition.kind !== "run"
+        || activity.state !== "BLOCKED"
+        || activity.blockerIds.length !== 1
+        || activity.blockerIds[0] !== formalBlockerResolution.blockerId
+        || !acceptedBlockerIds.includes(formalBlockerResolution.blockerId)
+      ) {
+        throw new Error(
+          "Only the exact formal data hygiene or deterministic outcome blocker can be resolved with run completion."
+        );
+      }
+      requireDigest(formalBlockerResolution.evidence, "formal settlement evidence");
+    }
     if (activity.definition.kind === "complete") {
       throw new Error("Workflow completion must be recorded with task:manage complete.");
     }
@@ -657,12 +743,33 @@ export class DurableWorkflowManager {
         ? { outputDigests: verifiedOutputDigests as unknown as SafeJsonValue }
         : {}),
       ...(completenessEvidence ? { completenessEvidence } : {}),
+      ...(formalExecutionEvidence
+        ? { formalExecutionEvidence: formalExecutionEvidence as unknown as SafeJsonValue }
+        : {}),
       ...(input.testOutcome ? { testOutcome: input.testOutcome } : {}),
       ...(input.outcome ? { outcome: input.outcome } : {})
     };
     const outcomeDigest = sha256(JSON.stringify(payload));
     const successKey = `${before.runId}/${activityId}/attempt-${activity.attempt}/succeeded/${outcomeDigest}`;
-    if (
+    if (formalBlockerResolution) {
+      await this.appendSequence([
+        {
+          type: "BlockerResolved",
+          actorType: "system",
+          payload: {
+            blockerId: formalBlockerResolution.blockerId,
+            evidence: formalBlockerResolution.evidence
+          },
+          idempotencyKey: `${before.runId}/formal/${formalExecutionEvidence!.executionSubjectDigest.slice(0, 24)}/blocker-settled/${sha256(`${formalBlockerResolution.blockerId}:${formalBlockerResolution.evidence}`)}`
+        },
+        {
+          type: "ActivitySucceeded",
+          actorType: "agent",
+          payload,
+          idempotencyKey: successKey
+        }
+      ], before.head);
+    } else if (
       before.definitionVersion === "v5"
       && activity.definition.kind === "report"
       && activity.definition.metadata?.completesWorkflow === true
@@ -693,6 +800,359 @@ export class DurableWorkflowManager {
       );
     }
     await this.runtime.finalizeSucceededActivity(activityId, handle);
+    return this.gate();
+  }
+
+  async completeFormalRun(input: FormalRunCompletionInput): Promise<FormalCompletionResult> {
+    const initial = await this.gate();
+    const subject = await this.executionAuthorizationSubject(initial);
+    const prepared = await this.prepareFormalCompletionClaim({
+      activityId: "run",
+      claimToken: input.claimToken,
+      owner: "formal-run-finalize",
+      dataHygieneSubjectDigest: subject.digest,
+      deterministicOutcomeSubjectDigest: subject.digest
+    });
+    try {
+      const derived = await deriveFormalRunCompletion(this.requestId, this.workspaceRoot);
+      const before = await this.gate();
+      const evidence = await this.assertFormalCompletionEvidence(
+        before,
+        "run",
+        derived.evidence
+      );
+      const activity = before.activities.run;
+      if (!activity || activity.definition.kind !== "run") {
+        throw new Error("Workflow definition is missing the formal run activity.");
+      }
+      if (activity.state === "SUCCEEDED") {
+        await this.assertRecordedFormalCompletion("run", evidence);
+        await this.runtime.finalizeSucceededActivity("run");
+        return { evidence, workflow: await this.gate() };
+      }
+      const hygieneBlockerId = formalDataHygieneBlockerId(evidence.executionSubjectDigest);
+      const deterministicBlockerId = formalDeterministicOutcomeBlockerId(
+        evidence.executionSubjectDigest
+      );
+      const formalResolutionBlockerId = activity.state === "BLOCKED"
+        && activity.blockerIds.length === 1
+        && [hygieneBlockerId, deterministicBlockerId].includes(activity.blockerIds[0]!)
+        ? activity.blockerIds[0]
+        : undefined;
+      if (
+        activity.state !== "RUNNING"
+        && activity.state !== "RECONCILING"
+        && !formalResolutionBlockerId
+      ) {
+        throw new Error(`Formal run cannot complete while it is ${activity.state}.`);
+      }
+      const workflow = await this.succeedActivityInternal("run", {
+        claimToken: prepared.claimToken,
+        verification: "formal_execution_completion_seal_verified",
+        testOutcome: evidence.testOutcome
+      }, false, evidence, formalResolutionBlockerId
+        ? { blockerId: formalResolutionBlockerId, evidence: evidence.resultDigest }
+        : undefined);
+      return { evidence, workflow };
+    } catch (error) {
+      if (prepared.acquired) {
+        await this.releaseFormalCompletionClaim("run", prepared.claimToken);
+      }
+      throw error;
+    }
+  }
+
+  async publishFormalReportAndComplete(
+    input: FormalReportCompletionInput
+  ): Promise<FormalCompletionResult> {
+    const prepared = await this.prepareFormalCompletionClaim({
+      activityId: "report",
+      claimToken: input.claimToken,
+      owner: "formal-report-finalize"
+    });
+    try {
+      const derived = await deriveFormalReportCompletion(this.requestId, this.workspaceRoot);
+      const before = await this.gate();
+      const evidence = await this.assertFormalCompletionEvidence(
+        before,
+        "report",
+        derived.evidence
+      );
+      const activity = before.activities.report;
+      if (!activity || activity.definition.kind !== "report") {
+        throw new Error("Workflow definition is missing the formal report activity.");
+      }
+      if (activity.state === "SUCCEEDED") {
+        await this.assertRecordedFormalCompletion("report", evidence);
+        await this.runtime.finalizeSucceededActivity("report");
+        return { evidence, workflow: await this.gate() };
+      }
+      if (activity.state !== "RUNNING" && activity.state !== "RECONCILING") {
+        throw new Error(`Formal report cannot complete while it is ${activity.state}.`);
+      }
+      const expectedPaths = formalReportOutputPaths(evidence.executionSubjectDigest).sort();
+      const actualPaths = derived.artifacts.map((artifact) =>
+        safeRelativePath(this.workspaceRoot, artifact.targetPath)
+      ).sort();
+      if (
+        actualPaths.length !== expectedPaths.length
+        || actualPaths.some((path, index) => path !== expectedPaths[index])
+      ) {
+        throw new Error(`Formal report must publish exactly ${expectedPaths.join(", ")}.`);
+      }
+      if (activity.state === "RECONCILING") {
+        const reconciled = await this.reconcileFormalReportPublication({
+          publishId: derived.publishId,
+          evidence,
+          artifacts: derived.artifacts,
+          claimToken: prepared.claimToken
+        });
+        return { evidence, workflow: reconciled };
+      }
+      const workflow = await this.publishArtifactsAndSucceedInternal("report", {
+        claimToken: prepared.claimToken,
+        publishId: derived.publishId,
+        verification: "sealed_formal_report_published",
+        artifacts: derived.artifacts,
+        testOutcome: evidence.testOutcome
+      }, evidence);
+      return { evidence, workflow };
+    } catch (error) {
+      if (prepared.acquired) {
+        await this.releaseFormalCompletionClaim("report", prepared.claimToken);
+      }
+      throw error;
+    }
+  }
+
+  async prepareFormalCompletionClaim(input: {
+    activityId: "run" | "report";
+    claimToken: string;
+    owner: string;
+    dataHygieneSubjectDigest?: string;
+    deterministicOutcomeSubjectDigest?: string;
+  }): Promise<PreparedFormalCompletionClaim> {
+    const before = await this.gate();
+    const activity = before.activities[input.activityId];
+    if (!activity || activity.definition.kind !== input.activityId) {
+      throw new Error(`Workflow definition is missing formal activity ${input.activityId}.`);
+    }
+    if (activity.unresolvedExternalOperationIds.length > 0) {
+      throw new Error(
+        `Formal ${input.activityId} cannot finalize with unresolved durable external operations.`
+      );
+    }
+    const runtime = await this.runtime.read();
+    const operations = Object.values(runtime?.inFlightOperations ?? {})
+      .filter((operation) => operation.activityId === input.activityId);
+    if (operations.length > 0) {
+      throw new Error(
+        `Formal ${input.activityId} cannot finalize with unresolved external operations.`
+      );
+    }
+    if (activity.state === "SUCCEEDED") {
+      return { claimToken: input.claimToken, acquired: false, state: activity.state };
+    }
+    if (activity.state === "RUNNING") {
+      const handle = await this.handleForClaim(input.activityId, input.claimToken);
+      await this.runtime.assertCanCommit(handle);
+      return { claimToken: input.claimToken, acquired: false, state: activity.state };
+    }
+    if (activity.state === "BLOCKED") {
+      if (
+        input.activityId !== "run"
+        || (!input.dataHygieneSubjectDigest && !input.deterministicOutcomeSubjectDigest)
+      ) {
+        throw new Error(`Formal ${input.activityId} cannot finalize while it is BLOCKED.`);
+      }
+      const expectedBlockerIds = [
+        ...(input.dataHygieneSubjectDigest
+          ? [formalDataHygieneBlockerId(input.dataHygieneSubjectDigest)]
+          : []),
+        ...(input.deterministicOutcomeSubjectDigest
+          ? [formalDeterministicOutcomeBlockerId(input.deterministicOutcomeSubjectDigest)]
+          : [])
+      ];
+      if (
+        activity.blockerIds.length !== 1
+        || !expectedBlockerIds.includes(activity.blockerIds[0]!)
+      ) {
+        throw new Error(
+          "Formal run is blocked for a reason other than deterministic outcome or data hygiene settlement."
+        );
+      }
+      const existing = await this.currentLease("run");
+      if (existing) {
+        if (existing.leaseId !== input.claimToken) {
+          throw new WorkflowRuntimeLeaseError("Formal run settlement requires the current claim token.");
+        }
+        await this.runtime.assertCanCommit(existing);
+        return { claimToken: existing.leaseId, acquired: false, state: activity.state };
+      }
+      const latest = runtime?.leases.run;
+      if (latest && (!latest.releasedAt || latest.leaseId !== input.claimToken)) {
+        throw new WorkflowRuntimeLeaseError(
+          "Formal run settlement requires the latest released claim token."
+        );
+      }
+      const acquired = await this.runtime.acquire("run", input.owner);
+      return { claimToken: acquired.leaseId, acquired: true, state: activity.state };
+    }
+    if (activity.state !== "RECONCILING") {
+      throw new Error(`Formal ${input.activityId} cannot finalize while it is ${activity.state}.`);
+    }
+    const staging = Object.values(runtime?.stagingRefs ?? {})
+      .filter((item) => item.activityId === input.activityId);
+    if (staging.length > 0) {
+      const lease = runtime?.leases[input.activityId];
+      if (
+        !lease
+        || lease.leaseId !== input.claimToken
+        || staging.some((item) =>
+          item.leaseId !== lease.leaseId
+          || item.fencingToken !== lease.fencingToken
+        )
+      ) {
+        throw new WorkflowRuntimeLeaseError(
+          `Formal ${input.activityId} reconciliation requires the latest publication claim lineage.`
+        );
+      }
+      return { claimToken: input.claimToken, acquired: false, state: activity.state };
+    }
+    const existing = await this.currentLease(input.activityId);
+    if (existing) {
+      if (existing.leaseId !== input.claimToken) {
+        throw new WorkflowRuntimeLeaseError(
+          `Formal ${input.activityId} reconciliation requires the current claim token.`
+        );
+      }
+      await this.runtime.assertCanCommit(existing);
+      return { claimToken: existing.leaseId, acquired: false, state: activity.state };
+    }
+    const latest = runtime?.leases[input.activityId];
+    if (
+      latest
+      && latest.leaseId !== input.claimToken
+    ) {
+      throw new WorkflowRuntimeLeaseError(
+        `Formal ${input.activityId} reconciliation requires the latest expired or released claim token.`
+      );
+    }
+    if (
+      latest
+      && !latest.releasedAt
+      && Date.parse(latest.expiresAt) > Date.now()
+    ) {
+      throw new WorkflowRuntimeLeaseError(
+        `Formal ${input.activityId} reconciliation cannot replace an active claim.`
+      );
+    }
+    const acquired = await this.runtime.acquire(input.activityId, input.owner);
+    return { claimToken: acquired.leaseId, acquired: true, state: activity.state };
+  }
+
+  async releaseFormalCompletionClaim(
+    activityId: "run" | "report",
+    claimToken: string
+  ): Promise<void> {
+    try {
+      const handle = await this.handleForClaim(activityId, claimToken);
+      await this.runtime.release(handle);
+    } catch (error) {
+      if (!(error instanceof WorkflowRuntimeLeaseError)) throw error;
+    }
+  }
+
+  private async reconcileFormalReportPublication(input: {
+    publishId: string;
+    evidence: FormalExecutionWorkflowEvidence;
+    artifacts: Array<{ targetPath: string; content: ArtifactContent }>;
+    claimToken: string;
+  }): Promise<WorkflowGateView> {
+    const runtime = await this.runtime.read();
+    const staging = runtime?.stagingRefs[input.publishId];
+    if (staging) {
+      if (staging.activityId !== "report") {
+        throw new Error(`Prepared publication ${input.publishId} does not belong to report.`);
+      }
+      const before = await this.gate();
+      await this.assertPreparedPublicationPolicy(
+        before,
+        "report",
+        input.publishId,
+        staging.manifestPath,
+        staging.manifestDigest
+      );
+      const publisher = new ArtifactPublisher(this.requestId, {
+        workspaceRoot: this.workspaceRoot,
+        runtimeStore: this.runtime
+      });
+      const published = await publisher.reconcilePrepared(input.publishId);
+      return this.appendReconciledFormalReportSuccess(input.evidence, published.artifacts);
+    }
+
+    const preparedEvent = [...await this.events()].reverse().find((event) =>
+      event.type === "ArtifactPublishPrepared"
+      && event.payload.activityId === "report"
+      && event.payload.publishId === input.publishId
+    );
+    if (preparedEvent) {
+      const expected = formalPreparedArtifactDigests(preparedEvent.payload);
+      const actual = input.artifacts.map((artifact) => ({
+        targetPath: safeRelativePath(this.workspaceRoot, artifact.targetPath),
+        digest: sha256(typeof artifact.content === "string"
+          ? artifact.content
+          : Buffer.from(artifact.content))
+      }));
+      if (!sameArtifactDigests(expected, actual)) {
+        throw new Error("Reconciled formal report bytes differ from its durable publication intent.");
+      }
+      return this.appendReconciledFormalReportSuccess(input.evidence, actual);
+    }
+
+    return this.publishArtifactsAndSucceedInternal("report", {
+      claimToken: input.claimToken,
+      publishId: input.publishId,
+      verification: "sealed_formal_report_republished",
+      artifacts: input.artifacts,
+      testOutcome: input.evidence.testOutcome
+    }, input.evidence);
+  }
+
+  private async appendReconciledFormalReportSuccess(
+    evidence: FormalExecutionWorkflowEvidence,
+    artifacts: Array<{ targetPath: string; digest: string }>
+  ): Promise<WorkflowGateView> {
+    const before = await this.gate();
+    if (before.activities.report?.state !== "RECONCILING") {
+      throw new Error("Formal report reconciliation requires a RECONCILING activity.");
+    }
+    const verified = await this.verifyPublishedOutputs(
+      artifacts.map((artifact) => ({ path: artifact.targetPath, digest: artifact.digest }))
+    );
+    const outputRefs = verified.map((artifact) => artifact.path);
+    this.assertArtifactOutputBinding("report", before.activities.report.definition.metadata, outputRefs, before);
+    const payload: SafeEventPayload = {
+      activityId: "report",
+      verification: "sealed_formal_report_reconciled",
+      reconciled: true,
+      outputRefs,
+      outputDigests: verified as unknown as SafeJsonValue,
+      formalExecutionEvidence: evidence as unknown as SafeJsonValue,
+      testOutcome: evidence.testOutcome
+    };
+    await this.appendSequence([{
+      type: "ActivitySucceeded",
+      actorType: "agent",
+      payload,
+      idempotencyKey: `${before.runId}/report/reconciled/formal/${evidence.resultDigest}`
+    }, {
+      type: "WorkflowCompleted",
+      actorType: "system",
+      payload: { testOutcome: evidence.testOutcome },
+      idempotencyKey: `${before.runId}/workflow-completed/${evidence.testOutcome}`
+    }], before.head);
+    await this.runtime.finalizeSucceededActivity("report");
     return this.gate();
   }
 
@@ -734,12 +1194,29 @@ export class DurableWorkflowManager {
     activityId: string,
     input: PublishAndSucceedInput
   ): Promise<WorkflowGateView> {
+    const activity = (await this.gate()).activities[activityId];
+    if (activity && ["run", "report"].includes(activity.definition.kind)) {
+      throw new Error(
+        `Activity ${activityId} must use the dedicated formal execution completion path.`
+      );
+    }
+    return this.publishArtifactsAndSucceedInternal(activityId, input);
+  }
+
+  private async publishArtifactsAndSucceedInternal(
+    activityId: string,
+    input: PublishAndSucceedInput,
+    formalExecutionEvidence?: FormalExecutionWorkflowEvidence
+  ): Promise<WorkflowGateView> {
     const before = await this.gate();
     const activity = before.activities[activityId];
     if (!activity?.definition.publishesArtifacts) {
       throw new Error(`Activity ${activityId} is not an artifact-producing activity.`);
     }
-    if (activity.state !== "RUNNING") {
+    const formalReportReconciliation = activity.state === "RECONCILING"
+      && activity.definition.kind === "report"
+      && formalExecutionEvidence !== undefined;
+    if (activity.state !== "RUNNING" && !formalReportReconciliation) {
       throw new Error(`Artifact-producing activity ${activityId} is not running.`);
     }
     const handle = await this.handleForClaim(activityId, input.claimToken);
@@ -828,7 +1305,7 @@ export class DurableWorkflowManager {
       })),
       testOutcome: input.testOutcome,
       outcome: input.outcome
-    }, true);
+    }, true, formalExecutionEvidence);
   }
 
   async requestCallback(input: {
@@ -1219,6 +1696,11 @@ export class DurableWorkflowManager {
     detail: string;
     resolutionCondition: string;
   }): Promise<WorkflowGateView> {
+    if (isReservedFormalBlockerId(input.blockerId)) {
+      throw new Error(
+        "Reserved formal blockers may be raised only by their dedicated finalize path."
+      );
+    }
     const before = await this.gate();
     const affected = input.affectedActivityIds ?? [];
     const runningTargets = (affected.length ? affected : before.runningActivities)
@@ -1251,6 +1733,9 @@ export class DurableWorkflowManager {
     detail: string;
     resolutionCondition: string;
   }): Promise<WorkflowGateView> {
+    if (isReservedFormalBlockerId(input.blockerId)) {
+      throw new Error("External transitions cannot use a reserved formal blocker id.");
+    }
     const before = await this.gate();
     const activity = before.activities[input.activityId];
     if (!activity || activity.definition.kind !== "run" || activity.state !== "RUNNING") {
@@ -1274,6 +1759,162 @@ export class DurableWorkflowManager {
     return this.gate();
   }
 
+  async parkRunForDataHygiene(input: {
+    claimToken: string;
+    executionSubjectDigest: string;
+    dataHygieneStatus: UnsettledDataHygieneStatus;
+  }): Promise<{ blockerId: string; projection: WorkflowGateView }> {
+    const before = await this.gate();
+    const activity = before.activities.run;
+    if (!activity || activity.definition.kind !== "run" || activity.state !== "RUNNING") {
+      throw new Error("Data hygiene can park only the running formal run activity.");
+    }
+    if (!["cleanup_failed", "manual_required", "unknown"].includes(
+      input.dataHygieneStatus
+    )) {
+      throw new Error("Data hygiene parking requires an unsettled cleanup status.");
+    }
+    const subjectDigest = requireDigest(
+      input.executionSubjectDigest,
+      "executionSubjectDigest"
+    );
+    const handle = await this.handleForClaim("run", input.claimToken);
+    await this.runtime.assertCanCommit(handle);
+    const blockerId = formalDataHygieneBlockerId(subjectDigest);
+    await this.append(
+      "BlockerRaised",
+      "runner",
+      {
+        blockerId,
+        affectedActivityIds: ["run"],
+        category: "data_hygiene_incomplete",
+        detail: `Formal execution data hygiene is ${input.dataHygieneStatus}.`,
+        resolutionCondition: "The same FormalExecutionStore result must settle as clean, reusable, or retained."
+      },
+      `${before.runId}/formal-execution/${subjectDigest}/data-hygiene/${blockerId}`,
+      before.head
+    );
+    await this.runtime.release(handle);
+    return { blockerId, projection: await this.gate() };
+  }
+
+  async parkRunForDeterministicOutcome(input: {
+    claimToken: string;
+    executionSubjectDigest: string;
+    outcomeAssessment: FormalDeterministicOutcomeAssessment;
+  }): Promise<{ blockerId: string; projection: WorkflowGateView }> {
+    const before = await this.gate();
+    const activity = before.activities.run;
+    if (!activity || activity.definition.kind !== "run" || activity.state !== "RUNNING") {
+      throw new Error("Deterministic outcome parking requires the running formal run activity.");
+    }
+    if (
+      input.outcomeAssessment.status !== "terminal_unknown"
+      || input.outcomeAssessment.terminalUnknownCount < 1
+    ) {
+      throw new Error("Deterministic outcome parking requires a terminal unknown assessment.");
+    }
+    const subjectDigest = requireDigest(
+      input.executionSubjectDigest,
+      "executionSubjectDigest"
+    );
+    const handle = await this.handleForClaim("run", input.claimToken);
+    await this.runtime.assertCanCommit(handle);
+    const blockerId = formalDeterministicOutcomeBlockerId(subjectDigest);
+    await this.append(
+      "BlockerRaised",
+      "runner",
+      {
+        blockerId,
+        affectedActivityIds: ["run"],
+        category: "deterministic_outcome_unknown",
+        detail: `Formal execution has ${input.outcomeAssessment.terminalUnknownCount} terminal unknown case outcome(s).`,
+        resolutionCondition: "A later trusted attempt must eliminate every terminal unknown and the dedicated formal finalizer must seal the same execution subject."
+      },
+      `${before.runId}/formal-execution/${subjectDigest}/deterministic-outcome/${blockerId}`,
+      before.head
+    );
+    await this.runtime.release(handle);
+    return { blockerId, projection: await this.gate() };
+  }
+
+  async replaceDeterministicOutcomeBlockerWithDataHygiene(input: {
+    claimToken: string;
+    executionSubjectDigest: string;
+    outcomeAssessment: FormalDeterministicOutcomeAssessment;
+    dataHygieneStatus: UnsettledDataHygieneStatus;
+  }): Promise<{ blockerId: string; projection: WorkflowGateView }> {
+    if (
+      input.outcomeAssessment.status !== "settled"
+      || input.outcomeAssessment.pendingUnknownCount !== 0
+      || input.outcomeAssessment.terminalUnknownCount !== 0
+    ) {
+      throw new Error(
+        "Deterministic outcome blocker replacement requires a fully settled outcome assessment."
+      );
+    }
+    if (![
+      "cleanup_failed",
+      "manual_required",
+      "unknown"
+    ].includes(input.dataHygieneStatus)) {
+      throw new Error("Data hygiene blocker replacement requires an unsettled cleanup status.");
+    }
+    const subjectDigest = requireDigest(
+      input.executionSubjectDigest,
+      "executionSubjectDigest"
+    );
+    const deterministicBlockerId = formalDeterministicOutcomeBlockerId(subjectDigest);
+    const hygieneBlockerId = formalDataHygieneBlockerId(subjectDigest);
+    const before = await this.gate();
+    const activity = before.activities.run;
+    if (
+      !activity
+      || activity.definition.kind !== "run"
+      || activity.state !== "BLOCKED"
+      || activity.blockerIds.length !== 1
+      || activity.blockerIds[0] !== deterministicBlockerId
+    ) {
+      throw new Error(
+        "Data hygiene can replace only the active deterministic outcome blocker for the same formal run."
+      );
+    }
+    const handle = await this.handleForClaim("run", input.claimToken);
+    await this.runtime.assertCanCommit(handle);
+    const outcomeEvidence = sha256([
+      "formal-deterministic-outcome-settled-v1",
+      subjectDigest,
+      input.outcomeAssessment.status,
+      input.outcomeAssessment.pendingUnknownCount,
+      input.outcomeAssessment.terminalUnknownCount
+    ].join(":"));
+    await this.appendSequence([
+      {
+        type: "BlockerResolved",
+        actorType: "system",
+        payload: {
+          blockerId: deterministicBlockerId,
+          evidence: outcomeEvidence
+        },
+        idempotencyKey: `${before.runId}/formal/${subjectDigest.slice(0, 24)}/outcome-to-hygiene/${outcomeEvidence}`
+      },
+      {
+        type: "BlockerRaised",
+        actorType: "runner",
+        payload: {
+          blockerId: hygieneBlockerId,
+          affectedActivityIds: ["run"],
+          category: "data_hygiene_incomplete",
+          detail: `Formal execution data hygiene is ${input.dataHygieneStatus}.`,
+          resolutionCondition: "The same FormalExecutionStore result must settle as clean, reusable, or retained."
+        },
+        idempotencyKey: `${before.runId}/formal/${subjectDigest.slice(0, 24)}/data-hygiene/${hygieneBlockerId}/${input.dataHygieneStatus}`
+      }
+    ], before.head);
+    await this.runtime.release(handle);
+    return { blockerId: hygieneBlockerId, projection: await this.gate() };
+  }
+
   async resumeRunAfterExternalTransition(input: {
     activityId: string;
     blockerId: string;
@@ -1283,6 +1924,11 @@ export class DurableWorkflowManager {
   }): Promise<ActivityStartResult> {
     requireDigest(input.evidenceDigest, "evidenceDigest");
     const before = await this.gate();
+    if (isReservedFormalBlockerId(input.blockerId)) {
+      throw new Error(
+        "Reserved formal blockers may be resolved only by their dedicated formal finalize path."
+      );
+    }
     const activity = before.activities[input.activityId];
     if (!activity || activity.definition.kind !== "run") {
       throw new Error(`${input.activityId} is not the v5 run activity.`);
@@ -1332,6 +1978,11 @@ export class DurableWorkflowManager {
   }
 
   async resolveBlocker(blockerId: string, evidence: string): Promise<WorkflowGateView> {
+    if (isReservedFormalBlockerId(blockerId)) {
+      throw new Error(
+        "Reserved formal blockers may be resolved only by their dedicated formal finalize path."
+      );
+    }
     const before = await this.gate();
     await this.append(
       "BlockerResolved",
@@ -1351,6 +2002,16 @@ export class DurableWorkflowManager {
     outputRefs: string[] = [],
     outputDigests: Array<{ path: string; digest: string }> = []
   ): Promise<WorkflowGateView> {
+    const activity = (await this.gate()).activities[activityId];
+    if (
+      outcome === "confirmed"
+      && activity
+      && ["run", "report"].includes(activity.definition.kind)
+    ) {
+      throw new Error(
+        `Activity ${activityId} must use the dedicated formal execution completion path.`
+      );
+    }
     return this.reconcileActivityInternal(
       activityId,
       outcome,
@@ -1520,6 +2181,11 @@ export class DurableWorkflowManager {
   ): Promise<WorkflowGateView> {
     const before = await this.gate();
     const activity = before.activities[activityId];
+    if (activity && ["run", "report"].includes(activity.definition.kind)) {
+      throw new Error(
+        `Activity ${activityId} must use the dedicated formal execution completion path.`
+      );
+    }
     if (!activity || activity.state !== "RECONCILING" || !activity.definition.publishesArtifacts) {
       throw new Error(`Activity ${activityId} is not reconciling an artifact publication.`);
     }
@@ -1563,8 +2229,21 @@ export class DurableWorkflowManager {
         `Artifact publication requires running or callback-waiting activity ${activityId}.`
       );
     }
-    if (["WAITING_CALLBACK", "RECONCILING"].includes(
-      before.activities[activityId]?.state ?? ""
+    const activity = before.activities[activityId];
+    const formalReportReconciliation = activity?.state === "RECONCILING"
+      && activity.definition.kind === "report";
+    if (formalReportReconciliation) {
+      const subject = await this.executionAuthorizationSubject(before);
+      const expectedPaths = formalReportOutputPaths(subject.digest).sort();
+      const actualPaths = event.payload.artifacts.map((artifact) => artifact.targetPath).sort();
+      if (
+        actualPaths.length !== expectedPaths.length
+        || actualPaths.some((path, index) => path !== expectedPaths[index])
+      ) {
+        throw new Error(`Formal report must prepare exactly ${expectedPaths.join(", ")}.`);
+      }
+    } else if (["WAITING_CALLBACK", "RECONCILING"].includes(
+      activity?.state ?? ""
     )) {
       const artifacts = event.payload.artifacts;
       const planPath = safeRelativePath(this.workspaceRoot, this.planPath);
@@ -3060,6 +3739,76 @@ export class DurableWorkflowManager {
     return { digest, callbackId };
   }
 
+  private async assertFormalCompletionEvidence(
+    projection: WorkflowProjection,
+    activityId: "run" | "report",
+    input: FormalExecutionWorkflowEvidence
+  ): Promise<FormalExecutionWorkflowEvidence> {
+    const activity = projection.activities[activityId];
+    if (!activity || activity.definition.kind !== activityId) {
+      throw new Error(`Workflow definition is missing formal activity ${activityId}.`);
+    }
+    const contract = activity.definition.metadata?.completionContract;
+    if (contract !== undefined && contract !== "formal-execution-completion-seal-v1") {
+      throw new Error(`Activity ${activityId} has an unsupported completion contract.`);
+    }
+    const evidence = parseFormalExecutionWorkflowEvidence(
+      input as unknown as SafeJsonValue
+    );
+    const authorization = projection.activities["execution-authorization"];
+    if (authorization?.state !== "SUCCEEDED") {
+      throw new Error("Formal completion requires an accepted execution authorization.");
+    }
+    const subject = await this.executionAuthorizationSubject(projection);
+    if (
+      subject.digest !== evidence.executionSubjectDigest
+      || authorization.callbackSubjectDigest !== evidence.executionSubjectDigest
+    ) {
+      throw new Error(
+        "Formal completion evidence differs from the accepted execution subject."
+      );
+    }
+    if (activityId === "report") {
+      const events = await this.events();
+      const runSuccess = [...events].reverse().find((event) =>
+        event.type === "ActivitySucceeded"
+        && event.payload.activityId === "run"
+      );
+      if (!runSuccess?.payload.formalExecutionEvidence) {
+        if (contract === "formal-execution-completion-seal-v1") {
+          throw new Error("Formal report requires sealed evidence from the succeeded run activity.");
+        }
+        return evidence;
+      }
+      const runEvidence = parseFormalExecutionWorkflowEvidence(
+        runSuccess.payload.formalExecutionEvidence
+      );
+      if (!sameFormalExecutionWorkflowEvidence(runEvidence, evidence)) {
+        throw new Error("Formal report evidence differs from the succeeded run evidence.");
+      }
+    }
+    return evidence;
+  }
+
+  private async assertRecordedFormalCompletion(
+    activityId: "run" | "report",
+    evidence: FormalExecutionWorkflowEvidence
+  ): Promise<void> {
+    const succeeded = [...await this.events()].reverse().find((event) =>
+      event.type === "ActivitySucceeded"
+      && event.payload.activityId === activityId
+    );
+    if (!succeeded?.payload.formalExecutionEvidence) {
+      throw new Error(`Succeeded ${activityId} has no formal completion evidence.`);
+    }
+    const recorded = parseFormalExecutionWorkflowEvidence(
+      succeeded.payload.formalExecutionEvidence
+    );
+    if (!sameFormalExecutionWorkflowEvidence(recorded, evidence)) {
+      throw new Error(`Succeeded ${activityId} is bound to different formal evidence.`);
+    }
+  }
+
   private async cleanupSucceededStagingDirectories(
     projection: WorkflowProjection
   ): Promise<void> {
@@ -4143,6 +4892,42 @@ export class DurableWorkflowManager {
     }
   }
 
+}
+
+function formalPreparedArtifactDigests(
+  payload: SafeEventPayload
+): Array<{ targetPath: string; digest: string }> {
+  if (!Array.isArray(payload.artifacts)) {
+    throw new Error("Formal report publication intent has no artifact list.");
+  }
+  return payload.artifacts.map((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error("Formal report publication intent contains an invalid artifact.");
+    }
+    const artifact = raw as Record<string, SafeJsonValue>;
+    if (
+      typeof artifact.targetPath !== "string"
+      || typeof artifact.digest !== "string"
+      || !/^[a-f0-9]{64}$/u.test(artifact.digest)
+    ) {
+      throw new Error("Formal report publication intent contains an invalid path or digest.");
+    }
+    return { targetPath: artifact.targetPath, digest: artifact.digest };
+  }).sort((left, right) => left.targetPath.localeCompare(right.targetPath));
+}
+
+function sameArtifactDigests(
+  expected: Array<{ targetPath: string; digest: string }>,
+  actual: Array<{ targetPath: string; digest: string }>
+): boolean {
+  const normalizedActual = [...actual].sort((left, right) =>
+    left.targetPath.localeCompare(right.targetPath)
+  );
+  return expected.length === normalizedActual.length
+    && expected.every((item, index) =>
+      item.targetPath === normalizedActual[index]?.targetPath
+      && item.digest === normalizedActual[index]?.digest
+    );
 }
 
 export function workflowStatusText(view: WorkflowGateView): string {

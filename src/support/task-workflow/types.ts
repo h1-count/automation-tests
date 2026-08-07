@@ -260,6 +260,25 @@ export const workflowStates = [
 ] as const;
 export type WorkflowState = (typeof workflowStates)[number];
 export type TestOutcome = "passed" | "failed" | "mixed" | "inconclusive";
+
+export interface FormalExecutionWorkflowEvidence {
+  schemaVersion: "formal-execution-workflow-evidence-v1";
+  executionSubjectDigest: string;
+  manifestDigest: string;
+  resultDigest: string;
+  caseCounts: {
+    passed: number;
+    failed: number;
+    blocked: number;
+    skipped: number;
+    unknown: number;
+    deferred: number;
+  };
+  scopeStatus: "complete" | "partial";
+  dataHygieneStatus: "clean" | "reusable" | "retained";
+  testOutcome: TestOutcome;
+}
+
 export type CallbackResolution = "accepted" | "rejected" | "revision_requested" | "cancelled";
 
 export interface ActivityProjection {

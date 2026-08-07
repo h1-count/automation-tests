@@ -4,6 +4,7 @@ import type { FormalExecutionRecord } from "./types.js";
 export interface ScheduledBlockedCase {
   caseId: string;
   reason: string;
+  resourceName: string;
 }
 
 export interface ExecutionScheduleDecision {
@@ -35,10 +36,9 @@ export function selectNextExecutionWave(
   for (const node of plan.nodes) {
     const result = record.cases[node.caseId];
     if (!result || ["passed", "failed", "skipped"].includes(result.status)) continue;
+    if (isTerminalUnknown(result)) continue;
     if ((waitingByCase.get(node.caseId) ?? []).length > 0) continue;
-    if (result.status === "blocked" && !lastBlockWasResolvedTransition(record, node.caseId)) {
-      continue;
-    }
+    if (result.status === "blocked") continue;
     const missingEdges = (incoming.get(node.caseId) ?? []).filter((edge) =>
       !record.resources[edge.resourceName]?.available
     );
@@ -53,7 +53,8 @@ export function selectNextExecutionWave(
       if (terminal) {
         blockedCases.push({
           caseId: node.caseId,
-          reason: `Dependency ${terminal.resourceName} from ${terminal.producerCaseId} was not produced.`
+          reason: `Dependency ${terminal.resourceName} from ${terminal.producerCaseId} was not produced.`,
+          resourceName: terminal.resourceName
         });
       }
       continue;
@@ -72,6 +73,7 @@ export function selectNextExecutionWave(
   const waitingTransitionIds = [...new Set([...waitingByCase.values()].flat())].sort();
   const remaining = Object.values(record.cases).filter((item) =>
     !["passed", "failed", "skipped"].includes(item.status)
+    && !isTerminalUnknown(item)
     && !(item.status === "blocked" && (waitingByCase.get(item.caseId) ?? []).length === 0)
     && !blockedCases.some((blocked) => blocked.caseId === item.caseId)
   );
@@ -83,10 +85,9 @@ export function selectNextExecutionWave(
   };
 }
 
-function lastBlockWasResolvedTransition(record: FormalExecutionRecord, caseId: string): boolean {
-  const attempts = record.cases[caseId]?.attempts ?? [];
-  const last = attempts[attempts.length - 1];
-  if (last?.failureClassification !== "external_transition_required") return false;
-  const transitions = Object.values(record.stageProgress?.[caseId]?.transitions ?? {});
-  return transitions.length > 0 && transitions.every((transition) => transition.status === "resolved");
+function isTerminalUnknown(result: FormalExecutionRecord["cases"][string]): boolean {
+  if (result.status !== "unknown") return false;
+  const latest = result.attempts.at(-1);
+  return latest?.finality === "terminal"
+    || (latest?.finality === undefined && latest?.endedAt !== undefined);
 }

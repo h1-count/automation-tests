@@ -265,7 +265,7 @@ test("light-only script changes do not invalidate strict reviewer evidence", asy
     "utf8"
   );
   const input = baseInput(paths, {
-    scriptPaths: [strictSpec, lightSpec, paths.utilityPath],
+    scriptPaths: [strictSpec, lightSpec],
     caseIds: [strictCaseId, lightCaseId],
     caseReviewPolicy: reviewPolicy("strict"),
     caseRiskAssessments: [

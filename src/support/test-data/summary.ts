@@ -50,6 +50,35 @@ export function buildSummary(runId: string, resources: TestResourceRecord[]): Te
   };
 }
 
+export function isAcceptedTestDataSummary(summary: TestDataSummary): boolean {
+  const cleaned = summary.resources.filter((resource) => resource.state === "cleaned").length;
+  const retained = summary.resources.filter((resource) => resource.state === "retained").length;
+  const reusableAvailable = summary.resources.filter((resource) =>
+    resource.state === "available" && resource.reusable
+  ).length;
+  const expectedHygiene = retained > 0
+    ? "retained"
+    : reusableAvailable > 0
+      ? "reusable"
+      : "clean";
+  return summary.totalResources === summary.resources.length
+    && summary.cleaned === cleaned
+    && summary.retained === retained
+    && summary.reusableAvailable === reusableAvailable
+    && summary.dataHygieneStatus === expectedHygiene
+    && summary.cleanupFailed === 0
+    && summary.manualRequired === 0
+    && summary.quarantined === 0
+    && summary.retired === 0
+    && summary.expiredResidual === 0
+    && summary.dirty === 0
+    && summary.resources.every((resource) =>
+      resource.state === "cleaned"
+      || resource.state === "retained"
+      || (resource.state === "available" && resource.reusable)
+    );
+}
+
 export function sanitizeSummary(summary: TestDataSummary): TestDataReportSummary {
   return {
     ...summary,
