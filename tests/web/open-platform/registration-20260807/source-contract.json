@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "source-contract-evidence-v1",
+  "requestId": "web/open-platform/registration-20260807",
+  "targetBuildDigest": "ed9fc5d436d2b9deb0a94edcf9755ffc66bf55b46f539a0e30ddd71bf8ad9a9f",
+  "contracts": [
+    "registration-form-contract",
+    "registration-submit-contract",
+    "registration-residual-contract",
+    "registration-license-upload",
+    "aiot-console-landing-contract",
+    "approved-platform-resource-contract"
+  ],
+  "sourceFiles": [
+    {
+      "path": ".local/repositories/web-open-platform/src/pages/session/components/RegisterForm.vue",
+      "digest": "0f6d0406df2f2010c8e15ee209feb0148d83d762674a93daf2950747aa9afd0e"
+    },
+    {
+      "path": ".local/repositories/web-open-platform/src/pages/session/Pending.vue",
+      "digest": "d936f3d4acdcf03641695e3aeb0fb6c90534b05151c8ab4369e901343fe169c6"
+    },
+    {
+      "path": ".local/repositories/web-open-platform/src/pages/console/company/CompanyInfo.vue",
+      "digest": "026ff5a90f18c19415a9718d4bbce601b5f25293a43a49f97f990cd87fc031b8"
+    },
+    {
+      "path": ".local/repositories/web-open-platform/src/routes/website.ts",
+      "digest": "6256479f9baa31416b4aa92aa3e0582c9f5d7255bec73339b29542d1afa1e6d4"
+    }
+  ]
+}
