@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import {
   buildExecutionAuthorizationManifest,
   EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+  STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
   READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
   executionOperationKinds,
   loadConfirmedExecutionAuthorization,
@@ -15,7 +16,8 @@ import {
 } from "../../formal-execution/authorization.js";
 import {
   evaluateCapabilitiesWithProviders,
-  loadFormalExecutionManifest
+  loadFormalExecutionManifest,
+  loadFormalExecutionManifestFromPath
 } from "../../formal-execution/manifest.js";
 import { createDefaultCapabilityProviderRegistry } from "../../formal-execution/capabilityProvider.js";
 import { FormalExecutionStore } from "../../formal-execution/formalExecutionStore.js";
@@ -28,6 +30,14 @@ import { resolveFormalRunnerAdapter } from "../../formal-execution/runnerAdapter
 import { assessExecutionReadiness } from "../../formal-execution/readiness.js";
 import { TestDataManager } from "../../test-data/testDataManager.js";
 import type { FormalExecutionManifest } from "../../formal-execution/types.js";
+import {
+  assessStableTestSuite,
+  loadStableTestSuite,
+  promoteStableTestSuite,
+  stableSuiteEntryScriptsForCases,
+  stableSuiteManifestPath,
+  validateStableTestSuite
+} from "../../test-suite/stableSuite.js";
 import { ReviewInputSnapshotStore } from "../reviewInputSnapshot.js";
 import {
   SCRIPT_REVIEW_POLICY_VERSION,
@@ -43,6 +53,10 @@ import {
   workflowStatusText,
   type WorkflowGateView
 } from "../workflowManager.js";
+import type {
+  StableTestSuiteManifest,
+  StableTestSuiteProfile
+} from "../../test-suite/stableSuite.js";
 import type {
   ActivityProjection,
   CallbackResolution,
@@ -232,7 +246,7 @@ function caseScopesFromManifest(
   const selected = new Set(caseIds);
   return manifest.cases.filter((definition) => selected.has(definition.caseId)).map((definition) => {
     if (
-      manifest.schemaVersion !== "formal-execution-manifest-v3"
+      !["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)
       || !definition.permissionProfile
       || !definition.requiredOperations
       || !definition.dataWritePolicy
@@ -256,6 +270,45 @@ function caseScopesFromManifest(
       })
     };
   });
+}
+
+function stableResourceBudgets(
+  suite: StableTestSuiteManifest,
+  manifest: FormalExecutionManifest,
+  caseIds: string[]
+): Array<{ resourceType: string; maxCreates: number }> {
+  const selected = new Set(caseIds);
+  const resourceTypes = new Set<string>();
+  for (const definition of manifest.cases.filter((item) => selected.has(item.caseId))) {
+    for (const resource of definition.producesResources) {
+      if (typeof resource === "string") continue;
+      resourceTypes.add(resource.resourceType);
+    }
+  }
+  return suite.resourceBudgets.filter((item) => resourceTypes.has(item.resourceType));
+}
+
+function stableResourcePoolBudgets(
+  suite: StableTestSuiteManifest,
+  manifest: FormalExecutionManifest,
+  caseIds: string[]
+): ExecutionResourcePoolBudget[] {
+  const selected = new Set(caseIds);
+  const selectedKeys = new Set<string>();
+  for (const definition of manifest.cases.filter((item) => selected.has(item.caseId))) {
+    for (const resource of definition.consumesResources ?? []) {
+      selectedKeys.add(`${resource.resourceType}:${resource.baselineContractId}`);
+    }
+    for (const resource of definition.producesResources) {
+      if (typeof resource === "string"
+        || resource.disposition !== "reusable_fixture"
+        || !resource.baselineContractId) continue;
+      selectedKeys.add(`${resource.resourceType}:${resource.baselineContractId}`);
+    }
+  }
+  return suite.resourcePoolBudgets.filter((item) =>
+    selectedKeys.has(`${item.resourceType}:${item.baselineContractId}`)
+  );
 }
 
 function externalTransitionsFromManifest(
@@ -398,6 +451,7 @@ async function main(): Promise<void> {
   if (!command || command === "--help" || args.includes("--help")) {
     process.stdout.write([
       "Usage: task:manage <command> --request <type/project/request> ...",
+      "Reuse: init --suite <type/project/feature> --reuse auto --environment <test|pre> [--profile <profile>], suite-promote --suite <type/project/feature>",
       "Core: init, resume, activity-start, activity-renew, activity-succeed, artifact-publish-succeed, activity-fail",
       "Waits: callback-request, callback-resolve, callback-reopen, block, resolve, reconcile, suspend",
       "  callback-resolve --callback <id> --resolution <accepted|rejected|revision_requested|cancelled> --plan-source <updated-plan.md>  # required for formal callbacks",
@@ -406,9 +460,10 @@ async function main(): Promise<void> {
       "  reviewer-dispatch --batch <id> --activity <review-id> --agent-task <host-task-id>",
       "  reviewer-submit --batch <id> --activity <review-id> --agent-task <host-task-id> [--plan-evidence <plan.md>]",
       "  review-batch-invalidate --batch <id> --reason <text> [--activity <review-id> --revision-digest <sha256> --findings-digest <sha256>]",
-      "Execution: script-review-assess, execution-readiness-publish, execution-authorization-publish/request/verify, execution-scope-reopen, execution-run-finalize, execution-report-finalize, execution-transition-park/resolve, external-operation-start/reconcile",
+      "Execution: script-review-assess, execution-readiness-publish, suite-readiness-publish, execution-authorization-publish/request/verify, execution-scope-reopen, execution-run-finalize, execution-report-finalize, execution-transition-park/resolve, external-operation-start/reconcile",
       "  script-review-assess --environment <name> --script <path> --case-id <id> [--case-risk <id:level>] --operation <kind> [--budget <type:max>] --data-write-policy <no_write|ephemeral_cleanup|reusable_fixture|tracked_residual>",
       "  execution-readiness-publish --claim <lease> --environment <name> [--target-build-digest <sha256>] --script <path> --case-id <id> [--case-risk <id:level>] --operation <kind> [--selector-evidence-digest <sha256>] [--review-evidence <runtime-json>] --verified <evidence>",
+      "  suite-readiness-publish --claim <lease> --environment <test|pre>  # all suite identities and scopes are derived",
       "  execution-authorization-publish --claim <lease> --environment <name> --script <path> --case-id <id> --operation <kind> [--budget <type:max>] --data-write-policy <no_write|ephemeral_cleanup|reusable_fixture|tracked_residual> [--review-evidence <runtime-json>] --verified <evidence>",
       "  execution-run-finalize --claim <lease>",
       "  execution-report-finalize --claim <lease>",
@@ -436,6 +491,35 @@ async function main(): Promise<void> {
       "--data-isolated",
       "--shared-account"
     ].some((name) => option(args, name) !== undefined);
+    const reuse = option(args, "--reuse");
+    if (reuse !== undefined && reuse !== "auto") {
+      throw new Error("--reuse only accepts auto; the CLI derives the reuse decision.");
+    }
+    if (reuse === "auto") {
+      if (!option(args, "--suite")) throw new Error("--reuse auto requires --suite.");
+      const environment = option(args, "--environment");
+      if (environment !== "test" && environment !== "pre") {
+        throw new Error("--reuse auto requires --environment test or --environment pre.");
+      }
+      const forbidden = [
+        "--plan",
+        "--case-package",
+        "--reviewer-role",
+        "--writes-data",
+        "--case-id",
+        "--script",
+        "--digest",
+        "--suite-version"
+      ].filter((name) => args.includes(name));
+      if (forbidden.length) {
+        throw new Error(`--reuse auto derives stable design inputs and does not accept ${forbidden.join(", ")}.`);
+      }
+    }
+    const profile = option(args, "--profile");
+    if (profile !== undefined
+      && !["full_feature", "smoke", "affected", "failed_or_blocked"].includes(profile)) {
+      throw new Error("--profile must be full_feature, smoke, affected, or failed_or_blocked.");
+    }
     const view = await manager.initialize({
       planPath: option(args, "--plan"),
       capabilities: parseCapabilities(options(args, "--capability")),
@@ -453,7 +537,11 @@ async function main(): Promise<void> {
           }
         : undefined,
       sessionId,
-      targetThreadId
+      targetThreadId,
+      suiteId: option(args, "--suite"),
+      reuse: reuse as "auto" | undefined,
+      environment: option(args, "--environment"),
+      profile: profile as StableTestSuiteProfile | undefined
     });
     output(args, view, workflowStatusText(view));
     return;
@@ -590,7 +678,9 @@ async function main(): Promise<void> {
       "case-review-conflict-decision",
       "execution-authorization"
     ]);
-    const view = formalCallbacks.has(activityId)
+    const historyOnlyExecutionAuthorization = before.definitionVersion === "v6"
+      && activityId === "execution-authorization";
+    const view = formalCallbacks.has(activityId) && !historyOnlyExecutionAuthorization
       ? await manager.publishPlanAndResolveCallback({
           callbackId,
           activityId,
@@ -809,6 +899,18 @@ async function main(): Promise<void> {
         "Start readiness before publishing execution-authorization-v4."
       );
     }
+    const reuseMetadata = before.activities["reuse-assessment"]?.definition.metadata;
+    if (before.definitionVersion === "v6"
+      && reuseMetadata?.decision === "affected_rebuild") {
+      const expectedCaseIds = Array.isArray(reuseMetadata.selectedCaseIds)
+        ? reuseMetadata.selectedCaseIds.filter((item): item is string => typeof item === "string").sort()
+        : [];
+      if (JSON.stringify([...caseIds].sort()) !== JSON.stringify(expectedCaseIds)) {
+        throw new Error(
+          "Affected rebuild readiness must use exactly the caseIds from the deterministic impact assessment."
+        );
+      }
+    }
     const attemptStarted = [...await manager.events()].reverse().find((event) =>
       event.type === "ActivityAttemptStarted"
       && event.payload.activityId === "readiness"
@@ -993,6 +1095,202 @@ async function main(): Promise<void> {
         workflow: view
       },
       `readiness 已从 ${selectorBuildIdentity.sources.join(", ")} 读取 targetBuildDigest=${targetBuildDigest}，发布 ${readiness.runnableCount} 个执行链用例（首波 ${readiness.initialRunnableCaseIds.length}，后续 ${readiness.scheduledCaseIds.length}，共 ${readiness.executionWaves.length} 波，graph=${readiness.dependencyPlan.graphDigest.slice(0, 12)}），${readiness.deferredCount} 个真实延期用例。`
+    );
+    return;
+  }
+
+  if (command === "suite-readiness-publish") {
+    rejectOptions(args, [
+      "--script",
+      "--case-id",
+      "--operation",
+      "--data-write-policy",
+      "--verified",
+      "--review-evidence",
+      "--selector-evidence-digest",
+      "--target-build-digest",
+      "--digest",
+      "--suite-version"
+    ], command);
+    const before = await manager.gate();
+    if (before.definitionVersion !== "v6") {
+      throw new Error("suite-readiness-publish requires a v6 stable-suite workflow.");
+    }
+    const readinessActivity = before.activities.readiness;
+    if (readinessActivity?.state !== "RUNNING") {
+      throw new Error("Start readiness before publishing the suite execution authorization.");
+    }
+    const suiteId = String(readinessActivity.definition.metadata?.suiteId ?? "");
+    const suiteVersion = String(readinessActivity.definition.metadata?.suiteVersion ?? "");
+    const environment = required(args, "--environment");
+    const suite = await loadStableTestSuite(suiteId, manager.workspaceRoot);
+    const validation = await validateStableTestSuite(suiteId, manager.workspaceRoot);
+    if (suite.suiteVersion !== suiteVersion
+      || validation.driftedPaths.length
+      || validation.closureDrift) {
+      throw new Error("Stable suite changed after v6 initialization; run a new deterministic reuse assessment.");
+    }
+    const assessment = await assessStableTestSuite({
+      suiteId,
+      environment,
+      profile: String(readinessActivity.definition.metadata?.effectiveProfile ?? "full_feature") as StableTestSuiteProfile,
+      workspaceRoot: manager.workspaceRoot
+    });
+    if (assessment.decision !== "direct_execute"
+      || assessment.suiteVersion !== suiteVersion) {
+      throw new Error("Stable suite is no longer eligible for direct execution.");
+    }
+    const requestedCaseIds = assessment.selectedCaseIds;
+    const selectedEntryScriptPaths = stableSuiteEntryScriptsForCases(suite, requestedCaseIds);
+    const formalManifest = await loadFormalExecutionManifestFromPath(
+      suite.formalManifest.path,
+      { workspaceRoot: manager.workspaceRoot, expectedSuiteId: suiteId }
+    );
+    if (formalManifest.environment !== environment) {
+      throw new Error("Stable suite formal manifest environment differs from this run.");
+    }
+    if (formalManifest.schemaVersion === "formal-execution-manifest-v4"
+      && formalManifest.suiteId !== suiteId) {
+      throw new Error("Stable suite formal manifest identity drifted.");
+    }
+    const selectedDefinitions = formalManifest.cases.filter((item) =>
+      requestedCaseIds.includes(item.caseId)
+    );
+    if (selectedDefinitions.length !== requestedCaseIds.length) {
+      throw new Error("Stable suite selected caseIds are not fully declared by the formal manifest.");
+    }
+    const operations = [...new Set(selectedDefinitions.flatMap((item) => item.requiredOperations ?? []))];
+    if (!operations.length) {
+      throw new Error("Stable suite direct execution requires explicit per-case operations.");
+    }
+    const selectorBuildIdentity = await resolveSelectorBuildIdentity({
+      manifest: formalManifest,
+      workspaceRoot: manager.workspaceRoot
+    });
+    const capabilityResults = await evaluateCapabilitiesWithProviders(
+      formalManifest.capabilities,
+      { requestId, environment, targetBuildDigest: selectorBuildIdentity.targetBuildDigest },
+      createDefaultCapabilityProviderRegistry()
+    );
+    const poolKeys = [...new Map(
+      selectedDefinitions.flatMap((definition) =>
+        (definition.consumesResources ?? []).map((resource) => [
+          `${resource.resourceType}:${resource.baselineContractId}`,
+          { resourceType: resource.resourceType, baselineContractId: resource.baselineContractId }
+        ] as const)
+      )
+    ).values()];
+    const resourcePoolEvidence = await new TestDataManager({
+      projectId: formalManifest.projectId,
+      envId: environment
+    }).inspectReusablePools(poolKeys);
+    const resourcePoolBudgets = stableResourcePoolBudgets(suite, formalManifest, requestedCaseIds);
+    const readiness = assessExecutionReadiness({
+      manifest: formalManifest,
+      requestedCaseIds,
+      capabilityResults,
+      allowedOperations: operations,
+      dataWritePolicy: suite.dataWritePolicy,
+      resourcePoolBudgets,
+      resourcePoolEvidence,
+      ...(!resolveFormalRunnerAdapter(requestId).implemented
+        ? {
+            globalBlockers: [{
+              code: "runner_adapter_unavailable",
+              source: requestId.split("/")[0]!,
+              unblockCondition: `Implement and verify the ${requestId.split("/")[0]} formal runner adapter.`
+            }]
+          }
+        : {})
+    });
+    if (readiness.invalidCount > 0) {
+      throw new Error(`Stable suite readiness contains invalid cases: ${readiness.invalidCases.map((item) => item.caseId).join(", ")}.`);
+    }
+    if (readiness.runnableCount === 0) {
+      const summary = `No runnable suite cases; ${readiness.deferredCount} case(s) await runtime capabilities.`;
+      await manager.failActivity("readiness", {
+        claimToken: required(args, "--claim"),
+        retryable: true,
+        summary,
+        maxAttempts: 99,
+        retryAt: new Date(Date.now() + 86_400_000).toISOString()
+      });
+      const blocked = await manager.raiseBlocker({
+        blockerId: `readiness-zero-runnable-${suiteVersion.slice(0, 12)}`,
+        affectedActivityIds: ["readiness"],
+        category: "execution_readiness",
+        detail: summary,
+        resolutionCondition: "Restore the checked runtime capability and repeat suite readiness; do not rebuild the suite."
+      });
+      output(args, { readiness, workflow: blocked }, summary);
+      process.exitCode = 2;
+      return;
+    }
+    const attemptStarted = [...await manager.events()].reverse().find((event) =>
+      event.type === "ActivityAttemptStarted"
+      && event.payload.activityId === "readiness"
+      && event.payload.attempt === readinessActivity.attempt
+    );
+    if (!attemptStarted) throw new Error("readiness has no durable start event.");
+    const suiteManifestPath = stableSuiteManifestPath(suiteId, manager.workspaceRoot);
+    const suiteManifestDigest = createHash("sha256")
+      .update(await readFile(suiteManifestPath))
+      .digest("hex");
+    const manifest = buildExecutionAuthorizationManifest({
+      schemaVersion: STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+      requestId,
+      environment,
+      scriptPaths: selectedEntryScriptPaths,
+      caseIds: readiness.runnableCaseIds,
+      runnableCaseIds: readiness.runnableCaseIds,
+      deferredCases: readiness.deferredCases,
+      capabilityEvidence: readiness.capabilityEvidence,
+      targetBuildDigest: selectorBuildIdentity.targetBuildDigest,
+      selectorEvidenceDigests: selectorBuildIdentity.evidenceDigests,
+      scriptReview: suite.scriptReview,
+      caseScopes: caseScopesFromManifest(formalManifest, readiness.runnableCaseIds),
+      resourcePoolBudgets,
+      resourcePoolEvidence,
+      externalTransitions: externalTransitionsFromManifest(formalManifest, readiness.runnableCaseIds),
+      allowedOperations: operations,
+      resourceBudgets: stableResourceBudgets(suite, formalManifest, readiness.runnableCaseIds),
+      dataWritePolicy: suite.dataWritePolicy,
+      workspaceRoot: manager.workspaceRoot,
+      createdAt: attemptStarted.occurredAt,
+      suiteRef: {
+        suiteId,
+        suiteVersion,
+        suiteManifestPath,
+        suiteManifestDigest,
+        suitePlanPath: suite.plan.path,
+        formalManifestPath: suite.formalManifest.path,
+        entryScriptPaths: selectedEntryScriptPaths,
+        authorizationMode: suite.dataWritePolicy === "no_write"
+          ? "policy_auto_no_write"
+          : "user_confirmed"
+      }
+    });
+    if (manifest.schemaVersion !== STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION) {
+      throw new Error("Stable suite readiness must publish execution-authorization-v5.");
+    }
+    const view = await manager.publishArtifactsAndSucceed("readiness", {
+      claimToken: required(args, "--claim"),
+      publishId: `suite-readiness-${manifest.readinessDigest.slice(0, 12)}-${sha256(required(args, "--claim")).slice(0, 12)}`,
+      verification: `stable-suite:${assessment.assessmentDigest}`,
+      artifacts: [{
+        targetPath: `testcases/${requestId}/execution-authorization.json`,
+        content: `${JSON.stringify(manifest, null, 2)}\n`
+      }]
+    });
+    const workflow = manifest.authorizationMode === "policy_auto_no_write"
+      ? await manager.finalizePolicyNoWriteAuthorization()
+      : view;
+    output(
+      args,
+      { readiness, manifest, workflow },
+      manifest.authorizationMode === "policy_auto_no_write"
+        ? `稳定套件 ${suiteId}@${suiteVersion.slice(0, 12)} 已发布 readiness，并为本轮 no_write 范围自动授权。`
+        : `稳定套件 ${suiteId}@${suiteVersion.slice(0, 12)} 已发布 readiness；本轮写入范围等待新的用户确认。`
     );
     return;
   }
@@ -1368,6 +1666,31 @@ async function main(): Promise<void> {
   if (command === "history-verify") {
     const result = await manager.verifyHistory();
     output(args, result, `历史校验通过：${result.eventCount} 个事件。`);
+    return;
+  }
+
+  if (command === "suite-promote") {
+    rejectOptions(args, [
+      "--digest",
+      "--suite-version",
+      "--case-id",
+      "--script",
+      "--manifest",
+      "--result-digest",
+      "--authorization-digest"
+    ], command);
+    const result = await promoteStableTestSuite({
+      requestId,
+      suiteId: required(args, "--suite"),
+      workspaceRoot: manager.workspaceRoot
+    });
+    output(
+      args,
+      result,
+      result.created
+        ? `稳定套件 ${result.manifest.suiteId}@${result.manifest.suiteVersion.slice(0, 12)} 已晋升。`
+        : `稳定套件 ${result.manifest.suiteId}@${result.manifest.suiteVersion.slice(0, 12)} 已存在，未重复写入。`
+    );
     return;
   }
 

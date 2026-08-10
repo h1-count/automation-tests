@@ -9,7 +9,9 @@ export interface FormalSpecInspectionOptions {
   manifestSchemaVersion?:
     | "formal-execution-manifest-v1"
     | "formal-execution-manifest-v2"
-    | "formal-execution-manifest-v3";
+    | "formal-execution-manifest-v3"
+    | "formal-execution-manifest-v4";
+  allowedCaseIds?: string[];
 }
 
 export function inspectFormalSpecSources(
@@ -31,7 +33,14 @@ export function inspectFormalSpecSources(
   }
   const actual = [...new Set(caseIds)].sort();
   const expected = [...new Set(expectedCaseIds)].sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+  const allowed = options.allowedCaseIds
+    ? [...new Set(options.allowedCaseIds)].sort()
+    : undefined;
+  const scopeMatches = allowed
+    ? expected.every((caseId) => actual.includes(caseId))
+      && actual.every((caseId) => allowed.includes(caseId))
+    : JSON.stringify(actual) === JSON.stringify(expected);
+  if (!scopeMatches) {
     issues.push(`Formal case scope differs from confirmed testcase packages: ${actual.length}/${expected.length}.`);
   }
   return { caseIds: actual, issues };
@@ -59,7 +68,9 @@ export function inspectFormalSpecSource(
     plugins: ["typescript", "jsx"]
   }) as unknown as AstNode;
   const callbacks = formalCaseCallbacks(sourceFile);
-  const requiresBusinessOracle = options.manifestSchemaVersion === "formal-execution-manifest-v3";
+  const requiresBusinessOracle = options.manifestSchemaVersion !== undefined
+    && ["formal-execution-manifest-v3", "formal-execution-manifest-v4"]
+      .includes(options.manifestSchemaVersion);
   for (const callback of callbacks) {
     if (!callback.body.body.length) {
       issues.push(`${callback.caseId} has an empty formalCase implementation.`);

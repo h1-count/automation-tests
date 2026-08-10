@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "browser-exploration-policy-v1",
+  "adapter": "chrome_devtools_mcp",
+  "package": "chrome-devtools-mcp@1.6.0",
+  "allowedTools": [
+    "list_pages",
+    "select_page",
+    "navigate_page",
+    "wait_for",
+    "take_snapshot",
+    "take_screenshot",
+    "list_console_messages",
+    "get_console_message",
+    "list_network_requests"
+  ],
+  "forbiddenTools": [
+    "new_page",
+    "click",
+    "drag",
+    "fill",
+    "fill_form",
+    "handle_dialog",
+    "press_key",
+    "type_text",
+    "upload_file",
+    "evaluate_script",
+    "get_network_request",
+    "emulate",
+    "resize_page",
+    "performance_start_trace",
+    "performance_stop_trace",
+    "take_heap_snapshot",
+    "list_extensions",
+    "install_extension"
+  ],
+  "mcpArguments": [
+    "--no-usage-statistics",
+    "--no-performance-crux",
+    "--redact-network-headers=true",
+    "--category-performance=false",
+    "--category-emulation=false"
+  ],
+  "screenshotApprovalRequired": true
+}

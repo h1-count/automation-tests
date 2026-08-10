@@ -2,11 +2,12 @@ import "dotenv/config";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { chromium } from "@playwright/test";
 import {
   formalCapabilityId,
-  loadFormalExecutionManifest
+  loadFormalExecutionManifest,
+  loadFormalExecutionManifestFromPath
 } from "../src/support/formal-execution/manifest.js";
 import { evaluateCapabilitiesWithProviders } from "../src/support/formal-execution/manifest.js";
 import { createDefaultCapabilityProviderRegistry } from "../src/support/formal-execution/capabilityProvider.js";
@@ -43,11 +44,15 @@ if (!["web", "h5"].includes(requestType!)) {
 }
 const relativeRequest = requestParts.join("/");
 const requestDirectory = resolve(process.cwd(), "tests", requestType!, relativeRequest);
-const manifestPath = `tests/${requestType}/${relativeRequest}/execution.manifest.ts`;
-const formalSpecPaths = (await readdir(requestDirectory))
-  .filter((name) => name.endsWith(".formal.spec.ts"))
-  .sort()
-  .map((name) => `tests/${requestType}/${relativeRequest}/${name}`);
+const manifestPath = snapshot.schemaVersion === "execution-authorization-v5"
+  ? snapshot.formalManifestPath!
+  : `tests/${requestType}/${relativeRequest}/execution.manifest.ts`;
+const formalSpecPaths = snapshot.schemaVersion === "execution-authorization-v5"
+  ? (snapshot.entryScriptPaths ?? []).filter((path) => path.endsWith(".formal.spec.ts"))
+  : (await readdir(requestDirectory))
+      .filter((name) => name.endsWith(".formal.spec.ts"))
+      .sort()
+      .map((name) => `tests/${requestType}/${relativeRequest}/${name}`);
 if (!formalSpecPaths.length) {
   throw new Error(`Formal Runner found no *.formal.spec.ts files for ${requestId}.`);
 }
@@ -56,7 +61,16 @@ const reviewedCaseIds = [
   ...snapshot.caseIds,
   ...(snapshot.deferredCases ?? []).map((item) => item.caseId)
 ];
-const manifest = await loadFormalExecutionManifest(requestId);
+const manifest = snapshot.schemaVersion === "execution-authorization-v5"
+  ? await loadFormalExecutionManifestFromPath(manifestPath, {
+      expectedSuiteId: snapshot.suiteId
+    })
+  : await loadFormalExecutionManifest(requestId);
+if (snapshot.schemaVersion === "execution-authorization-v5"
+  && manifest.schemaVersion === "formal-execution-manifest-v4"
+  && manifest.suiteId !== snapshot.suiteId) {
+  throw new Error("Formal manifest suite identity differs from execution-authorization-v5.");
+}
 assertFormalBuildAuthorizationCompatibility({
   manifest,
   authorizationSchemaVersion: snapshot.schemaVersion
@@ -67,12 +81,17 @@ assertFormalSpecSources(
     source: await readFile(resolve(process.cwd(), path), "utf8")
   }))),
   reviewedCaseIds,
-  { manifestSchemaVersion: manifest.schemaVersion }
+  {
+    manifestSchemaVersion: manifest.schemaVersion,
+    ...(manifest.schemaVersion === "formal-execution-manifest-v4"
+      ? { allowedCaseIds: manifest.cases.map((item) => item.caseId) }
+      : {})
+  }
 );
 if (snapshot.environment !== manifest.environment) {
   throw new Error("Execution environment differs from the confirmed authorization.");
 }
-if (["execution-authorization-v3", "execution-authorization-v4"].includes(snapshot.schemaVersion)) {
+if (["execution-authorization-v3", "execution-authorization-v4", "execution-authorization-v5"].includes(snapshot.schemaVersion)) {
   await verifyFrozenBuildIdentity({
     manifest,
     workspaceRoot: process.cwd(),
@@ -145,7 +164,7 @@ if (unavailableCapabilities.length > 0) {
     `Execution readiness changed before run: ${unavailableCapabilities.map((item) => item.capabilityId).join(", ")} unavailable. Republish readiness and execution authorization.`
   );
 }
-if (["execution-authorization-v3", "execution-authorization-v4"].includes(snapshot.schemaVersion)) {
+if (["execution-authorization-v3", "execution-authorization-v4", "execution-authorization-v5"].includes(snapshot.schemaVersion)) {
   const frozenEvidence = new Map(
     (snapshot.capabilityEvidence ?? []).map((item) => [item.capabilityId, item.evidenceDigest])
   );
@@ -201,6 +220,8 @@ try {
     const waveExitCode = await run(executable, ["test", "--config=playwright.config.ts"], {
       ...process.env,
       AUTOMATION_REQUEST_ID: requestId,
+      FORMAL_EXECUTION_RUN_REQUEST_ID: requestId,
+      PLAYWRIGHT_FORMAL_SCRIPT_SCOPE: dirname(manifestPath).replace(/^tests\//u, ""),
       FORMAL_EXECUTION_RESUME: resume || currentRecord ? "1" : "0",
       PLAYWRIGHT_FORMAL_WORKERS: String(waveWorkers),
       PLAYWRIGHT_FORMAL_BROWSER_WS_ENDPOINT: browserServer.wsEndpoint(),
@@ -254,7 +275,11 @@ try {
     },
     settle: async () => {
       if (await store.read(snapshot.digest)) {
-        return finalizeFormalExecution(requestId, { requested: requestedSettlement });
+        return finalizeFormalExecution(requestId, {
+          requested: requestedSettlement,
+          snapshot,
+          manifest
+        });
       }
       if (!runnerError) {
         throw new Error("Formal Runner ended without initializing structured execution state.");

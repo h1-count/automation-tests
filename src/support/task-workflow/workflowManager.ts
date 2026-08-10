@@ -4,6 +4,7 @@ import { readdir, readFile, rm } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import {
   activitiesExpandedPayload,
+  buildReusableWorkflowDefinition,
   buildWorkflowDefinition,
   workflowStartedPayload
 } from "./definition.js";
@@ -106,6 +107,13 @@ import type {
   WorkflowHistoryHead,
   WorkflowProjection
 } from "./types.js";
+import {
+  assessStableTestSuite,
+  loadStableTestSuite,
+  materializeAffectedSuiteWorkspace,
+  type StableTestSuiteProfile,
+  type TestSuiteReuseAssessment
+} from "../test-suite/stableSuite.js";
 
 export interface WorkflowGateView extends WorkflowProjection {
   schemaVersion: "workflow-gate-v2";
@@ -161,6 +169,10 @@ export interface InitializeWorkflowInput {
   };
   sessionId?: string;
   targetThreadId?: string;
+  suiteId?: string;
+  reuse?: "auto";
+  environment?: string;
+  profile?: StableTestSuiteProfile;
 }
 
 export interface ActivityStartResult {
@@ -297,6 +309,20 @@ function parseCasePackages(plan: string): string[] {
   return [...new Set(fromTable)];
 }
 
+function reusableDefinitionAssessment(assessment: TestSuiteReuseAssessment) {
+  return {
+    schemaVersion: assessment.schemaVersion,
+    suiteId: assessment.suiteId,
+    ...(assessment.suiteVersion ? { suiteVersion: assessment.suiteVersion } : {}),
+    assessmentDigest: assessment.assessmentDigest,
+    decision: assessment.decision,
+    requestedProfile: assessment.requestedProfile,
+    effectiveProfile: assessment.effectiveProfile,
+    selectedCaseIds: assessment.selectedCaseIds,
+    affectedCaseIds: assessment.affectedCaseIds
+  };
+}
+
 function safeRelativePath(workspaceRoot: string, path: string): string {
   const absolute = resolve(workspaceRoot, path);
   const rel = relative(workspaceRoot, absolute).split(sep).join("/");
@@ -381,20 +407,56 @@ export class DurableWorkflowManager {
       if (input.sessionId) await this.runtime.bindSession(input.sessionId, input.targetThreadId);
       return this.gate();
     }
-    const planPath = resolve(input.planPath ?? this.planPath);
+    const reuseAssessment = input.reuse === "auto" && input.suiteId
+      ? await assessStableTestSuite({
+          suiteId: input.suiteId,
+          environment: input.environment ?? "test",
+          profile: input.profile,
+          workspaceRoot: this.workspaceRoot
+        })
+      : undefined;
+    const stableSuite = reuseAssessment?.suiteVersion
+      && reuseAssessment.decision !== "full_replan"
+      ? await loadStableTestSuite(input.suiteId!, this.workspaceRoot)
+      : undefined;
+    const affectedWorkspace = stableSuite && reuseAssessment?.decision === "affected_rebuild"
+      ? await materializeAffectedSuiteWorkspace({
+          suiteId: stableSuite.suiteId,
+          runRequestId: this.requestId,
+          workspaceRoot: this.workspaceRoot
+        })
+      : undefined;
+    const planPath = resolve(input.planPath
+      ?? (reuseAssessment?.decision === "direct_execute" && stableSuite
+        ? resolve(this.workspaceRoot, stableSuite.plan.path)
+        : affectedWorkspace
+          ? resolve(this.workspaceRoot, affectedWorkspace.planPath)
+          : this.planPath));
     if (!existsSync(planPath)) throw new Error(`Workflow initialization requires plan.md: ${planPath}`);
     const plan = await readFile(planPath, "utf8");
     const planDigest = sha256(plan);
-    const definition = buildWorkflowDefinition({
+    const definitionInput = {
       requestId: this.requestId,
       planDigest,
       planText: plan,
       capabilities: input.capabilities ?? parseCapability(this.requestId),
-      writesData: input.writesData ?? /\|\s*(?:managed_cleanup|tracked_residual|必须清理|受控残留)\s*\|/.test(plan),
-      casePackages: input.casePackages ?? parseCasePackages(plan),
+      writesData: input.writesData
+        ?? (stableSuite
+          ? stableSuite.dataWritePolicy !== "no_write"
+          : /\|\s*(?:managed_cleanup|tracked_residual|必须清理|受控残留)\s*\|/.test(plan)),
+      casePackages: input.casePackages
+        ?? (stableSuite
+          ? stableSuite.casePackages.map((item) => basename(item.path))
+          : parseCasePackages(plan)),
       reviewerRoles: input.reviewerRoles,
       executionIsolation: input.executionIsolation
-    });
+    };
+    const definition = reuseAssessment
+      ? buildReusableWorkflowDefinition({
+          ...definitionInput,
+          reuseAssessment: reusableDefinitionAssessment(reuseAssessment)
+        })
+      : buildWorkflowDefinition(definitionInput);
     const runId = randomUUID();
     const identity: WorkflowIdentity = {
       runId,
@@ -403,7 +465,7 @@ export class DurableWorkflowManager {
       definitionVersion: definition.definitionVersion
     };
     const startedEventId = randomUUID();
-    await this.history.appendBatch([
+    const initialEvents: NewWorkflowEvent[] = [
       {
         ...identity,
         eventId: startedEventId,
@@ -420,7 +482,62 @@ export class DurableWorkflowManager {
         payload: activitiesExpandedPayload(definition),
         causationId: startedEventId
       }
-    ], { seq: 0, digest: GENESIS_DIGEST });
+    ];
+    if (reuseAssessment) {
+      const assessmentStartId = randomUUID();
+      initialEvents.push(
+        {
+          ...identity,
+          eventId: assessmentStartId,
+          type: "ActivityAttemptStarted",
+          actorType: "system",
+          idempotencyKey: `${runId}/reuse-assessment/attempt-1/started`,
+          payload: { activityId: "reuse-assessment", attempt: 1 },
+          causationId: startedEventId
+        },
+        {
+          ...identity,
+          type: "ActivitySucceeded",
+          actorType: "system",
+          idempotencyKey: `${runId}/reuse-assessment/${reuseAssessment.assessmentDigest}`,
+          payload: {
+            activityId: "reuse-assessment",
+            attempt: 1,
+            verification: `deterministic:${reuseAssessment.assessmentDigest}`,
+            outcome: reuseAssessment.decision,
+            assessmentDigest: reuseAssessment.assessmentDigest
+          },
+          causationId: assessmentStartId
+        }
+      );
+      if (reuseAssessment.decision === "direct_execute") {
+        const validationStartId = randomUUID();
+        initialEvents.push(
+          {
+            ...identity,
+            eventId: validationStartId,
+            type: "ActivityAttemptStarted",
+            actorType: "system",
+            idempotencyKey: `${runId}/suite-validation/attempt-1/started`,
+            payload: { activityId: "suite-validation", attempt: 1 }
+          },
+          {
+            ...identity,
+            type: "ActivitySucceeded",
+            actorType: "system",
+            idempotencyKey: `${runId}/suite-validation/${reuseAssessment.suiteVersion}`,
+            payload: {
+              activityId: "suite-validation",
+              attempt: 1,
+              verification: `suite:${reuseAssessment.suiteVersion}`,
+              outcome: "validated"
+            },
+            causationId: validationStartId
+          }
+        );
+      }
+    }
+    await this.history.appendBatch(initialEvents, { seq: 0, digest: GENESIS_DIGEST });
     if (input.sessionId) await this.runtime.bindSession(input.sessionId, input.targetThreadId);
     return this.gate();
   }
@@ -650,11 +767,18 @@ export class DurableWorkflowManager {
     input: ActivitySucceedInput,
     publicationValidated: boolean,
     formalExecutionEvidence?: FormalExecutionWorkflowEvidence,
-    formalBlockerResolution?: { blockerId: string; evidence: string }
+    formalBlockerResolution?: { blockerId: string; evidence: string },
+    policyAuthorizationDigest?: string
   ): Promise<WorkflowGateView> {
     const before = await this.gate();
     const activity = before.activities[activityId];
     if (!activity) throw new Error(`Unknown workflow activity: ${activityId}`);
+    if (activity.definition.kind === "policy_authorization" && !policyAuthorizationDigest) {
+      throw new Error("policy_auto_no_write must use the dedicated deterministic authorization path.");
+    }
+    if (activity.definition.kind !== "policy_authorization" && policyAuthorizationDigest) {
+      throw new Error(`Activity ${activityId} cannot attach a policy authorization digest.`);
+    }
     const formalCompletionActivity = ["run", "report"].includes(activity.definition.kind);
     if (formalCompletionActivity && !formalExecutionEvidence) {
       throw new Error(
@@ -747,7 +871,8 @@ export class DurableWorkflowManager {
         ? { formalExecutionEvidence: formalExecutionEvidence as unknown as SafeJsonValue }
         : {}),
       ...(input.testOutcome ? { testOutcome: input.testOutcome } : {}),
-      ...(input.outcome ? { outcome: input.outcome } : {})
+      ...(input.outcome ? { outcome: input.outcome } : {}),
+      ...(policyAuthorizationDigest ? { executionSubjectDigest: policyAuthorizationDigest } : {})
     };
     const outcomeDigest = sha256(JSON.stringify(payload));
     const successKey = `${before.runId}/${activityId}/attempt-${activity.attempt}/succeeded/${outcomeDigest}`;
@@ -770,7 +895,7 @@ export class DurableWorkflowManager {
         }
       ], before.head);
     } else if (
-      before.definitionVersion === "v5"
+      ["v5", "v6"].includes(before.definitionVersion)
       && activity.definition.kind === "report"
       && activity.definition.metadata?.completesWorkflow === true
     ) {
@@ -801,6 +926,46 @@ export class DurableWorkflowManager {
     }
     await this.runtime.finalizeSucceededActivity(activityId, handle);
     return this.gate();
+  }
+
+  async finalizePolicyNoWriteAuthorization(): Promise<WorkflowGateView> {
+    const before = await this.gate();
+    const activity = before.activities["execution-authorization"];
+    if (!activity || activity.definition.kind !== "policy_authorization") {
+      throw new Error("Workflow does not use policy_auto_no_write authorization.");
+    }
+    if (activity.state === "SUCCEEDED") return before;
+    if (activity.state !== "READY") {
+      throw new Error(`policy_auto_no_write is not ready; current state is ${activity.state}.`);
+    }
+    const subject = await this.executionAuthorizationSubject(before);
+    const artifactPath = resolve(this.requestRoot, "execution-authorization.json");
+    const raw = JSON.parse(await readFile(artifactPath, "utf8")) as Record<string, unknown>;
+    if (raw.schemaVersion !== "execution-authorization-v5"
+      || raw.authorizationMode !== "policy_auto_no_write"
+      || raw.dataWritePolicy !== "no_write"
+      || !Array.isArray(raw.caseScopes)
+      || raw.caseScopes.some((scope) =>
+        !scope || typeof scope !== "object" || (scope as Record<string, unknown>).dataWritePolicy !== "no_write"
+      )) {
+      throw new Error("policy_auto_no_write subject contains a write-capable scope.");
+    }
+    const started = await this.startActivity(
+      "execution-authorization",
+      "policy-auto-no-write"
+    );
+    return this.succeedActivityInternal(
+      "execution-authorization",
+      {
+        claimToken: started.claimToken,
+        verification: `policy_auto_no_write:${subject.digest}`,
+        outcome: "accepted"
+      },
+      false,
+      undefined,
+      undefined,
+      subject.digest
+    );
   }
 
   async completeFormalRun(input: FormalRunCompletionInput): Promise<FormalCompletionResult> {
@@ -1412,6 +1577,8 @@ export class DurableWorkflowManager {
     requireDigest(input.subjectDigest, "subjectDigest");
     const before = await this.gate();
     const activity = before.activities[input.activityId];
+    const historyOnlyExecutionAuthorization = before.definitionVersion === "v6"
+      && input.activityId === "execution-authorization";
     if ([
       "plan-confirmation",
       "case-confirmation",
@@ -1428,7 +1595,7 @@ export class DurableWorkflowManager {
         );
       }
     }
-    const plan = await readFile(this.planPath, "utf8");
+    const plan = historyOnlyExecutionAuthorization ? undefined : await readFile(this.planPath, "utf8");
     const priorResolution = [...await this.events()].reverse().find((event) =>
       event.type === "CallbackResolved"
       && event.payload.activityId === input.activityId
@@ -1437,23 +1604,27 @@ export class DurableWorkflowManager {
       && event.payload.resolution === input.resolution
     );
     if (priorResolution) {
-      assertRecordedFormalUserDecision(
+      if (plan !== undefined) {
+        assertRecordedFormalUserDecision(
+          plan,
+          input.activityId,
+          input.subjectDigest,
+          input.resolution
+        );
+      }
+      await this.runtime.finalizeSucceededActivity(input.activityId);
+      this.callbackPublicationHandles.delete(input.activityId);
+      return this.gate();
+    }
+    if (plan !== undefined) {
+      assertFormalUserDecision(
         plan,
         input.activityId,
         input.subjectDigest,
         input.resolution
       );
-      await this.runtime.finalizeSucceededActivity(input.activityId);
-      this.callbackPublicationHandles.delete(input.activityId);
-      return this.gate();
     }
-    assertFormalUserDecision(
-      plan,
-      input.activityId,
-      input.subjectDigest,
-      input.resolution
-    );
-    const publication = decisionTypeForActivity(input.activityId)
+    const publication = !historyOnlyExecutionAuthorization && decisionTypeForActivity(input.activityId)
       ? await this.formalCallbackPublicationEvidence(input.activityId)
       : undefined;
     let publicationHandle: RuntimeLeaseHandle | undefined;
@@ -2672,6 +2843,21 @@ export class DurableWorkflowManager {
     reason?: string;
   }): Promise<WorkflowGateView> {
     const before = await this.gate();
+    const reuseMetadata = before.activities["reuse-assessment"]?.definition.metadata;
+    if (before.definitionVersion === "v6"
+      && reuseMetadata?.decision === "affected_rebuild") {
+      const expectedRefs = Array.isArray(reuseMetadata.affectedCaseIds)
+        ? reuseMetadata.affectedCaseIds
+          .filter((item): item is string => typeof item === "string")
+          .sort()
+        : [];
+      if (canonicalJson([...(input.affectedRefs ?? [])].sort())
+        !== canonicalJson(expectedRefs)) {
+        throw new Error(
+          "Affected rebuild review scope must equal the deterministic affected caseIds."
+        );
+      }
+    }
     const events = await this.events();
     const reviewActivities = Object.values(before.activities)
       .filter((activity) => activity.definition.kind === "review")
@@ -3632,7 +3818,7 @@ export class DurableWorkflowManager {
     if (
       typeof artifact !== "string"
       || format !== "canonical_json_digest_v1"
-      || !["execution-authorization-v2", "execution-authorization-v3", "execution-authorization-v4"].includes(String(schemaVersion))
+      || !["execution-authorization-v2", "execution-authorization-v3", "execution-authorization-v4", "execution-authorization-v5"].includes(String(schemaVersion))
       || typeof publisherActivityId !== "string"
       || !["script-review", "readiness"].includes(publisherActivityId)
       || artifact.includes("/")
@@ -3680,6 +3866,15 @@ export class DurableWorkflowManager {
     const allowedKeys = new Set([
       "schemaVersion",
       "requestId",
+      "runRequestId",
+      "suiteId",
+      "suiteVersion",
+      "suiteManifestPath",
+      "suiteManifestDigest",
+      "suitePlanPath",
+      "formalManifestPath",
+      "entryScriptPaths",
+      "authorizationMode",
       "environment",
       "planDigest",
       "scriptDigests",
@@ -3715,7 +3910,9 @@ export class DurableWorkflowManager {
     assertExecutionAuthorizationInputsCurrent(
       record,
       this.workspaceRoot,
-      this.planPath
+      record.schemaVersion === "execution-authorization-v5"
+        ? resolve(this.workspaceRoot, String(record.suitePlanPath ?? ""))
+        : this.planPath
     );
     const callbackId = String(record.callbackId ?? "");
     if (!callbackId.trim() || callbackId.length > 240) {
@@ -3760,9 +3957,14 @@ export class DurableWorkflowManager {
       throw new Error("Formal completion requires an accepted execution authorization.");
     }
     const subject = await this.executionAuthorizationSubject(projection);
+    const acceptedAuthorizationDigest = authorization.callbackSubjectDigest
+      ?? [...await this.events()].reverse().find((event) =>
+        event.type === "ActivitySucceeded"
+        && event.payload.activityId === "execution-authorization"
+      )?.payload.executionSubjectDigest;
     if (
       subject.digest !== evidence.executionSubjectDigest
-      || authorization.callbackSubjectDigest !== evidence.executionSubjectDigest
+      || acceptedAuthorizationDigest !== evidence.executionSubjectDigest
     ) {
       throw new Error(
         "Formal completion evidence differs from the accepted execution subject."
@@ -4811,7 +5013,7 @@ export class DurableWorkflowManager {
   ): Promise<WorkflowEvent> {
     const events = await this.events();
     const identity = eventIdentity(events);
-    if (identity.definitionVersion !== "v5") {
+    if (!["v5", "v6"].includes(identity.definitionVersion)) {
       throw new Error("Legacy workflow histories are replay-only and cannot accept new events.");
     }
     const input: NewWorkflowEvent = {
@@ -4831,7 +5033,7 @@ export class DurableWorkflowManager {
   ): Promise<WorkflowEvent[]> {
     if (!drafts.length) throw new Error("Workflow event sequence must not be empty.");
     const identity = eventIdentity(await this.events());
-    if (identity.definitionVersion !== "v5") {
+    if (!["v5", "v6"].includes(identity.definitionVersion)) {
       throw new Error("Legacy workflow histories are replay-only and cannot accept new events.");
     }
     let previousEventId: string | undefined;

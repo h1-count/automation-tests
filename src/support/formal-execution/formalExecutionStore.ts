@@ -100,13 +100,16 @@ export class FormalExecutionStore {
     caseIds?: string[];
     deferredCases?: ExecutionDeferredCase[];
     targetBuildDigest?: string;
+    runRequestId?: string;
+    suiteId?: string;
+    suiteVersion?: string;
   }): Promise<FormalExecutionRecord> {
     return this.ledger.withExclusive(async () => {
       const existing = await this.read(input.authorizationDigest);
       if (existing) {
         this.assertWritableRecord(existing, "initialize formal execution");
         validateBusinessOracleContract(existing);
-      } else if (input.manifest.schemaVersion !== "formal-execution-manifest-v3") {
+      } else if (!["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(input.manifest.schemaVersion)) {
         throw new Error(
           "Legacy formal execution manifests are read-only; establish a formal-execution-manifest-v3 run."
         );
@@ -137,7 +140,9 @@ export class FormalExecutionStore {
       const dependencyPlan = buildExecutionDependencyPlan(input.manifest, selectedCaseIds);
       const record: FormalExecutionRecord = {
         schemaVersion: "formal-execution-record-v3",
-        requestId: input.manifest.requestId,
+        requestId: input.runRequestId ?? input.manifest.requestId,
+        suiteId: input.suiteId ?? input.manifest.suiteId,
+        suiteVersion: input.suiteVersion,
         projectId: input.manifest.projectId,
         environment: input.manifest.environment,
         authorizationDigest: input.authorizationDigest,
@@ -986,6 +991,8 @@ export class FormalExecutionStore {
     });
     return {
       requestId: record.requestId,
+      suiteId: record.suiteId,
+      suiteVersion: record.suiteVersion,
       projectId: record.projectId,
       environment: record.environment,
       authorizationDigest: record.authorizationDigest,
@@ -1159,11 +1166,11 @@ export class FormalExecutionStore {
   }
 }
 
-function validateV3BusinessOracleDefinitions(
+export function validateV3BusinessOracleDefinitions(
   manifest: FormalExecutionManifest,
   selectedCaseIds: string[]
 ): Record<string, FormalBusinessOracleDefinition[]> {
-  if (manifest.schemaVersion !== "formal-execution-manifest-v3") {
+  if (!["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)) {
     throw new Error("Writable formal execution requires formal-execution-manifest-v3.");
   }
   const selected = new Set(selectedCaseIds);
@@ -1926,6 +1933,7 @@ function renderExecutionSummary(
     "# 自动化测试执行摘要",
     "",
     `- 请求：${summary.requestId}`,
+    ...(summary.suiteId ? [`- 稳定套件：${summary.suiteId}@${summary.suiteVersion}`] : []),
     `- 授权摘要：${summary.authorizationDigest}`,
     `- 环境：${summary.environment}`,
     `- 目标构建摘要：${summary.targetBuildDigest ?? "未提供（兼容历史授权）"}`,

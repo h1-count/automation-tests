@@ -2,9 +2,12 @@
 node_modules/
 *.tsbuildinfo
 
-.idea
-.codex
-.vscode
+# IDE and execution-host metadata. Keep only the reviewed project adapters.
+.idea/
+.codex/*
+!.codex/hooks.json
+.vscode/*
+!.vscode/extensions.json
 
 # Local environment configuration and secrets
 .env
@@ -35,6 +38,9 @@ coverage/
 # Runtime logs
 *.log
 appium-logs/
+
+# Interrupted atomic writes must never become source artifacts.
+*.tmp
 
 # Operating-system files
 .DS_Store

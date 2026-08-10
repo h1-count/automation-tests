@@ -84,12 +84,13 @@ flowchart TB
     subgraph Design["测试设计层"]
         Plan["plan.md<br/>范围、依据、正式决定、评审"]
         Cases["cases-*.md<br/>原子用例与追溯"]
+        Suite["stable-test-suite-manifest-v1<br/>suiteVersion + impactMap"]
     end
 
     subgraph Workflow["编排与恢复层"]
         Cli["task:* CLI"]
         Manager["DurableWorkflowManager"]
-        Dag["v5 Definition + Reducer + Gate"]
+        Dag["v6 Reuse DAG + Reducer + Gate"]
         History["workflow-history.ndjson<br/>哈希链事件"]
         Runtime[".local/test-task-runtime/<br/>lease、fencing、staging"]
     end
@@ -136,6 +137,7 @@ flowchart TB
 | 事件溯源替代可变任务表 | Durable 业务状态只从 `workflow-history.ndjson` 归约；Gate 再叠加时钟、runtime 和真实产物的一次性安全视图。 | 支持审计、中断恢复和幂等推进。 |
 | 正式事实分频道保存 | 正式决定在 `plan.md`，运行事件在 history，协调句柄在 runtime，数据资源在 ledger。 | 避免单一状态文件混入不同可信度和生命周期的数据。 |
 | `build` 与 `readiness` 分离 | 候选脚本完整性不等于环境可运行性；运行依赖由 readiness 单独判定。 | 避免用环境缺失删除应有覆盖，或用空占位冒充脚本。 |
+| 稳定设计与单次运行分离 | `suiteId/suiteVersion` 管理长期计划、用例、脚本与契约；`runRequestId` 每轮新建授权、台账、结果、封印与报告。 | 无变化复测跳过重复生成，又不复用过期运行事实。 |
 | 执行范围不可变 | readiness 产物经用户 callback 确认后，Runner 校验环境、脚本和 manifest 摘要。 | 防止确认后静默扩大范围或替换脚本。 |
 | 功能、范围和数据卫生分离 | 报告分别输出 `testOutcome`、`scopeStatus`、`dataHygieneStatus`。 | 避免清理成功掩盖产品失败，或功能通过掩盖残留风险。 |
 | 工作流结论与产品结论分离 | 产品结果可以失败或不确定；只要执行、清理/登记和报告闭环，工作流仍可成功结束。 | 让“测试发现问题”和“测试流程失控”保持不同语义。 |
@@ -146,7 +148,8 @@ flowchart TB
 | --- | --- | --- |
 | 规则与资料注册 | 维护安全边界、唯一责任规范、原始资料身份与静态资产完整性。 | [AGENTS.md](../AGENTS.md)、[docs/testing/](./testing/README.md)、[sources/](../sources/README.md)、[test-assets/](../test-assets/README.md) |
 | 测试设计资产 | 保存一次请求的计划、原子用例包、追溯关系、正式决定和工程设计。 | [testcases/](../testcases/README.md) |
-| Durable Workflow 内核 | 定义 v5 DAG、事件类型、纯 reducer、状态投影、Gate v2、恢复和安全回复约束。 | [`src/support/task-workflow/`](../src/support/task-workflow/) |
+| 稳定套件注册 | 从完成且封印的请求物化无日期设计资产，验证 suiteVersion、精确依赖闭包、契约组件与 case 影响映射。 | [`src/support/test-suite/`](../src/support/test-suite/) |
+| Durable Workflow 内核 | 定义 v6 复用分支及旧 v5 恢复 DAG、事件类型、纯 reducer、状态投影、Gate v2、恢复和安全回复约束。 | [`src/support/task-workflow/`](../src/support/task-workflow/) |
 | 历史存储 | 校验事件结构、敏感字段、幂等键和 SHA-256 链；使用 CAS、文件锁、fsync 与原子替换提交。 | [`historyStore.ts`](../src/support/task-workflow/historyStore.ts) |
 | 运行时协调 | 保存可丢弃的 session/reviewer 绑定、Activity lease、fencing token、在途操作与暂存引用。 | [`runtimeLeaseStore.ts`](../src/support/task-workflow/runtimeLeaseStore.ts) |
 | 原子产物发布 | 从 runtime staging 校验 Markdown、结构和 digest，再原子发布最终文件；冲突进入 reconciliation。 | [`artifactPublisher.ts`](../src/support/task-workflow/artifactPublisher.ts) |
@@ -165,7 +168,20 @@ flowchart TB
 
 ## 6. Durable Workflow 设计
 
-### 6.1 v5 阶段 DAG
+### 6.1 v6 复用分支与完整设计 DAG
+
+```mermaid
+flowchart TD
+    Assess["确定性 suite assess"] --> Direct{"direct_execute"}
+    Assess --> Affected{"affected_rebuild"}
+    Assess --> Full{"full_replan"}
+    Direct --> Validate["suite-validation"] --> Ready["readiness"]
+    Affected --> Impact["impact-location"] --> Targeted["定向演进 + 复审"] --> Ready
+    Full --> Source["完整设计 DAG"] --> Ready
+    Ready --> Auth["本轮 authorization"] --> Run["run"] --> Report["report"]
+```
+
+`direct_execute` 不调用计划/用例/脚本生成模型或 reviewer；`affected_rebuild` 只展开 `impactMap` 确定的消费者；映射不完整或核心契约变化时必须 `full_replan`。下图是完整设计子图：
 
 ```mermaid
 flowchart TD
@@ -191,7 +207,7 @@ flowchart TD
     Report --> Done["WorkflowCompleted"]
 ```
 
-新请求固定使用定义 v5。`planDigest`、`graphDigest`、capability 和 review policy 在 run 创建时固定；v3、v4、`vnext-1` 或含 `LegacyStateImported` 的历史只读回放，不允许追加新事件。
+新的 suite-aware 请求使用定义 v6。上线前已存在且未完成的 v5 按原定义继续；v3、v4、`vnext-1` 或含 `LegacyStateImported` 的历史只读回放，不允许追加新事件。
 
 自动演进后的新 review batch 在受控来源和正式用户决定不变时，通常仍属于同一 `reviewEpochDigest`，只递增语义演进轮次；只有新增受控来源或正式用户决定才建立新的 review epoch。已经成功且未受影响的完整度 Activity 不为形成循环而机械重做。
 
@@ -233,8 +249,11 @@ flowchart LR
     Build --> Ready["readiness<br/>结构校验 + runtime capability 检查"]
     Ready -->|invalid| Fix["退回 build 修复"]
     Ready -->|deferred| Deferred["保留用例并记录解除条件"]
-    Ready -->|至少一个 runnable| Subject["execution-authorization-v4"]
+    Ready -->|重建分支| Subject["execution-authorization-v4"]
+    Ready -->|稳定 suite| SuiteSubject["execution-authorization-v5<br/>run + suite identity"]
     Subject --> Confirm["用户确认不可变 subject digest"]
+    SuiteSubject -->|写入/安全范围| Confirm
+    SuiteSubject -->|test/pre + no_write| Verify
     Confirm --> Verify["Runner 校验环境、脚本、manifest 与能力证据"]
     Verify --> Waves["按命名资源 DAG 选择执行波次"]
     Waves --> Case["原子 case 事务"]

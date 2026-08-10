@@ -12,6 +12,8 @@ import {
   resolveFormalSourceContract,
   validateLegacyEvidenceSourceFiles
 } from "./sourceContract.js";
+import { validateBrowserExplorationEvidence } from "../web/browserExploration.js";
+import { semanticBuildEvidenceDigest } from "./buildEvidenceIdentity.js";
 
 export interface SelectorBuildIdentity {
   targetBuildDigest: string;
@@ -31,8 +33,8 @@ export function assertFormalBuildAuthorizationCompatibility(input: {
   authorizationSchemaVersion: string;
 }): void {
   if (
-    input.manifest.schemaVersion === "formal-execution-manifest-v3"
-    && !["execution-authorization-v3", "execution-authorization-v4"].includes(
+    ["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(input.manifest.schemaVersion)
+    && !["execution-authorization-v3", "execution-authorization-v4", "execution-authorization-v5"].includes(
       input.authorizationSchemaVersion
     )
   ) {
@@ -90,8 +92,10 @@ export async function resolveSelectorBuildIdentity(input: {
     }
     const content = await readFile(canonicalEvidencePath);
     if (
-      input.manifest.schemaVersion === "formal-execution-manifest-v3"
-      && sha256(content) !== ("sha256" in definition ? definition.sha256 : undefined)
+      ["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(input.manifest.schemaVersion)
+      && (input.manifest.schemaVersion === "formal-execution-manifest-v4"
+        ? semanticBuildEvidenceDigest(definition.kind, content)
+        : sha256(content)) !== ("sha256" in definition ? definition.sha256 : undefined)
     ) {
       throw new Error(`Build evidence ${source} digest differs from its frozen manifest SHA-256.`);
     }
@@ -168,12 +172,20 @@ export async function resolveSelectorBuildIdentity(input: {
       workspaceRoot,
       sourcePath: source
     });
+    if (schemaVersion === "selector-contract-evidence-v1" && "runtimeEvidence" in evidence) {
+      const runtimeEvidence = evidence.runtimeEvidence;
+      if (!runtimeEvidence || typeof runtimeEvidence !== "object" || Array.isArray(runtimeEvidence)) {
+        throw new Error(`Selector runtimeEvidence must be an object: ${source}.`);
+      }
+      const exploration = (runtimeEvidence as Record<string, unknown>).exploration;
+      if (exploration !== undefined) validateBrowserExplorationEvidence(exploration);
+    }
     if (schemaVersion === "browser-response-contract-evidence-v1") {
       collectBrowserResponseContracts(evidence, source, browserResponseContracts);
     }
     evidenceDigests.push(sha256(content));
   }
-  if (input.manifest.schemaVersion === "formal-execution-manifest-v3") {
+  if (["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(input.manifest.schemaVersion)) {
     validateBrowserResponseOracleContracts(input.manifest, browserResponseContracts);
   }
   if (targetBuildDigests.size !== 1) {
@@ -244,7 +256,7 @@ function evidenceSchemasFor(
 ): string[] {
   if (kind === "selector_contract") return ["selector-contract-evidence-v1"];
   if (kind === "browser_response_contract") return ["browser-response-contract-evidence-v1"];
-  return manifest.schemaVersion === "formal-execution-manifest-v3"
+  return ["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)
     ? [FORMAL_SOURCE_CONTRACT_SCHEMA_VERSION]
     : ["source-contract-evidence-v1"];
 }

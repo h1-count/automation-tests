@@ -133,6 +133,30 @@ test("full reset archives testcase assets and request tests under the same reque
   }
 });
 
+test("full reset preserves stable suite design assets and scripts", () => {
+  const harness = createHarness();
+  try {
+    harness.write("testcases/web/demo/suites/registration/suite.manifest.json", "{}\n");
+    harness.write("testcases/web/demo/suites/registration/plan.md", "# stable plan\n");
+    harness.write("tests/web/demo/suites/registration/execution.manifest.ts", "export {};\n");
+    harness.write("tests/web/demo/suites/registration/registration.formal.spec.ts", "export {};\n");
+
+    const result = harness.run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /归档活动请求及请求专属测试实现：0 项/);
+    assert.ok(existsSync(resolve(
+      harness.root,
+      "testcases/web/demo/suites/registration/suite.manifest.json"
+    )));
+    assert.ok(existsSync(resolve(
+      harness.root,
+      "tests/web/demo/suites/registration/registration.formal.spec.ts"
+    )));
+  } finally {
+    harness.cleanup();
+  }
+});
+
 test("full reset blocks orphan request tests instead of guessing their ownership", () => {
   const harness = createHarness();
   try {

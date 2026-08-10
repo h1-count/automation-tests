@@ -16,7 +16,7 @@ import {
 } from "./types.js";
 
 export const GENESIS_DIGEST = "0".repeat(64);
-export const WRITABLE_WORKFLOW_DEFINITION_VERSION = "v5";
+export const WRITABLE_WORKFLOW_DEFINITION_VERSIONS = ["v5", "v6"] as const;
 
 export type WorkflowHistoryCandidateValidator = (
   events: readonly WorkflowEvent[]
@@ -224,9 +224,9 @@ export class WorkflowHistoryStore {
   ): Promise<WorkflowEvent[]> {
     if (!inputs.length) throw new Error("Workflow history append batch must not be empty.");
     for (const input of inputs) {
-      if (input.definitionVersion !== WRITABLE_WORKFLOW_DEFINITION_VERSION) {
+      if (!WRITABLE_WORKFLOW_DEFINITION_VERSIONS.includes(input.definitionVersion as "v5" | "v6")) {
         throw new WorkflowHistoryIntegrityError(
-          `Workflow history append requires definitionVersion ${WRITABLE_WORKFLOW_DEFINITION_VERSION}; ${input.definitionVersion} is replay-only.`
+          `Workflow history append requires definitionVersion v5 or v6; ${input.definitionVersion} is replay-only.`
         );
       }
       if (input.type === "LegacyStateImported") {
@@ -246,15 +246,15 @@ export class WorkflowHistoryStore {
       const legacyEvent = events.find((event) => event.type === "LegacyStateImported");
       if (legacyEvent) {
         throw new WorkflowHistoryIntegrityError(
-          `Workflow history is replay-only because seq ${legacyEvent.seq} uses LegacyStateImported; create a new v5 run instead of appending.`
+          `Workflow history is replay-only because seq ${legacyEvent.seq} uses LegacyStateImported; create a new v6 run instead of appending.`
         );
       }
       const legacyDefinitionEvent = events.find(
-        (event) => event.definitionVersion !== WRITABLE_WORKFLOW_DEFINITION_VERSION
+        (event) => !WRITABLE_WORKFLOW_DEFINITION_VERSIONS.includes(event.definitionVersion as "v5" | "v6")
       );
       if (legacyDefinitionEvent) {
         throw new WorkflowHistoryIntegrityError(
-          `Workflow history is replay-only because seq ${legacyDefinitionEvent.seq} uses definitionVersion ${legacyDefinitionEvent.definitionVersion}; create a new v5 run instead of appending.`
+          `Workflow history is replay-only because seq ${legacyDefinitionEvent.seq} uses definitionVersion ${legacyDefinitionEvent.definitionVersion}; create a new v6 run instead of appending.`
         );
       }
       const last = events.at(-1);

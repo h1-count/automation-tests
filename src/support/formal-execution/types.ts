@@ -276,8 +276,12 @@ export interface FormalExecutionManifest {
   schemaVersion:
     | "formal-execution-manifest-v1"
     | "formal-execution-manifest-v2"
-    | "formal-execution-manifest-v3";
+    | "formal-execution-manifest-v3"
+    | "formal-execution-manifest-v4";
   requestId: string;
+  /** v4 separates the reusable design identity from the active run request. */
+  suiteId?: string;
+  sourceRequestId?: string;
   projectId: string;
   environment: string;
   cases: FormalCaseDefinition[];
@@ -386,6 +390,8 @@ export interface FormalExecutionRecord {
     | "formal-execution-record-v2"
     | "formal-execution-record-v3";
   requestId: string;
+  suiteId?: string;
+  suiteVersion?: string;
   projectId: string;
   environment: string;
   authorizationDigest: string;
@@ -427,6 +433,8 @@ export interface FormalExecutionRecord {
 
 export interface FormalExecutionSummary {
   requestId: string;
+  suiteId?: string;
+  suiteVersion?: string;
   projectId: string;
   environment: string;
   authorizationDigest: string;

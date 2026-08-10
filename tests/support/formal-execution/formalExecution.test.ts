@@ -110,6 +110,28 @@ function writableManifest(): FormalExecutionManifest {
   return value;
 }
 
+test("formal manifest v4 binds a stable suite to its source request", () => {
+  const stable = writableManifest();
+  stable.schemaVersion = "formal-execution-manifest-v4";
+  stable.suiteId = "web/example/atomic-feature";
+  stable.sourceRequestId = stable.requestId;
+  assert.doesNotThrow(() => defineFormalExecutionManifest(stable));
+
+  const forgedSuite = structuredClone(stable);
+  forgedSuite.suiteId = "unsafe";
+  assert.throws(() => defineFormalExecutionManifest(forgedSuite), /invalid suiteId/);
+
+  const forgedSource = structuredClone(stable);
+  forgedSource.sourceRequestId = "web/example/another-request";
+  assert.throws(() => defineFormalExecutionManifest(forgedSource), /preserve the source request/);
+
+  const circularVersion = { ...stable, suiteVersion: "1".repeat(64) };
+  assert.throws(
+    () => defineFormalExecutionManifest(circularVersion),
+    /cannot embed circular suiteVersion/u
+  );
+});
+
 async function verifyCase(
   store: FormalExecutionStore,
   authorizationDigest: string,
@@ -804,6 +826,15 @@ test("formal Runner applies the source gate to the complete discovered script se
     }], ["APP-CASE-001"]),
     /Formal source gate failed.*test\.skip/
   );
+  assert.doesNotThrow(() => assertFormalSpecSources([{
+    path: "tests/web/example/profile.formal.spec.ts",
+    source: [
+      'formalCase("APP-CASE-001", "one", async (_f, runtime) => { runtime.addAssertion("one"); });',
+      'formalCase("APP-CASE-002", "two", async (_f, runtime) => { runtime.addAssertion("two"); });'
+    ].join("\n")
+  }], ["APP-CASE-001"], {
+    allowedCaseIds: ["APP-CASE-001", "APP-CASE-002"]
+  }));
 });
 
 test("formal Runner uses two workers only for a pinned isolated no-write definition", () => {

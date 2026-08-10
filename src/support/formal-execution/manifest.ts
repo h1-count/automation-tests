@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
-import { resolve } from "node:path";
+import { relative, resolve, sep } from "node:path";
 import type {
   FormalCapabilityDefinition,
   FormalCapabilityRequirementInput,
@@ -27,11 +28,29 @@ export function defineFormalExecutionManifest(manifest: FormalExecutionManifest)
 }
 
 export function validateFormalExecutionManifest(manifest: FormalExecutionManifest): void {
-  if (!["formal-execution-manifest-v1", "formal-execution-manifest-v2", "formal-execution-manifest-v3"].includes(manifest.schemaVersion)) {
+  if (!["formal-execution-manifest-v1", "formal-execution-manifest-v2", "formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)) {
     throw new Error("Unsupported formal execution manifest schema.");
   }
   if (!manifest.requestId.trim() || !manifest.projectId.trim() || !manifest.environment.trim()) {
     throw new Error("Formal execution manifest requires request, project and environment.");
+  }
+  if (manifest.schemaVersion === "formal-execution-manifest-v4") {
+    if (Object.hasOwn(manifest, "suiteVersion")) {
+      throw new Error(
+        "formal-execution-manifest-v4 cannot embed circular suiteVersion; authorization v5 binds it."
+      );
+    }
+    if (!manifest.suiteId?.trim()
+      || !manifest.sourceRequestId?.trim()) {
+      throw new Error("formal-execution-manifest-v4 requires suiteId and sourceRequestId.");
+    }
+    if (!/^(?:web|h5|app|api|mqtt|iot|iot-chain)\/[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/u
+      .test(manifest.suiteId)) {
+      throw new Error("formal-execution-manifest-v4 contains an invalid suiteId.");
+    }
+    if (manifest.sourceRequestId !== manifest.requestId) {
+      throw new Error("formal-execution-manifest-v4 sourceRequestId must preserve the source request identity.");
+    }
   }
   const caseIds = manifest.cases.map((item) => item.caseId);
   assertUnique(caseIds, "caseId");
@@ -52,7 +71,7 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
         item.kind === "test_asset"
         && (!item.assetId?.trim() || !/^[a-f0-9]{64}$/u.test(item.sha256 ?? ""))
       ) || (
-        manifest.schemaVersion === "formal-execution-manifest-v3"
+        ["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)
         && !/^[a-f0-9]{64}$/u.test(item.sha256 ?? "")
       );
     })) {
@@ -65,7 +84,7 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
       "test asset build evidence"
     );
     if (
-      manifest.schemaVersion === "formal-execution-manifest-v3"
+      ["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)
       && manifest.buildEvidence.filter((item) => item.kind === "source_contract").length !== 1
     ) {
       throw new Error("formal-execution-manifest-v3 requires exactly one source_contract build evidence file.");
@@ -163,7 +182,7 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
         referencedTestAssetIds.add(assetId);
       }
     }
-    if (manifest.schemaVersion === "formal-execution-manifest-v3") {
+    if (["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)) {
       validateBusinessOracles(item);
     }
     if (item.requiredOperations !== undefined) {
@@ -621,19 +640,43 @@ export async function evaluateCapabilitiesWithProviders(
 }
 
 export async function loadFormalExecutionManifest(requestId: string): Promise<FormalExecutionManifest> {
-  if (!/^(?:web|h5|app|api|mqtt|iot)\/[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/.test(requestId)) {
-    throw new Error("Formal request must use <web|h5|app|api|mqtt|iot>/<project>/<request>.");
+  if (!/^(?:web|h5|app|api|mqtt|iot|iot-chain)\/[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/.test(requestId)) {
+    throw new Error("Formal request must use <web|h5|app|api|mqtt|iot|iot-chain>/<project>/<request>.");
   }
   const [type, ...requestParts] = requestId.split("/");
   const relativeRequest = requestParts.join("/");
   const path = resolve(process.cwd(), "tests", type!, relativeRequest, "execution.manifest.ts");
-  const imported = await import(pathToFileURL(path).href) as { formalExecutionManifest?: FormalExecutionManifest };
+  return loadFormalExecutionManifestFromPath(path, {
+    workspaceRoot: process.cwd(),
+    expectedRequestId: requestId
+  });
+}
+
+export async function loadFormalExecutionManifestFromPath(
+  path: string,
+  options: {
+    workspaceRoot?: string;
+    expectedRequestId?: string;
+    expectedSuiteId?: string;
+  } = {}
+): Promise<FormalExecutionManifest> {
+  const workspaceRoot = resolve(options.workspaceRoot ?? process.cwd());
+  const absolute = resolve(workspaceRoot, path);
+  const rel = relative(workspaceRoot, absolute).split(sep).join("/");
+  if (!rel || rel === ".." || rel.startsWith("../")) {
+    throw new Error("Formal execution manifest path must stay inside the workspace.");
+  }
+  const digest = createHash("sha256").update(await readFile(absolute)).digest("hex");
+  const imported = await import(`${pathToFileURL(absolute).href}?sha256=${digest}`) as { formalExecutionManifest?: FormalExecutionManifest };
   if (!imported.formalExecutionManifest) {
-    throw new Error(`Formal execution manifest is missing at tests/${type}/${relativeRequest}/execution.manifest.ts.`);
+    throw new Error(`Formal execution manifest is missing at ${rel}.`);
   }
   validateFormalExecutionManifest(imported.formalExecutionManifest);
-  if (imported.formalExecutionManifest.requestId !== requestId) {
+  if (options.expectedRequestId && imported.formalExecutionManifest.requestId !== options.expectedRequestId) {
     throw new Error("Formal execution manifest requestId differs from the requested scope.");
+  }
+  if (options.expectedSuiteId && imported.formalExecutionManifest.suiteId !== options.expectedSuiteId) {
+    throw new Error("Formal execution manifest suiteId differs from the authorized suite.");
   }
   return imported.formalExecutionManifest;
 }

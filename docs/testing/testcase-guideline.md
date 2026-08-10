@@ -69,6 +69,14 @@ testcases/
 - 跨项目通用测试设计可放在对应测试类型的 `shared/<test-request>/` 下。
 - 既有平铺目录中的草案可在同一测试请求内聚合为用例包；迁移必须保留用例编号、状态、追溯、风险和全部测试内容。已确认用例不得仅为整理而迁移；需要迁移时先获得用户确认并在计划中记录迁移结果。
 
+### 3.1 稳定测试套件与单次运行
+
+对已经正式执行并完成收口的功能，长期设计资产使用无日期 `suiteId=<type/project/feature>`，每次复测另创建 `runRequestId`。稳定资产放在 `testcases/<type>/<project>/suites/<feature>/`，对应正式脚本放在 `tests/<type>/<project>/suites/<feature>/`。`direct_execute` 的单次 run 只保存本轮 history、授权、运行证据和报告，不复制稳定设计；`affected_rebuild` 只为隔离修改而复制确定性工作副本，未受影响资产不得重生成，正式收口前不得覆盖稳定目录。
+
+`stable-test-suite-manifest-v1` 固定 `suiteId`、`suiteVersion`、计划/用例摘要、caseIds、profile、正式 manifest、入口脚本与精确依赖闭包、Oracle 契约、source/selector/browser-response 契约、静态资产、数据策略、资源预算、脚本评审证据和确定性 `impactMap`。`suiteVersion` 只摘要设计语义；同语义 target-build 时间戳/原始摘要刷新、上次 failed/blocked profile 和晋升时间不改变设计版本。套件只能由无 `unknown/pending`、cleanup 已接受、已封印且评审/build identity 有效的完成请求通过 `task:manage suite-promote --request <completed-request> --suite <suiteId>` 晋升；产品结果为 passed、failed 或 mixed 均可，因为产品失败不等于脚本不稳定。
+
+`impactMap` 只能从正式 spec 的 caseId、本地 import 闭包、selector scope、浏览器响应/API contractId 和 Oracle 关联确定性生成。单个 selector、API contract 或 helper 变化只失效其消费 case；共享依赖变化扩展到全部消费者；新增/删除依赖、计划、用例集、核心 manifest、角色/权限模型、核心状态机、数据模型或高层写入边界变化，以及任何无法完整映射的漂移，都必须 `full_replan`。旧请求与 history 不迁移或改写；合格旧请求只在需要时通过晋升入口物化为稳定目录。
+
 文件名使用小写 kebab-case，并表达业务能力，例如：
 
 ```text

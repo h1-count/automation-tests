@@ -4,6 +4,7 @@ import {
   workflowCapabilities,
   workflowPhases,
   type BuildWorkflowDefinitionInput,
+  type ReusableWorkflowDefinitionInput,
   type ReviewPolicy,
   type SafeEventPayload,
   type SafeJsonValue,
@@ -33,7 +34,7 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition): void
     throw new Error("Workflow definition identity is incomplete.");
   }
   if (definition.reviewPolicy) validateReviewPolicy(definition.reviewPolicy);
-  if (["v3", "v4", "v5"].includes(definition.definitionVersion) && !definition.reviewPolicy) {
+  if (["v3", "v4", "v5", "v6"].includes(definition.definitionVersion) && !definition.reviewPolicy) {
     throw new Error("Workflow definition v3+ requires a pinned review policy.");
   }
   const ids = new Set<string>();
@@ -158,6 +159,59 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
   return definition;
 }
 
+export function buildReusableWorkflowDefinition(
+  input: ReusableWorkflowDefinitionInput
+): WorkflowDefinition {
+  assertDigest(input.planDigest, "planDigest");
+  assertDigest(input.reuseAssessment.assessmentDigest, "assessmentDigest");
+  if (input.reuseAssessment.suiteVersion) {
+    assertDigest(input.reuseAssessment.suiteVersion, "suiteVersion");
+  }
+  const capabilities = unique(input.capabilities).sort() as WorkflowCapability[];
+  if (!capabilities.length || capabilities.some((capability) => !workflowCapabilities.includes(capability))) {
+    throw new Error("At least one supported workflow capability is required.");
+  }
+  const casePackages = unique(input.casePackages ?? []);
+  if (!casePackages.length || casePackages.some((name) => !/^cases-[a-z0-9][a-z0-9-]*\.md$/.test(name))) {
+    throw new Error("At least one cases-*.md package filename is required.");
+  }
+  const reviewPolicy = buildReviewPolicy({
+    reviewerRoles: input.reviewerRoles,
+    writesData: input.writesData ?? false,
+    ...(input.planText !== undefined
+      ? { planText: input.planText, capabilities, casePackages }
+      : {}),
+    maxAttemptsPerRole: input.reviewPolicy?.maxAttemptsPerRole,
+    maxUnchangedRevisionCycles: input.reviewPolicy?.maxUnchangedRevisionCycles,
+    maxSemanticEvolutionCycles: input.reviewPolicy?.maxSemanticEvolutionCycles
+  });
+  const activities = buildV6Activities(
+    capabilities,
+    input.writesData ?? false,
+    casePackages,
+    reviewPolicy,
+    input.reuseAssessment,
+    input.executionIsolation
+  );
+  const base: Omit<WorkflowDefinition, "graphDigest"> = {
+    schemaVersion: "test-workflow-definition-v1",
+    definitionId: input.definitionId ?? "durable-test-workflow",
+    definitionVersion: "v6",
+    requestId: input.requestId,
+    planDigest: input.planDigest,
+    capabilities,
+    writesData: input.writesData ?? false,
+    reviewPolicy,
+    activities
+  };
+  const definition: WorkflowDefinition = {
+    ...base,
+    graphDigest: createHash("sha256").update(canonicalJson(graphValue(base)), "utf8").digest("hex")
+  };
+  validateWorkflowDefinition(definition);
+  return definition;
+}
+
 function baseActivities(casePackages: string[]): {
   activities: WorkflowActivityDefinition[];
   caseIds: string[];
@@ -221,9 +275,16 @@ function appendBuildReadinessAndExecution(
     capability,
     capability === "web" || capability === "h5"
       ? {
-          sourceContract: "source_first",
-          headlessSelectorVerification: "cached_by_build_and_contract",
-          visibleExploration: "fallback_only",
+          sourceContract: "runtime_first_source_supplement",
+          browserExploration: {
+            adapter: "chrome_devtools_mcp",
+            policy: "preferred_when_eligible",
+            mode: "read_only",
+            availability: "optional",
+            evidence: "candidate_only"
+          },
+          headlessSelectorVerification: "required_for_runtime_verified",
+          visibleExploration: "playwright_guarded_fallback",
           runtime: "playwright"
         }
       : capability === "webview"
@@ -250,7 +311,7 @@ function appendBuildReadinessAndExecution(
     publishesArtifacts: true,
     metadata: {
       capabilityContracts: capabilityContracts as unknown as SafeJsonValue,
-      selectorEvidencePolicy: "source_first_cached",
+      selectorEvidencePolicy: "mcp_candidate_playwright_verified",
       scriptReviewPolicyVersion: "script-review-policy-v3",
       inspectorTriggers: [
         "source_contract_unresolved",
@@ -419,8 +480,184 @@ function buildV5Activities(
   return activities;
 }
 
+function buildV6Activities(
+  capabilities: WorkflowCapability[],
+  writesData: boolean,
+  casePackages: string[],
+  reviewPolicy: ReviewPolicy,
+  reuseAssessment: ReusableWorkflowDefinitionInput["reuseAssessment"],
+  executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"]
+): WorkflowActivityDefinition[] {
+  const fullActivities = buildV5Activities(
+    capabilities,
+    writesData,
+    casePackages,
+    reviewPolicy,
+    executionIsolation
+  ).filter((activity) => !["readiness", "execution-authorization", "run", "report"].includes(activity.id));
+  const sourceSelection = fullActivities.find((activity) => activity.id === "source-selection")!;
+  sourceSelection.dependencies = ["reuse-assessment"];
+  const suiteMetadata = {
+    suiteId: reuseAssessment.suiteId,
+    ...(reuseAssessment.suiteVersion ? { suiteVersion: reuseAssessment.suiteVersion } : {}),
+    assessmentDigest: reuseAssessment.assessmentDigest,
+    requestedProfile: reuseAssessment.requestedProfile,
+    effectiveProfile: reuseAssessment.effectiveProfile,
+    selectedCaseIds: reuseAssessment.selectedCaseIds,
+    affectedCaseIds: reuseAssessment.affectedCaseIds
+  } as Record<string, SafeJsonValue>;
+  const assessmentActivity: WorkflowActivityDefinition = {
+      id: "reuse-assessment",
+      kind: "reuse_assessment",
+      phase: "reuse_assessment",
+      dependencies: [],
+      required: true,
+      metadata: {
+        ...suiteMetadata,
+        schemaVersion: reuseAssessment.schemaVersion,
+        decision: reuseAssessment.decision
+      }
+    };
+  const directActivities: WorkflowActivityDefinition[] = [{
+      id: "suite-validation",
+      kind: "suite_validation",
+      phase: "engineering",
+      dependencies: ["reuse-assessment"],
+      required: true,
+      metadata: suiteMetadata
+    }];
+  const affectedActivities: WorkflowActivityDefinition[] = [{
+      id: "impact-location",
+      kind: "impact_location",
+      phase: "engineering",
+      dependencies: ["reuse-assessment"],
+      required: true,
+      metadata: suiteMetadata
+    },
+    {
+      id: "targeted-evolution",
+      kind: "engineering",
+      phase: "engineering",
+      dependencies: ["impact-location"],
+      required: true,
+      publishesArtifacts: true,
+      metadata: { ...suiteMetadata, scope: "affected_only" }
+    },
+    {
+      id: "targeted-review",
+      kind: "review",
+      phase: "script_review",
+      dependencies: ["targeted-evolution"],
+      required: true,
+      concurrencyGroup: "reviewer",
+      concurrencyLimit: 1,
+      metadata: { ...suiteMetadata, subflow: "affected-rebuild", role: "combined" }
+    }];
+  const branchActivities = reuseAssessment.decision === "direct_execute"
+    ? directActivities
+    : reuseAssessment.decision === "affected_rebuild"
+      ? affectedActivities
+      : fullActivities;
+  const branchTail = reuseAssessment.decision === "direct_execute"
+    ? "suite-validation"
+    : reuseAssessment.decision === "affected_rebuild"
+      ? "targeted-review"
+      : "build";
+  const usesStableSuiteAuthorization = reuseAssessment.decision === "direct_execute";
+  const authorizationSchemaVersion = usesStableSuiteAuthorization
+    ? "execution-authorization-v5"
+    : "execution-authorization-v4";
+  const authorizationKind = usesStableSuiteAuthorization && !writesData
+    ? "policy_authorization"
+    : "execution_authorization";
+  const activities: WorkflowActivityDefinition[] = [
+    assessmentActivity,
+    ...branchActivities,
+    {
+      id: "readiness",
+      kind: "readiness",
+      phase: "script_review",
+      dependencies: [branchTail],
+      required: true,
+      publishesArtifacts: true,
+      metadata: {
+        ...suiteMetadata,
+        outputArtifact: "execution-authorization.json",
+        outputSchemaVersion: authorizationSchemaVersion,
+        readinessPolicyVersion: "execution-readiness-v1",
+        zeroRunnablePolicy: "block_before_authorization"
+      }
+    },
+    {
+      id: "execution-authorization",
+      kind: authorizationKind,
+      phase: "execution_authorization",
+      dependencies: ["readiness"],
+      required: true,
+      metadata: {
+        ...suiteMetadata,
+        decisionMode: authorizationKind === "policy_authorization"
+          ? "policy_auto_no_write"
+          : "user_confirmed",
+        callbackSubjectArtifact: "execution-authorization.json",
+        callbackSubjectFormat: "canonical_json_digest_v1",
+        callbackSubjectSchemaVersion: authorizationSchemaVersion,
+        publisherActivityId: "readiness"
+      }
+    },
+    {
+      id: "run",
+      kind: "run",
+      phase: "execution",
+      dependencies: ["execution-authorization"],
+      required: true,
+      metadata: {
+        ...suiteMetadata,
+        completionContract: "formal-execution-completion-seal-v1",
+        maxWorkers: 1,
+        transaction: [
+          "capability_recheck",
+          "lazy_setup",
+          "case_execution",
+          "postcondition_when_required",
+          "finally_cleanup",
+          "reconciliation"
+        ]
+      },
+      ...(writesData
+        ? {
+            requiresExternalOperation: true,
+            concurrencyGroup: "business_write" as const,
+            concurrencyLimit: 1
+          }
+        : {})
+    },
+    {
+      id: "report",
+      kind: "report",
+      phase: "reporting",
+      dependencies: ["run"],
+      required: true,
+      publishesArtifacts: true,
+      metadata: {
+        ...suiteMetadata,
+        completionContract: "formal-execution-completion-seal-v1",
+        deterministic: true,
+        outputs: ["run-summary.json", "execution-summary.md"],
+        completesWorkflow: true
+      }
+    }
+  ];
+  return activities;
+}
+
 export function workflowStartedPayload(definition: WorkflowDefinition): SafeEventPayload {
-  return { planDigest: definition.planDigest, graphDigest: definition.graphDigest };
+  const reuse = definition.activities.find((activity) => activity.id === "reuse-assessment")?.metadata;
+  return {
+    planDigest: definition.planDigest,
+    graphDigest: definition.graphDigest,
+    ...(reuse ? { reuseAssessment: reuse as unknown as SafeJsonValue } : {})
+  };
 }
 
 export function activitiesExpandedPayload(definition: WorkflowDefinition): SafeEventPayload {

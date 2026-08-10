@@ -5,7 +5,7 @@
   "description": "IoT 自动化测试工程，覆盖开放平台 Web、App、API、MQTT 和端到端链路。",
   "type": "module",
   "engines": {
-    "node": ">=20 <25"
+    "node": ">=20.19 <25"
   },
   "scripts": {
     "test": "npm run test:web",
@@ -14,9 +14,12 @@
     "test:execute": "tsx scripts/run-formal-tests.ts",
     "test:web:verify-selectors": "tsx scripts/verify-web-selectors.ts",
     "test:web:explore": "playwright test --config=playwright.debug.config.ts",
-    "playwright:explore-session": "tsx scripts/manage-playwright-explore-session.ts",
-    "test:web:explore:reuse": "PLAYWRIGHT_EXPLORE_CDP_URL=http://127.0.0.1:9323 playwright test --config=playwright.debug.config.ts",
-    "test:web:explore:reuse:inspect": "PLAYWRIGHT_EXPLORE_CDP_URL=http://127.0.0.1:9323 playwright test --config=playwright.debug.config.ts --debug=inspector",
+    "browser:exploration:setup": "tsx scripts/manage-browser-exploration.ts setup",
+    "browser:exploration:status": "tsx scripts/manage-browser-exploration.ts status",
+    "browser:exploration:remove": "tsx scripts/manage-browser-exploration.ts remove",
+    "check:web-exploration": "tsx scripts/check-web-exploration.ts",
+    "test:suite:assess": "tsx scripts/manage-test-suite.ts assess",
+    "test:suite:status": "tsx scripts/manage-test-suite.ts status",
     "test:web:chrome": "playwright test --config=playwright.chrome.config.ts",
     "test:web:authenticated": "playwright test --config=playwright.authenticated.config.ts",
     "test:web:debug": "playwright test --config=playwright.debug.config.ts --debug=inspector",
@@ -40,6 +43,7 @@
     "test:test-data": "tsx --test tests/support/test-data/*.test.ts",
     "test:automation-runtime": "tsx --test tests/support/web/*.test.ts",
     "test:formal-execution": "tsx --test tests/support/formal-execution/*.test.ts",
+    "test:test-suite": "tsx --test tests/support/test-suite/*.test.ts",
     "test-data:recover": "tsx src/support/test-data/recover.ts",
     "test:task-workflow": "tsx --test tests/support/task-workflow/*.test.ts",
     "test:maintenance": "tsx --test tests/support/reset-full-test-state-rules.test.ts",

@@ -82,6 +82,14 @@ npm run task:gate -- --request web/<project>/<test-request> --assert-safe-reply
 npm run task:resume -- --request web/<project>/<test-request>
 npm run task:manage -- --help
 
+# 稳定功能套件：无可恢复的同 run history 时先评估，再初始化 v6 分支
+npm run test:suite:status -- --suite web/<project>/<feature>
+npm run test:suite:assess -- --suite web/<project>/<feature> --environment test --profile full_feature
+npm run task:initialize -- --request web/<project>/<new-run> --suite web/<project>/<feature> --reuse auto --environment test
+# 完成请求受控晋升；直接复用分支的 readiness 不接受手填 digest/case/脚本
+npm run task:manage suite-promote -- --request web/<project>/<completed-request> --suite web/<project>/<feature>
+npm run task:manage suite-readiness-publish -- --request web/<project>/<new-run> --claim <lease> --environment test
+
 # 按范围与关键词检索开放平台章节（不读取全部原文）
 npm run knowledge:search -- --project open-platform --scope account-login --query '账号登录 企业成员'
 
@@ -97,13 +105,10 @@ npm run test:web:execute -- --request web/<project>/<request>
 # 同一授权中断恢复
 npm run test:web:execute -- --request web/<project>/<request> --resume
 
-# 跨失败/重试复用隔离 Chrome（仅本机受控探索，非正式回归）
-npm run playwright:explore-session -- start
-npm run test:web:explore:reuse -- tests/web/<project>/<request>/<file>.spec.ts
-# 在同一会话中打开 Playwright Inspector 并单步查看定位器
-npm run test:web:explore:reuse:inspect -- tests/web/<project>/<request>/<file>.spec.ts
-npm run playwright:explore-session -- status
-npm run playwright:explore-session -- stop
+# Web/H5 只读真实页面候选探索（本机配置不提交 Git）
+npm run browser:exploration:setup -- --adapter current-host
+npm run browser:exploration:status
+npm run check:web-exploration -- --request web/<project>/<request>
 
 # Web Inspector 单步入口：仅在需要逐步查看时使用
 npm run test:web:debug -- tests/web/<project>/<request>/<file>.spec.ts

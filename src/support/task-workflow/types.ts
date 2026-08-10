@@ -75,6 +75,7 @@ export const workflowCapabilities = ["web", "h5", "webview", "app", "api", "mqtt
 export type WorkflowCapability = (typeof workflowCapabilities)[number];
 
 export const workflowPhases = [
+  "reuse_assessment",
   "planning",
   "plan_confirmation",
   "case_generation",
@@ -94,6 +95,10 @@ export const workflowPhases = [
 export type WorkflowPhase = (typeof workflowPhases)[number];
 
 export type ActivityKind =
+  | "reuse_assessment"
+  | "suite_validation"
+  | "impact_location"
+  | "policy_authorization"
   | "source_selection"
   | "plan_validation"
   | "callback"
@@ -230,6 +235,20 @@ export interface BuildWorkflowDefinitionInput {
     sharedAccount?: boolean;
   };
   definitionId?: string;
+}
+
+export interface ReusableWorkflowDefinitionInput extends BuildWorkflowDefinitionInput {
+  reuseAssessment: {
+    schemaVersion: "test-suite-reuse-assessment-v1";
+    suiteId: string;
+    suiteVersion?: string;
+    assessmentDigest: string;
+    decision: "direct_execute" | "affected_rebuild" | "full_replan";
+    requestedProfile: "full_feature" | "smoke" | "affected" | "failed_or_blocked";
+    effectiveProfile: "full_feature" | "smoke" | "affected" | "failed_or_blocked";
+    selectedCaseIds: string[];
+    affectedCaseIds: string[];
+  };
 }
 
 export const activityStates = [

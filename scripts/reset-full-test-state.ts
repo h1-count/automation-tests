@@ -256,6 +256,7 @@ function collectRequestDirectories(
           request.isDirectory()
           && !request.name.startsWith(".")
           && !request.name.startsWith("_")
+          && request.name !== "suites"
         ) {
           requestIds.push(`${type.name}/${project.name}/${request.name}`);
         }

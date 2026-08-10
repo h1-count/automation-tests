@@ -42,6 +42,7 @@ const selectorVerificationTemplate = read(
 );
 const selectorEvidenceCache = read("src/support/web/selectorEvidenceCache.ts");
 const formalExecutionTypes = read("src/support/formal-execution/types.ts");
+const stableSuite = read("src/support/test-suite/stableSuite.ts");
 const capabilityProvider = read("src/support/formal-execution/capabilityProvider.ts");
 const formalSourceGate = read("src/support/formal-execution/sourceGate.ts");
 const dependencyPlan = read("src/support/formal-execution/dependencyPlan.ts");
@@ -62,6 +63,22 @@ const hookConfig = JSON.parse(hookConfigText) as {
 const goalIdentifierPattern = /goal/i;
 const hookSchedulingPattern =
   /\b(?:heartbeat|wake)\b|automationId|workflowState|checkpoint\?\.safe/;
+
+test("stable suite reuse is deterministic and cannot reuse run facts", () => {
+  assert.match(stableSuite, /stable-test-suite-manifest-v1/);
+  assert.match(stableSuite, /test-suite-reuse-assessment-v1/);
+  assert.match(stableSuite, /direct_execute/);
+  assert.match(stableSuite, /affected_rebuild/);
+  assert.match(stableSuite, /full_replan/);
+  assert.match(stableSuite, /resolveLocalScriptDependencyClosure/);
+  assert.match(stableSuite, /impactMap/);
+  assert.match(stableSuite, /completionSeal/);
+  assert.match(workflowDefinition, /definitionVersion: "v6"/);
+  assert.match(workflowDefinition, /policy_auto_no_write/);
+  assert.match(taskManage, /suite-readiness-publish/);
+  assert.match(taskManage, /suite-promote/);
+  assert.doesNotMatch(stableSuite, /reuse(?:d)?(?:Result|Authorization|Cleanup|Ledger)/i);
+});
 
 function readTypeScriptTree(relativeDirectory: string): string {
   const files: string[] = [];
@@ -662,11 +679,16 @@ test("formal execution entrypoints load the same local environment as readiness"
   assert.match(formalWebRunner, /^import "dotenv\/config";/);
 });
 
-test("web selector evidence is source-first, headless-verified and visibly explored only as fallback", () => {
+test("web selector evidence uses optional read-only page candidates before source and Playwright verification", () => {
   lineContainingAll(
     automationGuideline,
-    ["源码契约分析", "自动无头 selector 验证", "可见 Inspector 兜底"],
-    "source-first engineering flow"
+    ["只读真实页面候选探索", "源码契约补齐", "自动无头 selector 验证", "可见 Inspector 兜底"],
+    "runtime-first engineering flow"
+  );
+  lineContainingAll(
+    selectorGuideline,
+    ["Chrome DevTools MCP", "accessibility snapshot", "fallback", "deferred/invalid"],
+    "optional read-only page candidate exploration"
   );
   lineContainingAll(
     selectorGuideline,
@@ -699,7 +721,7 @@ test("web selector evidence is source-first, headless-verified and visibly explo
   );
   lineContainingAll(
     selectorGuideline,
-    ["源码契约无法收敛", "多匹配", "源码与目标环境运行时不一致", "动态语义"],
+    ["真实页面候选和源码契约仍无法收敛", "多匹配", "源码与目标环境运行时不一致", "动态语义"],
     "visible inspector fallback conditions"
   );
   lineContainingAll(
@@ -723,9 +745,10 @@ test("web selector evidence is source-first, headless-verified and visibly explo
   ]) {
     assert.match(selectorEvidenceCache, new RegExp(key));
   }
-  assert.match(workflowDefinition, /selectorEvidencePolicy: "source_first_cached"/);
-  assert.match(workflowDefinition, /headlessSelectorVerification: "cached_by_build_and_contract"/);
-  assert.match(workflowDefinition, /visibleExploration: "fallback_only"/);
+  assert.match(workflowDefinition, /selectorEvidencePolicy: "mcp_candidate_playwright_verified"/);
+  assert.match(workflowDefinition, /adapter: "chrome_devtools_mcp"/);
+  assert.match(workflowDefinition, /headlessSelectorVerification: "required_for_runtime_verified"/);
+  assert.match(workflowDefinition, /visibleExploration: "playwright_guarded_fallback"/);
   assert.doesNotMatch(
     workflowDefinition,
     /inspectorTriggers:\s*\[[^\]]*"state_transition"/

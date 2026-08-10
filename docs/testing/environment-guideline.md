@@ -191,10 +191,11 @@ Web 自动化每次运行必须选择且只能选择一种模式：
 
 | 模式 | 目的 | 浏览器与会话 | 业务写入预算 |
 | --- | --- | --- | --- |
-| `explore` | 对源码推导的 selector 做无头验证，并在证据不足时通过 Inspector 补齐 ARIA/DOM、页面结构、安全导航和网络结构证据。 | 默认使用独立无头验证；只有定位规范的 fallback 条件成立时才显示专用 Chrome 与 Playwright Inspector，并可复用专用调试会话。 | 固定为 `0`。 |
+| `explore` | 对真实页面候选和源码推导的 selector 做零写入验证，并在证据不足时通过 Inspector 补齐 ARIA/DOM、页面结构、安全导航和网络结构证据。 | Web/H5 可先使用隔离 Chrome 的只读探索适配器；最终验证和交互 fallback 仍由 Playwright Inspector 完成。 | 固定为 `0`。 |
 | `execute` | 在 readiness 和统一执行清单确认后形成正式测试结果。 | 默认无头；可共享 Runner 持有的 BrowserServer，但每个 case 使用独立 Context/Page，只有受控 `PageSessionGroup` 可复用。 | 只允许执行清单中的资源类型和数量。 |
 
-- `explore` 内部顺序固定为源码契约分析、`test:web:verify-selectors` 无头验证、必要时可见 Inspector fallback；三者不形成新的工作流状态或用户确认。
+- `explore` 内部顺序固定为资格检查后的只读真实页面候选探索、源码契约补齐、`test:web:verify-selectors` 无头验证、必要时可见 Inspector fallback；探索适配器不可用时直接跳过首步。它们都不形成新的工作流状态或用户确认。
+- 只读真实页面探索仅适用于 Web/H5 的 test/pre 环境、匿名且无敏感数据的页面；它使用临时 profile、loopback CDP、Service Worker 阻断和网络写 guard。不得连接普通浏览器、认证会话、正式 Runner 或生产环境；它只产生候选证据，不能产生 `runtime_verified`、正式结果或能力证据。
 - `explore` 默认阻止 `POST`、`PUT`、`PATCH`、`DELETE`。只有明确登记且整条 URL 精确匹配的无副作用查询接口可例外放行。
 - 探索时不得点击或触发保存、注册、提交、发送验证码、上传文件、创建或删除资源、控制设备；网络 guard 只是防御措施，不能把这些操作作为页面探测手段。无头验证仅允许 locator 查询、断言和 `trial` actionability。
 - 本地 mock、组件 fixture 和预置只读状态可以用于探索；会创建远端状态的 API/fixture 必须留在执行清单确认后的正式 setup。零写入无法穿越的边界只记录为 `reachableBoundary`，不能把下游写成已验证。
@@ -206,7 +207,7 @@ Web 自动化每次运行必须选择且只能选择一种模式：
 - worker 超时或被中断时，teardown 必须关闭已开始但未提交的原子尝试，并由同一授权的恢复入口继续；结果状态由[报告规范](./report-guideline.md#4-执行结果标准)判定。
 - `readiness` 通过 Capability Provider 生成不含敏感值的能力证据，只保存能力是否可用、证据摘要、受影响 `caseId` 和解除条件；正式 `run` 仅复核清单内 runnable case 的能力。能力不足不得改变无关用例的环境前置。
 - 公开任务 CLI（包括 `task:manage` 的 readiness）启动时自动加载当前工作区 `.env`；已由 shell 或 CI Secret 导出的同名变量保持优先，不被 `.env` 覆盖。需要环境专用文件时使用 `DOTENV_CONFIG_PATH` 指向受控 `.env.*`；能力证据和诊断仍只允许输出变量名摘要与配置布尔值，不得输出原值。
-- 新 v5 候选脚本通过 manifest 声明自己依赖的 capability；脚本只能调用 `runtime.useCapability(capabilityId)` 取得当前 case 已声明、且 readiness 评定可用的 provider 值。已注册 provider 在当前环境不可用时，Runner 在启动 Playwright 前将该 case 标记为 deferred；未注册 provider 在 readiness 直接作为 invalid build input。脚本正文不得保留固定阻断占位。
+- 新候选脚本通过 manifest 声明自己依赖的 capability；脚本只能调用 `runtime.useCapability(capabilityId)` 取得当前 case 已声明、且 readiness 评定可用的 provider 值。已注册 provider 在当前环境不可用时，Runner 在启动 Playwright 前将该 case 标记为 deferred；未注册 provider 在 readiness 直接作为 invalid build input。脚本正文不得保留固定阻断占位。
 - 可编译、可评审的浏览器响应解析契约、`test-assets/manifest.yaml` 中 active 的 Git 静态资产及本地确定性生成器属于 `build`，不得用布尔环境变量伪装成 Capability Provider，也不得要求 `.env` 重复配置资产 ID 或可由需求直接确定的参数。新 manifest 通过 `requiredTestAssetIds` 和 `test_asset` 构建证据冻结资产身份、路径与实际 SHA-256；缺失、范围不匹配或摘要漂移是 `invalid build`。账号、OTP、远端 fixture、异步状态查询、cleanup 和真实 adapter 才是 readiness 检查的运行时能力；`runtime-validation-pending` 只是一种实现状态，不得注册为永久 unavailable 的哨兵 provider，`pendingCapabilityIds` 必须引用真实能力。
 - `requiredCapabilities` 只允许声明 case 当前阶段启动必需的能力。参数矩阵中的可选精确样本、仅影响一个等价类的输入或后续阶段能力必须单独记录，不得把整条 case 延期。资料未定义 KB/MB 等换算口径时，使用对十进制和二进制口径都明确成立的代表值；不执行精确等号与一字节相邻断言，也不增加环境变量索取该口径。
 - Provider 必须在 Runner 注册表中有真实 `check`，脚本需要取值时还必须有 `use`；仅在 manifest 填写名称或 TypeScript 接口不算实现。未注册 Provider 是构建输入错误，readiness 将受影响 case 标为 `invalid`，不输出解除环境条件后可自愈的 `deferred`。
@@ -243,7 +244,7 @@ executionOrder
 
 ### 6.2 数据写入策略与跨请求资源池
 
-新 v5 正式用例按 case 选择 `DataWritePolicyV2`：
+新正式用例按 case 选择 `DataWritePolicyV2`：
 
 | 策略 | 适用范围 | 运行后处理 |
 | --- | --- | --- |
@@ -257,6 +258,8 @@ executionOrder
 - 每个请求必须按资源类型声明正整数上限。预算耗尽或存在已过期且未处理的残留时冻结新的写入用例，只读用例可继续。
 - 资源类型预算之外，正式 manifest 还必须用 `operationBudgets` 冻结每个 case 的登录、OTP、上传、提交、查询等最大次数；参数化循环不得只依赖请求级总预算。
 - 没有删除接口不等于执行异常：已确认的限额残留记为 `retained`；归属、创建结果或风险未知时才记为 `manual_required` 或阻塞。
+- 稳定 suite 只复用已评审的数据策略、操作上限和资源池预算设计；每个 `runRequestId` 必须创建独立 run 台账、CreateIntent、lease/fencing、能力证据、cleanup 结论和 completion seal。旧 run 的数据、结果、授权或能力有效期不得复用。
+- `policy_auto_no_write` 仅适用于 `test/pre`、suite 范围完全匹配且每个 runnable case 均为 `read_only + no_write` 的本轮授权；生产、OTP、上传、提交、数据写入、设备动作或权限提升每轮都必须重新确认。
 - 本机测试数据生命周期只管理 `.local/test-ledger/` 中 owner 为 `local-automation-test`，且 machineId、projectId、envId、runId、`caseId` 均明确的资源。台账外、其他机器、未知归属、生产或真实用户数据不得自动复用、修改或清理。
 - 资源池唯一键为 `projectId + environment + resourceType + baselineContractId`。复用只允许 `available`、未污染、未过期且经 validator 确认可用的同机资源；不得按名称、时间、数据库或设备列表模糊匹配。
 - 只读用例可取得 `shared_read` 租约，任何修改必须取得 `exclusive` 租约。浏览器 Context、Cookie、storage 和 page 仍按用例隔离，共享的只是已校验服务端 fixture。

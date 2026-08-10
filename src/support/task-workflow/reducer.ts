@@ -335,7 +335,7 @@ function materializeReady(
             dependency?.state === "CANCELLED"
             && dependency.definition.activation !== undefined
             && (
-              !["v3", "v4", "v5"].includes(definitionVersion)
+              !["v3", "v4", "v5", "v6"].includes(definitionVersion)
               || activity.definition.optionalDependencies?.includes(id) === true
             )
           );
@@ -662,7 +662,8 @@ function applyActivityEvent(
         throw new WorkflowTransitionError(`Callback ${callbackId} does not match the pending subject digest.`);
       }
       let planDigest: string | undefined;
-      if (["v3", "v4", "v5"].includes(event.definitionVersion)) {
+      if (["v3", "v4", "v5"].includes(event.definitionVersion)
+        || (event.definitionVersion === "v6" && activity.definition.kind !== "execution_authorization")) {
         const publishId = stringField(payload, "publishId");
         const manifestDigest = requireDigest(
           stringField(payload, "manifestDigest"),
@@ -710,7 +711,7 @@ function applyActivityEvent(
       return;
     }
     case "PlanConfirmationCarriedForward": {
-      if (!["v4", "v5"].includes(event.definitionVersion) || event.actorType !== "system") {
+      if (!["v4", "v5", "v6"].includes(event.definitionVersion) || event.actorType !== "system") {
         throw new WorkflowTransitionError(
           "PlanConfirmationCarriedForward is a v4+ system-only recovery event."
         );
@@ -948,7 +949,7 @@ function applyActivityEvent(
           `Review batch ${batchId} requires an immutable inputDigest.`
         );
       }
-      if (["v4", "v5"].includes(event.definitionVersion)) {
+      if (["v4", "v5", "v6"].includes(event.definitionVersion)) {
         if (!Array.isArray(payload.inputRefs) || !payload.inputRefs.length) {
           throw new WorkflowTransitionError(`Review batch ${batchId} requires non-empty inputRefs.`);
         }
@@ -1126,7 +1127,7 @@ function applyActivityEvent(
       }
       const joinRoles = runtime.reviewerJoinRequirements.get(activity.id);
       requireState(activity, joinRoles ? ["READY", "RUNNING", "RETRY_WAIT"] : ["READY", "RETRY_WAIT"], event);
-      const role = joinRoles || ["v3", "v4", "v5"].includes(event.definitionVersion)
+      const role = joinRoles || ["v3", "v4", "v5", "v6"].includes(event.definitionVersion)
         ? stringField(payload, "role")
         : undefined;
       if (joinRoles && !joinRoles.includes(role!)) {
@@ -1134,7 +1135,7 @@ function applyActivityEvent(
           `Reviewer role ${role} is not part of compatibility join ${activity.id}.`
         );
       }
-      if (["v3", "v4", "v5"].includes(event.definitionVersion)) {
+      if (["v3", "v4", "v5", "v6"].includes(event.definitionVersion)) {
         const expectedRole = activity.definition.metadata?.role;
         if (typeof expectedRole !== "string" || role !== expectedRole) {
           throw new WorkflowTransitionError(
@@ -1208,10 +1209,10 @@ function applyActivityEvent(
         requireDigest(stringField(payload, "planEvidenceDigest"), "planEvidenceDigest");
       }
       const joinRoles = runtime.reviewerJoinRequirements.get(activity.id);
-      const submittedRole = joinRoles || ["v3", "v4", "v5"].includes(event.definitionVersion)
+      const submittedRole = joinRoles || ["v3", "v4", "v5", "v6"].includes(event.definitionVersion)
         ? stringField(payload, "role")
         : undefined;
-      if (["v3", "v4", "v5"].includes(event.definitionVersion)) {
+      if (["v3", "v4", "v5", "v6"].includes(event.definitionVersion)) {
         const expectedRole = activity.definition.metadata?.role;
         if (typeof expectedRole !== "string" || submittedRole !== expectedRole) {
           throw new WorkflowTransitionError(
@@ -1339,13 +1340,13 @@ function applyActivityEvent(
       // invalidation to the batch input digest.  It is replay-only, so retain
       // that historical contract here while enforcing the stronger v4+ shape
       // for every writable run.
-      if (["v4", "v5"].includes(event.definitionVersion)) {
+      if (["v4", "v5", "v6"].includes(event.definitionVersion)) {
         const inputDigest = requireDigest(stringField(payload, "inputDigest"), "inputDigest");
         if (runtime.reviewBatches.get(batchId) !== inputDigest) {
           throw new WorkflowTransitionError(`Review batch ${batchId} inputDigest does not match its started batch.`);
         }
       }
-      if (["v3", "v4", "v5"].includes(event.definitionVersion)) {
+      if (["v3", "v4", "v5", "v6"].includes(event.definitionVersion)) {
         const revisionDigest = requireDigest(stringField(payload, "revisionDigest"), "revisionDigest");
         const findingsDigest = requireDigest(stringField(payload, "findingsDigest"), "findingsDigest");
         const signature = `${revisionDigest}:${findingsDigest}`;

@@ -10,9 +10,9 @@ description: 在本仓库中规划、设计、维护或分析 Web、H5、App、W
 ## 开始与恢复
 
 1. 用户提出独立本机维护（清理、重置、归档或测试数据恢复）时，先读取 `package.json` 与 `scripts/README.md`，使用已登记命令；范围不完整时只执行 `--dry-run`。恢复完整测试 workflow 不属于本条维护请求。
-2. 阅读 `AGENTS.md`、`.local/testing-memory.md`（如存在）和当前请求的 `workflow-history.ndjson`（如存在）。识别项目后只读取对应项目经验库，并确定稳定的 `<type/project/request>`；无法唯一确定时先请求最小必要信息，不猜测 request ID。
+2. 阅读 `AGENTS.md`、`.local/testing-memory.md`（如存在）和当前请求的 `workflow-history.ndjson`（如存在）。识别项目后只读取对应项目经验库，并分别确定功能身份 `suiteId=<type/project/feature>` 与本轮 `runRequestId=<type/project/request>`；无法唯一确定时先请求最小必要信息，不猜测任一 ID。
 3. 完整自动化测试请求在运行 workflow 命令前，先阅读[流程规范的宿主生命周期适配](../../docs/testing/automation-guideline.md#314-durable-workflow生命周期与恢复)。宿主提供长期任务能力时，查询并创建或复用绑定同一 request ID 的任务；绑定不同请求或无法确认归属时不得替换、清除或改写，只请求最小用户选择。状态查询、只读诊断和独立维护请求跳过宿主任务创建。能力不可用或调用失败时继续依赖仓库 workflow，但不得声称存在后台续跑保证。
-4. 有 history 时运行 `npm run task:resume -- --request <type/project/request>`；没有时使用 `task:initialize`。不得从宿主任务、`plan.md`、runtime 或文件时间猜测运行状态。
+4. 同一 `runRequestId` 有 history 时运行 `npm run task:resume -- --request <runRequestId>`，不做 suite 重评；没有可恢复 history 时，先运行 `npm run test:suite:assess -- --suite <suiteId> --environment <test|pre> [--profile <profile>]`。`direct_execute` 直接以 `task:initialize -- --request <runRequestId> --suite <suiteId> --reuse auto --environment <env>` 进入 v6；`affected_rebuild` 只准备评估输出的受影响引用再用同一命令初始化；`full_replan` 才生成新请求计划，通过 Markdown/架构门禁后以同一 `--reuse auto` 命令初始化完整分支。不得从宿主任务、`plan.md`、runtime 或文件时间猜测运行状态。
 5. 先扫描 `sources/` 目录结构和 `sources/manifest.yaml`，再按范围读取命中的受控章节；随后按需选择 `test-assets/manifest.yaml` 中的静态资产。
 6. 按任务打开唯一责任规范：
 
@@ -22,7 +22,7 @@ description: 在本仓库中规划、设计、维护或分析 Web、H5、App、W
    - Inspector 风险和 selector：[selector-guideline.md](../../docs/testing/selector-guideline.md)
    - 报告与失败：[report-guideline.md](../../docs/testing/report-guideline.md)、[failure-classification.md](../../docs/testing/failure-classification.md)
 
-当前没有活跃 `plan.md` 时按用户需求创建新请求；`testcases/archive/` 默认不参与上下文加载。用例确认后才定位 `.local/repositories/`、Graphify 和源码，并把工程设计补入同一 `plan.md`。
+当前没有活跃 `plan.md` 且复用评估为 `full_replan` 时才按用户需求创建新请求计划；`direct_execute` 不生成或复制计划、用例、脚本，`testcases/archive/` 默认不参与上下文加载。完整设计分支在用例确认后才定位 `.local/repositories/`、Graphify 和源码，并把工程设计补入同一 `plan.md`。
 
 ## Activity 操作
 
@@ -45,7 +45,7 @@ npm run task:gate -- --request <type/project/request> --assert-safe-reply
 
 完整自动化测试请求包括新建或恢复后的规划、评审、工程、执行、工作流内 cleanup/reconcile 和报告；仓库 Durable Workflow 始终是唯一事实源。宿主提供跨回合长期任务能力时，为完整请求创建或复用一个任务容器；独立状态查询、只读诊断、规则或代码维护、清理、重置、归档和测试数据恢复不创建宿主长期任务。objective、冲突处理和完成条件只按[流程规范](../../docs/testing/automation-guideline.md#314-durable-workflow生命周期与恢复)生成。
 
-操作顺序固定为：稳定 request ID → 检查宿主是否提供长期任务能力 → 可用时创建或复用同请求任务 / 不同请求请求最小用户选择 → `task:initialize` 或 `task:resume`。宿主能力缺失或调用失败时不得声称已启用；改用当前会话继续或后续显式 `task:resume`。宿主长期任务的 ID、状态、预算和使用记录只属于宿主，不得写入 runtime、history、`plan.md` 或其他仓库文件。
+操作顺序固定为：稳定 `suiteId + runRequestId` → 检查同 run history → 无可恢复 history 时确定性 suite assess → 检查宿主是否提供长期任务能力 → 可用时创建或复用同 `runRequestId` 任务 / 不同请求请求最小用户选择 → `task:initialize --reuse auto` 或 `task:resume`。宿主能力缺失或调用失败时不得声称已启用；改用当前会话继续或后续显式 `task:resume`。宿主长期任务的 ID、状态、预算和使用记录只属于宿主，不得写入 runtime、history、`plan.md` 或其他仓库文件。
 
 请求运行中，`continue_now`、reconcile、reviewer 派发/重试、自动演进和复审必须继续执行。`await_event`/`wait_until` 使用宿主可用的等待能力取得已登记事件；等待窗口或墙钟时长本身不是 reviewer 失败依据，不得因此中断 reviewer 或发送最终回复。`WAITING_HUMAN` 和 workflow `BLOCKED` 只暂停同一请求，真实条件满足并执行 callback 解析或 `task:manage blocker-resolve` 后恢复，不把暂停直接映射为宿主任务终态。只有 workflow `SUCCEEDED` 且 `task:gate --assert-safe-reply` 通过后，才在宿主支持时标记其长期任务完成；产品结果为 failed/mixed 不阻止工作流完成。`FAILED`、`CANCELLED` 只按宿主自己的能力处理，不得改写 workflow history。
 
@@ -53,13 +53,15 @@ npm run task:gate -- --request <type/project/request> --assert-safe-reply
 
 ## 阶段操作顺序
 
+`direct_execute` 跳过本节的计划、用例、生成模型和 reviewer：启动 `readiness` 后运行 `task:manage suite-readiness-publish --request <runRequestId> --claim <lease> --environment <env>`，然后按本轮新授权运行 Formal Runner。`affected_rebuild` 使用初始化时确定性生成的请求级工作副本，只对 `impact-location` 引用执行定向演进与复审；readiness 的 caseIds 必须与评估精确一致，稳定套件中未受影响资产不重生成，正式收口前也不直接改写稳定目录。下列完整顺序只适用于 `full_replan` 和未完成的旧 v5：
+
 1. 资料筛选和计划校验，发布 `plan.md`。
 2. 请求计划确认 callback；`accepted` 后立即继续用例包生成，不等待用户再发送“继续”。
 3. 并行生成适用用例包，运行关系同步和首稿 readiness：一次检查计划必填标记、包完整度、RULE 设计矩阵、关系投影、来源 manifest id/`sectionId`/SHA-256，并一次汇总写入安全 warnings。硬缺口先自动修订并复检；warnings 不单独创建 callback。
 4. 首稿 readiness 通过后按 `caseId` 的数据策略与实际操作生成 `case-review-risk-v2`：`light` 只跑确定性门禁，`standard` 派发 combined，`strict` 并行派发 combined 与 impact。combined 只审查 standard/strict，impact 只审查 strict 及共享安全邻域。完成初审和最多两轮语义演进；确定性修正不消耗轮次。
 5. 对最终收敛的用例集请求一次用例确认；确认后在单一 `build` Activity 内自动完成工程设计、完整候选脚本、selector 契约和差异化脚本评审。候选可标记 `runtime_validation_pending`，但不能用空 callback、固定 blocker 或仅 capability 检查代替业务实现。评审和授权必须使用与 Runner/finalize 相同的本地运行依赖闭包：递归纳入候选 helper，排除 `import type`，Formal Runner 基础设施按 byte-frozen runtime leaf 处理。
 6. 启动 `readiness` 后运行 `execution-readiness-publish`：所有等级复核项目编译、`caseId` 映射、source gate、敏感信息、操作声明和 `operationEvidence`；只将账号、OTP、远端 fixture/动态数据、外部观察器、Runner adapter 和资源池当作运行依赖。ARIA、selector、源码、浏览器响应契约，以及 `test-assets/manifest.yaml` 中的 Git 静态资产和本地确定性生成器冻结为 `buildEvidence`，不创建同名 Provider 或要求 `.env` 重复指定资产。静态资产缺失、范围/摘要不匹配和未注册 Provider 是 `invalid`；已实现 Provider 或资源池在当前环境不可用且没有已授权替代预算时才是 `deferred`。只有 case 当前阶段启动必需的能力才进入 `requiredCapabilities`；可选参数或精确边界不能延期其他独立场景。readiness 必须以 `producesResources → requiredResources` 构建无环依赖图：生产者可启动时，消费者进入 `scheduledCaseIds` 而不是 deferred；执行清单同时展示第一波、后续波、依赖路径和 `graphDigest`。`standard` 验证 `script_quality`，只有 OTP、权限/安全挑战、设备动作、敏感凭据或结果未知才升为 `strict` 并验证 `execution_safety`。零 runnable 时登记 blocker，不请求执行确认。存在 runnable 时，新 run 发布 `execution-authorization-v4` 并请求一次确认；已冻结 v3 的历史 run 按原版本续写，不迁移 history。
-7. 确认后运行单一 `run` 事务，按需完成能力复核、资源池校验/租约或授权内惰性创建、执行、外部 postcondition、`finally` 基线恢复/释放/cleanup/reconcile。新 readiness 必须使用 `formal-execution-manifest-v3`，在启动 Runner 前重算已授权的来源、build evidence 与业务 Oracle 契约；每个 runnable case 必须通过 `verifyBusinessOracle()` 为全部必需 Oracle 产生结构化结果。Runner 不能依赖脚本文件或 Playwright discovery 顺序，必须按冻结 manifest 动态计算拓扑波次；生产者用 `publishResource` 交接当前本地 run 的台账句柄，消费者用 `consumeResource` 取得句柄后才启动。多阶段 case 采用“运行当前波次 → `completeStage` 冻结检查点 → `awaitExternalTransition` → `execution-transition-park` 合并请求当前全部人工动作 → `execution-transition-resolve` 校验脱敏回复并恢复同一 lease → `--resume` 执行下一波次”；park 时只关闭进程能力，不执行业务 cleanup 或结束 test-data run。后续能力只在对应转换解析后检查，已完成写入不得重放。部分转换完成时先执行已满足分支，剩余分支再次 park；生产者失败只阻塞后代，无依赖分支继续。只读可用 `shared_read`，写入必须 `exclusive`；恢复失败立即隔离，不得返回池中。terminal settlement 只有结构化 cleanup 摘要已接受才能执行 `execution-run-finalize --claim <lease>` 建立正式 seal；数据卫生未闭环时登记 blocker，terminal `unknown` 时登记专用 outcome blocker，两者都禁止封印和普通解除。恢复后只重做必要的受控尝试与 settlement/finalize，不重放已完成写入。随后执行 `execution-report-finalize --claim <lease>`，只从同一 seal 生成 `formal-run-summary-v2` 的 `run-summary.json` 与 `execution-summary.md`，并原子闭合 report 与 workflow。
+7. 确认后运行单一 `run` 事务，按需完成能力复核、资源池校验/租约或授权内惰性创建、执行、外部 postcondition、`finally` 基线恢复/释放/cleanup/reconcile。新生成的请求级候选必须使用 `formal-execution-manifest-v3`，稳定套件直跑必须使用受控晋升得到的 suite-scoped v4；在启动 Runner 前都要重算已授权的来源、build evidence 与业务 Oracle 契约。每个 runnable case 必须通过 `verifyBusinessOracle()` 为全部必需 Oracle 产生结构化结果。Runner 不能依赖脚本文件或 Playwright discovery 顺序，必须按冻结 manifest 动态计算拓扑波次；生产者用 `publishResource` 交接当前本地 run 的台账句柄，消费者用 `consumeResource` 取得句柄后才启动。多阶段 case 采用“运行当前波次 → `completeStage` 冻结检查点 → `awaitExternalTransition` → `execution-transition-park` 合并请求当前全部人工动作 → `execution-transition-resolve` 校验脱敏回复并恢复同一 lease → `--resume` 执行下一波次”；park 时只关闭进程能力，不执行业务 cleanup 或结束 test-data run。后续能力只在对应转换解析后检查，已完成写入不得重放。部分转换完成时先执行已满足分支，剩余分支再次 park；生产者失败只阻塞后代，无依赖分支继续。只读可用 `shared_read`，写入必须 `exclusive`；恢复失败立即隔离，不得返回池中。terminal settlement 只有结构化 cleanup 摘要已接受才能执行 `execution-run-finalize --claim <lease>` 建立正式 seal；数据卫生未闭环时登记 blocker，terminal `unknown` 时登记专用 outcome blocker，两者都禁止封印和普通解除。恢复后只重做必要的受控尝试与 settlement/finalize，不重放已完成写入。随后执行 `execution-report-finalize --claim <lease>`，只从同一 seal 生成 `formal-run-summary-v2` 的 `run-summary.json` 与 `execution-summary.md`，并原子闭合 report 与 workflow。
 
 计划确认的 `subjectDigest` 只按流程规范的 `plan-confirmation-subject-v2` 从现有计划区块内部计算，不向计划添加“计划确认边界”表。顶层业务流程、测试类型/目标环境、高层数据写入类别和权限/安全上限未变化时，`REQ/RULE/caseId`、断言、追溯或 reviewer 记录的自动演进不得重开计划确认。只有 manager 判定为需要修订计划，或存在资料冲突、未定义验收时，才请求最小用户决定。
 
@@ -72,7 +74,7 @@ npm run check:markdown -- <实际 Markdown 文件>
 npm run check:architecture
 ```
 
-Web/H5 先从已确认版本的源码、既有 action/Page Object 和 selector 契约生成候选，再使用 `test:web:verify-selectors` 做无头零写入验证；只有源码无法收敛、无头验证多匹配或不可达、源码与运行时漂移或动态语义无法确定时，才运行 `test:web:inspect` 或 `test:web:explore:reuse:inspect`。单纯状态迁移和 Web 类型本身都不能触发 Inspector。零写入无法跨越保存、注册、提交等边界时，记录 `reachableBoundary`，按源码和状态契约生成 `runtime_validation_pending` 脚本；远端状态准备与下游验证留在执行清单确认后的正式运行。
+Web/H5 先运行 `check:web-exploration -- --request <type/project/request>`；资格为 eligible 时，先从隔离浏览器的只读 accessibility snapshot 取得候选 locator，再从已确认版本的源码、既有 action/Page Object 和 selector 契约补齐不可达状态。随后使用 `test:web:verify-selectors` 做无头零写入验证；只有候选与源码仍无法收敛、无头验证多匹配或不可达、源码与运行时漂移或动态语义无法确定时，才运行 `test:web:inspect`。探索适配器 unavailable/fallback 不阻塞 build；它不能写 `runtime_verified`、正式结果或 Capability Provider 证据。零写入无法跨越保存、注册、提交等边界时，记录 `reachableBoundary`，按源码和状态契约生成 `runtime_validation_pending` 脚本；远端状态准备与下游验证留在执行清单确认后的正式运行。
 
 需求给出文件格式或数值阈值时直接生成相应参数矩阵。Git 静态资产通过 `requiredTestAssetIds` 与 `test_asset` 证据绑定 active/default 资产并校验实际 SHA-256；格式转换和合法大文件可由本地确定性生成器产生，不建立资产 ID 或精确字节环境变量。单位换算未定义时只执行对合理口径都明确成立的明显低于/明显高于样本，并披露精确等号边界未断言；该缺口不得延期格式、非法格式或明确区间样本。
 

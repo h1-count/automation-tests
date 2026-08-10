@@ -96,7 +96,7 @@ export async function resolveFormalSourceContract(input: {
   manifest: FormalExecutionManifest;
   workspaceRoot: string;
 }): Promise<ResolvedFormalSourceContract> {
-  if (input.manifest.schemaVersion !== "formal-execution-manifest-v3") {
+  if (!["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(input.manifest.schemaVersion)) {
     throw new Error(
       `${input.sourcePath} uses ${FORMAL_SOURCE_CONTRACT_SCHEMA_VERSION}, which requires formal-execution-manifest-v3.`
     );

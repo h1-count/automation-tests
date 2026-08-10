@@ -260,7 +260,7 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
           });
         },
         classifyFailure: () => {
-          if (runtime.manifest.schemaVersion === "formal-execution-manifest-v3") {
+          if (["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(runtime.manifest.schemaVersion)) {
             throw new Error(
               `${caseId} cannot use legacy classifyFailure() in formal-execution-manifest-v3.`
             );
@@ -529,7 +529,13 @@ async function getRuntime(): Promise<InternalRuntime> {
 async function createRuntime(): Promise<InternalRuntime> {
   const manifest = configuredManifest;
   if (!manifest) throw new Error("Call configureFormalSuite(manifest) before registering formalCase tests.");
-  const snapshot = await loadConfirmedExecutionAuthorization(manifest.requestId, manifest.environment);
+  const runRequestId = process.env.FORMAL_EXECUTION_RUN_REQUEST_ID?.trim() || manifest.requestId;
+  const snapshot = await loadConfirmedExecutionAuthorization(runRequestId, manifest.environment);
+  if (snapshot.schemaVersion === "execution-authorization-v5"
+    && manifest.schemaVersion === "formal-execution-manifest-v4"
+    && snapshot.suiteId !== manifest.suiteId) {
+    throw new Error("Formal manifest suite identity differs from execution-authorization-v5.");
+  }
   assertFormalBuildAuthorizationCompatibility({
     manifest,
     authorizationSchemaVersion: snapshot.schemaVersion
@@ -545,7 +551,7 @@ async function createRuntime(): Promise<InternalRuntime> {
   const run = await manager.startOrResumeAuthorizedRun({
     projectId: manifest.projectId,
     envId: manifest.environment,
-    suiteId: manifest.requestId,
+    suiteId: manifest.suiteId ?? manifest.requestId,
     caseIds: snapshot.caseIds,
     dataWritePolicy: snapshot.dataWritePolicy,
     caseWritePolicies: Object.fromEntries(
@@ -574,7 +580,7 @@ async function createRuntime(): Promise<InternalRuntime> {
   const store = new FormalExecutionStore(manager.store.root);
   const capabilityRegistry = createDefaultCapabilityProviderRegistry();
   const capabilityContext: CapabilityCheckContext = {
-    requestId: manifest.requestId,
+    requestId: runRequestId,
     environment: manifest.environment,
     targetBuildDigest: snapshot.targetBuildDigest,
     workspaceRoot: process.cwd()
@@ -592,7 +598,10 @@ async function createRuntime(): Promise<InternalRuntime> {
     capabilities: capabilityResults,
     caseIds: snapshot.caseIds,
     deferredCases: snapshot.deferredCases ?? [],
-    targetBuildDigest: snapshot.targetBuildDigest
+    targetBuildDigest: snapshot.targetBuildDigest,
+    runRequestId,
+    suiteId: snapshot.suiteId,
+    suiteVersion: snapshot.suiteVersion
   });
   return {
     snapshot,

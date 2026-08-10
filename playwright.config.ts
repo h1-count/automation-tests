@@ -9,7 +9,11 @@ import { parseFormalWorkerCount } from "./src/support/formal-execution/runnerPol
 
 const testEnvironment = resolveTestEnvironment();
 const formalLifecycleEnabled = Boolean(process.env.AUTOMATION_REQUEST_ID?.trim());
-const formalRequestMatch = process.env.AUTOMATION_REQUEST_ID?.trim();
+const formalRequestMatch = process.env.PLAYWRIGHT_FORMAL_SCRIPT_SCOPE?.trim()
+  || process.env.AUTOMATION_REQUEST_ID?.trim();
+if (formalRequestMatch && !/^(?:web|h5)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)+$/u.test(formalRequestMatch)) {
+  throw new Error("PLAYWRIGHT_FORMAL_SCRIPT_SCOPE must be a safe tests-relative Web/H5 directory.");
+}
 const formalWorkers = formalLifecycleEnabled
   ? parseFormalWorkerCount(process.env.PLAYWRIGHT_FORMAL_WORKERS)
   : 1;

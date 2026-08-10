@@ -8,6 +8,7 @@ import type {
 import { FormalExecutionStore } from "./formal-execution/formalExecutionStore.js";
 import {
   digestFormalExecutionManifest,
+  loadFormalExecutionManifestFromPath,
   validateFormalExecutionManifest
 } from "./formal-execution/manifest.js";
 import type {
@@ -63,16 +64,25 @@ export async function loadFormalCompletionContext(
     [],
     workspaceRoot
   );
-  assertCurrentAuthorizedScripts(
-    snapshot,
-    await formalExecutionEntryPathsAtWorkspace(requestId, workspaceRoot),
-    workspaceRoot
-  );
-  const manifest = await loadFormalManifestAtWorkspace(requestId, workspaceRoot);
+  const entryPaths = snapshot.schemaVersion === "execution-authorization-v5"
+    ? snapshot.entryScriptPaths ?? []
+    : await formalExecutionEntryPathsAtWorkspace(requestId, workspaceRoot);
+  assertCurrentAuthorizedScripts(snapshot, entryPaths, workspaceRoot);
+  const manifest = snapshot.schemaVersion === "execution-authorization-v5"
+    ? await loadFormalExecutionManifestFromPath(snapshot.formalManifestPath!, {
+        workspaceRoot,
+        expectedSuiteId: snapshot.suiteId
+      })
+    : await loadFormalManifestAtWorkspace(requestId, workspaceRoot);
   assertFormalBuildAuthorizationCompatibility({
     manifest,
     authorizationSchemaVersion: snapshot.schemaVersion
   });
+  if (snapshot.schemaVersion === "execution-authorization-v5"
+    && manifest.schemaVersion === "formal-execution-manifest-v4"
+    && manifest.suiteId !== snapshot.suiteId) {
+    throw new Error("Formal manifest suite identity differs from execution-authorization-v5.");
+  }
   const manifestDigest = digestFormalExecutionManifest(manifest);
   if (snapshot.environment !== manifest.environment) {
     throw new Error("Formal manifest environment differs from the accepted execution subject.");
@@ -80,6 +90,7 @@ export async function loadFormalCompletionContext(
   if (
     snapshot.schemaVersion === "execution-authorization-v3"
     || snapshot.schemaVersion === "execution-authorization-v4"
+    || snapshot.schemaVersion === "execution-authorization-v5"
   ) {
     await verifyFrozenBuildIdentity({
       manifest,

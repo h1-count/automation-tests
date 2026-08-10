@@ -36,15 +36,29 @@ function buildCapabilityContract(capability: WorkflowCapability) {
 test("v5 pins every supported capability into one build contract", () => {
   const expectedMetadata: Record<WorkflowCapability, Record<string, unknown>> = {
     web: {
-      sourceContract: "source_first",
-      headlessSelectorVerification: "cached_by_build_and_contract",
-      visibleExploration: "fallback_only",
+      sourceContract: "runtime_first_source_supplement",
+      browserExploration: {
+        adapter: "chrome_devtools_mcp",
+        policy: "preferred_when_eligible",
+        mode: "read_only",
+        availability: "optional",
+        evidence: "candidate_only"
+      },
+      headlessSelectorVerification: "required_for_runtime_verified",
+      visibleExploration: "playwright_guarded_fallback",
       runtime: "playwright"
     },
     h5: {
-      sourceContract: "source_first",
-      headlessSelectorVerification: "cached_by_build_and_contract",
-      visibleExploration: "fallback_only",
+      sourceContract: "runtime_first_source_supplement",
+      browserExploration: {
+        adapter: "chrome_devtools_mcp",
+        policy: "preferred_when_eligible",
+        mode: "read_only",
+        availability: "optional",
+        evidence: "candidate_only"
+      },
+      headlessSelectorVerification: "required_for_runtime_verified",
+      visibleExploration: "playwright_guarded_fallback",
       runtime: "playwright"
     },
     webview: {

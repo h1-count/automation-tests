@@ -97,7 +97,10 @@ function checkWorkflowFiles(): void {
     "src/support/task-workflow/cli/manage.ts",
     "src/support/task-workflow/cli/gate.ts",
     "src/support/task-workflow/cli/status.ts",
-    "src/support/formal-execution/authorization.ts"
+    "src/support/formal-execution/authorization.ts",
+    "src/support/formal-execution/buildEvidenceIdentity.ts",
+    "src/support/test-suite/stableSuite.ts",
+    "scripts/manage-test-suite.ts"
   ];
   const forbidden = [
     "src/support/task-state",
