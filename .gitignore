@@ -3,6 +3,8 @@ node_modules/
 *.tsbuildinfo
 
 .idea
+.codex
+.vscode
 
 # Local environment configuration and secrets
 .env

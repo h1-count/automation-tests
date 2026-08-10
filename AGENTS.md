@@ -52,3 +52,17 @@
 - `.local/test-ledger/`：被 Git 忽略的本机测试数据台账；其创建、复用、清理与恢复规则由 `docs/testing/environment-guideline.md` 定义。
 - `docs/testing/knowledge/<project>-testing-knowledge.md`：纳入 Git 的项目测试经验库；按被测项目分别维护。可复用策略一经形成就必须立即写入并标注“待验证 / 已验证”；同一适用范围的新经验原位更新当前条目，旧版由 Git 历史保留。经验库不替代或复制原始资料、正式规则、用例、报告或执行证据。
 - `testcases/archive/`：纳入 Git 的只读历史测试证据；请求专属历史脚本统一放在对应归档请求的 `automation/` 子目录，不另建平行归档根。
+
+## 提交信息规范
+
+提交信息使用 `type(scope): 中文描述` 格式（英文 type、英文 scope、中文描述），描述本次提交实际做了什么，避免空泛措辞。
+
+- **type** 表示改动性质，取 `feat`（新增能力、模块或契约）、`refactor`（重构或统一现有结构）或 `test`（测试工程内容）。
+- **scope** 表示改动主体所在的模块或被测对象，如 `formal-execution`、`execution`、`workflow`、`governance`、`maintenance`、`testcases`、`open-platform`，与受影响的主要目录或被测产品对应。
+- 关键区分：执行引擎与基础设施本身的改动用 `feat`/`refactor` 加模块 scope（如 `feat(formal-execution)`、`refactor(execution)`）；面向某个被测产品的测试请求、用例与资产层改动才用 `test(<产品>)`（如 `test(open-platform)`）。不要把引擎改动标成 `test(open-platform)`。
+
+| 示例 | 含义 |
+| --- | --- |
+| `feat(formal-execution): 引入业务 Oracle 契约与完成封印并完善正式执行终态` | 新增执行引擎能力 |
+| `refactor(execution): 将任务命令和正式执行切换到第四版工作流` | 重构执行编排 |
+| `test(open-platform): 归档旧请求并记录第四版评审证据` | open-platform 的测试资产或请求层改动 |
