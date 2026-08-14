@@ -1,5 +1,7 @@
 export const CASE_RELATION_PROJECTION_MARKER = "结构版本：case-relation-projection-v1";
 export const RULE_DESIGN_MATRIX_MARKER = "结构版本：rule-design-matrix-v1";
+export const CASE_RELATION_PROJECTION_MARKER_V2 = "case-relation-projection-v2";
+export const RULE_DESIGN_LEDGER_MARKER_V2 = "rule-design-ledger-v2";
 
 export type RelationIssue = { name: string; detail: string };
 export type RuleCaseRecord = { id: string; reqIds: string[]; type: string; applicability: string; caseIds: string[] };
@@ -49,18 +51,50 @@ export function splitMarkdownTableRow(line: string): string[] {
 }
 
 export function parseRuleCaseRecords(plan: string): RuleCaseRecord[] {
-  return markdownTableRows(markdownSection(plan, "## 规则覆盖台账"))
+  const v2 = plan.includes(RULE_DESIGN_LEDGER_MARKER_V2);
+  return markdownTableRows(markdownSection(plan, v2 ? "## 规则设计台账" : "## 规则覆盖台账"))
     .filter((cells) => /^RULE-/.test(cells[0] ?? ""))
-    .map((cells) => ({ id: ids(cells[0] ?? "", rulePattern)[0] ?? "", reqIds: ids(cells[1] ?? "", reqPattern), type: cells[3] ?? "", applicability: cells[7] ?? "", caseIds: parseCaseIds(cells[9] ?? "") }));
+    .map((cells) => ({
+      id: ids(cells[0] ?? "", rulePattern)[0] ?? "",
+      reqIds: ids(cells[1] ?? "", reqPattern),
+      type: cells[3] ?? "",
+      applicability: cells[v2 ? 10 : 7] ?? "",
+      caseIds: parseCaseIds(cells[v2 ? 9 : 9] ?? "")
+    }));
 }
 
 export function parseRuleDesignRecords(plan: string): RuleDesignRecord[] {
+  if (plan.includes(RULE_DESIGN_LEDGER_MARKER_V2)) {
+    return markdownTableRows(markdownSection(plan, "## 规则设计台账"))
+      .filter((cells) => /^RULE-/.test(cells[0] ?? ""))
+      .map((cells) => ({
+        id: ids(cells[0] ?? "", rulePattern)[0] ?? "",
+        caseIds: parseCaseIds(cells[9] ?? ""),
+        rawCaseIds: (cells[9] ?? "").trim()
+      }));
+  }
   return markdownTableRows(markdownSection(plan, "## 规则设计矩阵"))
     .filter((cells) => /^RULE-/.test(cells[0] ?? ""))
     .map((cells) => ({ id: ids(cells[0] ?? "", rulePattern)[0] ?? "", caseIds: parseCaseIds(cells[7] ?? ""), rawCaseIds: (cells[7] ?? "").trim() }));
 }
 
 export function parseRuleDesignDetails(plan: string): RuleDesignDetail[] {
+  if (plan.includes(RULE_DESIGN_LEDGER_MARKER_V2)) {
+    return markdownTableRows(markdownSection(plan, "## 规则设计台账"))
+      .filter((cells) => /^RULE-/.test(cells[0] ?? ""))
+      .map((cells) => ({
+        id: ids(cells[0] ?? "", rulePattern)[0] ?? "",
+        fieldOrState: cells[3] ?? "",
+        requiredness: "不适用",
+        inputs: cells[5] ?? "",
+        observableExpectation: cells[6] ?? "",
+        dataPrecondition: cells[8] ?? "",
+        executionGate: cells[8] ?? "",
+        caseIds: parseCaseIds(cells[9] ?? ""),
+        rawCaseIds: (cells[9] ?? "").trim(),
+        conclusion: cells[10] ?? ""
+      }));
+  }
   return markdownTableRows(markdownSection(plan, "## 规则设计矩阵"))
     .filter((cells) => /^RULE-/.test(cells[0] ?? ""))
     .map((cells) => ({ id: ids(cells[0] ?? "", rulePattern)[0] ?? "", fieldOrState: cells[1] ?? "", requiredness: cells[2] ?? "", inputs: cells[3] ?? "", observableExpectation: cells[4] ?? "", dataPrecondition: cells[5] ?? "", executionGate: cells[6] ?? "", caseIds: parseCaseIds(cells[7] ?? ""), rawCaseIds: (cells[7] ?? "").trim(), conclusion: cells[8] ?? "" }));
@@ -74,35 +108,54 @@ function isConcreteRuleDesignValue(value: string): boolean {
 
 /** Validates the auditability of all applicable/controlled rule designs. */
 export function validateRuleDesignMatrix(plan: string): RelationIssue[] {
-  if (!plan.includes(RULE_DESIGN_MATRIX_MARKER)) {
+  const v2 = plan.includes(RULE_DESIGN_LEDGER_MARKER_V2);
+  if (!v2 && !plan.includes(RULE_DESIGN_MATRIX_MARKER)) {
     return [{ name: "规则设计矩阵", detail: "缺少 rule-design-matrix-v1 规则设计矩阵。" }];
   }
   const designs = new Map(parseRuleDesignDetails(plan).map((record) => [record.id, record]));
   const rules = parseRuleCaseRecords(plan);
   const issues: RelationIssue[] = [];
-  for (const rule of rules.filter((record) => ["适用", "受控执行"].includes(record.applicability))) {
+  const applicable = (value: string): boolean => v2
+    ? ["已覆盖", "受控执行"].includes(value)
+    : ["适用", "受控执行"].includes(value);
+  for (const rule of rules.filter((record) => applicable(record.applicability))) {
     const design = designs.get(rule.id);
-    if (!design) { issues.push({ name: "规则设计矩阵", detail: `${rule.id} 缺少规则设计矩阵记录。` }); continue; }
-    if (!/必填|选填|不适用/.test(design.requiredness)) issues.push({ name: "规则设计矩阵", detail: `${rule.id} 未声明必填/选填性。` });
+    if (!design) { issues.push({ name: v2 ? "规则设计台账" : "规则设计矩阵", detail: `${rule.id} 缺少规则设计记录。` }); continue; }
+    if (!v2 && !/必填|选填|不适用/.test(design.requiredness)) issues.push({ name: "规则设计矩阵", detail: `${rule.id} 未声明必填/选填性。` });
     if (!isConcreteRuleDesignValue(design.inputs) || !isConcreteRuleDesignValue(design.observableExpectation)) issues.push({ name: "规则设计矩阵", detail: `${rule.id} 缺少具体输入或可观察预期。` });
-    if (!isConcreteRuleDesignValue(design.dataPrecondition)) issues.push({ name: "规则设计矩阵", detail: `${rule.id} 缺少数据前置。` });
-    if (!isConcreteRuleDesignValue(design.executionGate)) issues.push({ name: "规则设计矩阵", detail: `${rule.id} 缺少执行门禁。` });
+    if (!v2 && !isConcreteRuleDesignValue(design.dataPrecondition)) issues.push({ name: "规则设计矩阵", detail: `${rule.id} 缺少数据前置。` });
+    if (
+      v2
+        ? !design.executionGate.trim() || /<|待填写|未知/.test(design.executionGate)
+        : !isConcreteRuleDesignValue(design.executionGate)
+    ) issues.push({ name: v2 ? "规则设计台账" : "规则设计矩阵", detail: `${rule.id} 缺少数据/执行门禁。` });
     if (!isConcreteRuleDesignValue(design.rawCaseIds)) issues.push({ name: "规则设计矩阵", detail: `${rule.id} 缺少关联 caseId 或阶段状态。` });
     if (design.rawCaseIds === "阶段二生成" && rule.caseIds.length > 0) issues.push({ name: "规则设计矩阵", detail: `${rule.id} 的 RULE 台账已有 caseId，规则设计矩阵不得保留阶段二生成。` });
     if (design.rawCaseIds !== "阶段二生成" && (design.caseIds.length !== rule.caseIds.length || design.caseIds.some((id, index) => id !== rule.caseIds[index]))) issues.push({ name: "规则设计矩阵", detail: `${rule.id} 的规则设计 caseId 与 RULE 台账不一致。` });
-    if (!["已覆盖", "受控执行", "用户裁决", "不适用"].includes(design.conclusion)) issues.push({ name: "规则设计矩阵", detail: `${rule.id} 缺少有效设计结论。` });
+    if (!(v2
+      ? ["已覆盖", "受控执行", "待确认", "不适用"]
+      : ["已覆盖", "受控执行", "用户裁决", "不适用"]
+    ).includes(design.conclusion)) issues.push({ name: v2 ? "规则设计台账" : "规则设计矩阵", detail: `${rule.id} 缺少有效设计结论。` });
   }
   return issues;
 }
 
 export function validateRelationProjection(plan: string, packages: Record<string, string>): RelationIssue[] {
+  const v2 = plan.includes(RULE_DESIGN_LEDGER_MARKER_V2);
   const rules = parseRuleCaseRecords(plan);
   const designs = new Map(parseRuleDesignRecords(plan).map((value) => [value.id, value]));
-  const requestIds = new Set(markdownTableRows(markdownSection(plan, "## 需求追溯矩阵")).flatMap((row) => ids(row[0] ?? "", reqPattern)));
-  const bodies = Object.values(packages).flatMap((content) => content.split(/^## 测试用例：/m).slice(1).flatMap((block) => {
+  const requestIds = new Set(markdownTableRows(markdownSection(plan, v2 ? "## 需求索引" : "## 需求追溯矩阵")).flatMap((row) => ids(row[0] ?? "", reqPattern)));
+  const bodyRecords = Object.values(packages).flatMap((content) => content.split(/^## 测试用例[：:]/m).slice(1).map((block) => {
     const match = block.match(/^\s*\|\s*用例编号\s*\|\s*(.*?)\s*\|\s*$/m);
-    return parseCaseIds(match?.[1] ?? "");
+    return {
+      caseId: parseCaseIds(match?.[1] ?? "")[0],
+      ruleIds: ids(
+        block.match(/^\|\s*(?:规则编号|规则覆盖编号)\s*\|\s*(.*?)\s*\|\s*$/m)?.[1] ?? "",
+        rulePattern
+      )
+    };
   }));
+  const bodies = bodyRecords.flatMap((record) => record.caseId ? [record.caseId] : []);
   const caseSet = new Set(bodies);
   const issues: RelationIssue[] = [];
   const duplicates = [...new Set(bodies.filter((caseId, index) => bodies.indexOf(caseId) !== index))];
@@ -112,14 +165,24 @@ export function validateRelationProjection(plan: string, packages: Record<string
   for (const rule of rules) {
     if (!rule.reqIds.length) issues.push({ name: "RULE 关系源", detail: `${rule.id} 没有关联任何 REQ。` });
     for (const reqId of rule.reqIds) if (!requestIds.has(reqId)) issues.push({ name: "RULE 关系源", detail: `${rule.id} 关联的 ${reqId} 不存在。` });
-    if (bodies.length && ["适用", "受控执行"].includes(rule.applicability) && !rule.caseIds.length) issues.push({ name: "RULE 关系源", detail: `${rule.id} 在已生成原子用例后缺少有效 RULE → caseId。` });
+    const applicable = v2
+      ? ["已覆盖", "受控执行"].includes(rule.applicability)
+      : ["适用", "受控执行"].includes(rule.applicability);
+    if (bodies.length && applicable && !rule.caseIds.length) issues.push({ name: "RULE 关系源", detail: `${rule.id} 在已生成原子用例后缺少有效 RULE → caseId。` });
     for (const caseId of rule.caseIds) if (!caseSet.has(caseId)) issues.push({ name: "RULE 关系源", detail: `${rule.id} → ${caseId} 不存在。` });
     const design = designs.get(rule.id);
     if (!design) { issues.push({ name: "规则设计关系源", detail: `${rule.id} 缺少规则设计矩阵记录。` }); continue; }
     if (bodies.length && design.rawCaseIds === "阶段二生成") issues.push({ name: "规则设计关系源", detail: `${rule.id} 在已生成原子用例后仍为阶段二生成。` });
     if (design.rawCaseIds !== "阶段二生成" && (design.caseIds.length !== rule.caseIds.length || design.caseIds.some((id, index) => id !== rule.caseIds[index]))) issues.push({ name: "规则设计关系源", detail: `${rule.id} 的规则设计 caseId 与唯一 RULE 台账不一致。` });
   }
-  for (const caseId of caseSet) if (!rules.some((rule) => rule.caseIds.includes(caseId))) issues.push({ name: "RULE 关系源", detail: `${caseId} 没有任何 RULE → caseId 关系。` });
+  for (const record of bodyRecords) {
+    if (!record.caseId) continue;
+    const planRules = rules.filter((rule) => rule.caseIds.includes(record.caseId!)).map((rule) => rule.id).sort();
+    if (!planRules.length) issues.push({ name: "RULE 关系源", detail: `${record.caseId} 没有任何 RULE → caseId 关系。` });
+    if (v2 && planRules.join("|") !== record.ruleIds.sort().join("|")) {
+      issues.push({ name: "RULE ↔ caseId 双向追溯", detail: `${record.caseId} 的规则编号与规则设计台账不一致。` });
+    }
+  }
   return issues;
 }
 
@@ -147,18 +210,27 @@ function ruleDomains(type: string): string[] {
   return ({ "业务规则": ["业务功能与规则"], "分支/决策": ["业务功能与规则"], "输入边界": ["输入与数据校验"], "异常与恢复": ["异常、容错与恢复"], "状态流转": ["状态与生命周期"], "页面交互": ["交互、视觉与无障碍"], "权限/身份": ["权限、身份与审计"], "集成与数据一致性": ["数据完整性与一致性", "接口、集成与契约"] } as Record<string, string[]>)[type] ?? [];
 }
 
-function rewriteCaseFields(content: string, rules: Map<string, string[]>, requirements: Map<string, string[]>): string {
+function rewriteCaseFields(content: string, rules: Map<string, string[]>, requirements: Map<string, string[]>, v2: boolean): string {
   const caseId = parseCaseIds(content.match(/^\|\s*用例编号\s*\|\s*(.*?)\s*\|\s*$/m)?.[1] ?? "")[0];
   if (!caseId) return content;
   const set = (value: string, label: string): string => {
+    const requirementField = label === "需求追溯编号" || label === "需求编号";
     const pattern = new RegExp(`(\\|\\s*${label}\\s*\\|\\s*)(.*?)(\\s*\\|\\s*$)`, "gm");
-    return pattern.test(value) ? value.replace(pattern, (_line, prefix, _old, suffix) => `${prefix}${label === "需求追溯编号" ? requirements.get(caseId)?.join("、") ?? "无" : rules.get(caseId)?.join("、") ?? "无"}${suffix}`) : value.replace(/^(\|\s*用例编号\s*\|.*\|\s*)$/m, `$1\n| ${label} | ${label === "需求追溯编号" ? requirements.get(caseId)?.join("、") ?? "无" : rules.get(caseId)?.join("、") ?? "无"} |`);
+    const projected = requirementField
+      ? requirements.get(caseId)?.join("、") ?? "无"
+      : rules.get(caseId)?.join("、") ?? "无";
+    return pattern.test(value)
+      ? value.replace(pattern, (_line, prefix, _old, suffix) => `${prefix}${projected}${suffix}`)
+      : value.replace(/^(\|\s*用例编号\s*\|.*\|\s*)$/m, `$1\n| ${label} | ${projected} |`);
   };
-  return set(set(content, "需求追溯编号"), "规则覆盖编号");
+  return v2
+    ? set(set(content, "需求编号"), "规则编号")
+    : set(set(content, "需求追溯编号"), "规则覆盖编号");
 }
 
 /** Projects every derived relation view without reading or writing files. */
 export function projectRelationProjection(plan: string, packages: Record<string, string>): RelationProjection {
+  const v2 = plan.includes(RULE_DESIGN_LEDGER_MARKER_V2);
   const rules = parseRuleCaseRecords(plan);
   const rulesByReq = new Map<string, string[]>(), rulesByCase = new Map<string, string[]>(), reqsByCase = new Map<string, string[]>(), domains = new Map<string, string[]>();
   for (const rule of rules) {
@@ -174,10 +246,13 @@ export function projectRelationProjection(plan: string, packages: Record<string,
       ).sort()
     ])
   );
-  let projected = rewriteColumn(plan, "## 需求追溯矩阵", "派生 caseId", (row) => rulesByReq.get(ids(row[0] ?? "", reqPattern)[0] ?? "")?.join("、") ?? "无");
-  projected = rewriteColumn(projected, "## 覆盖矩阵", "派生 caseId", (row) => domains.get(row[0] ?? "")?.join("、") ?? "无");
-  projected = rewriteColumn(projected, "## 用例包目录", "实际原子用例编号", (row) => packageCases.get((row[0] ?? "").replace(/`/g, ""))?.join("、") ?? "待阶段二生成");
-  projected = rewriteColumn(projected, "## 规则设计矩阵", "关联 caseId", (row) => rules.find((rule) => rule.id === ids(row[0] ?? "", rulePattern)[0])?.caseIds.join("、") || "阶段二生成");
+  let projected = plan;
+  if (!v2) {
+    projected = rewriteColumn(projected, "## 需求追溯矩阵", "派生 caseId", (row) => rulesByReq.get(ids(row[0] ?? "", reqPattern)[0] ?? "")?.join("、") ?? "无");
+    projected = rewriteColumn(projected, "## 覆盖矩阵", "派生 caseId", (row) => domains.get(row[0] ?? "")?.join("、") ?? "无");
+    projected = rewriteColumn(projected, "## 规则设计矩阵", "关联 caseId", (row) => rules.find((rule) => rule.id === ids(row[0] ?? "", rulePattern)[0])?.caseIds.join("、") || "阶段二生成");
+  }
+  projected = rewriteColumn(projected, "## 用例包目录", v2 ? "原子用例编号" : "实际原子用例编号", (row) => packageCases.get((row[0] ?? "").replace(/`/g, ""))?.join("、") ?? "待生成");
   for (const heading of ["### 基准资料与模块映射", "### 拆分清单", "### 测试设计技术与依据"]) {
     projected = rewriteColumn(projected, heading, "派生 caseId", (row) => ids(row.join(" | "), rulePattern).flatMap((ruleId) => rules.find((rule) => rule.id === ruleId)?.caseIds ?? []).filter((id, index, values) => values.indexOf(id) === index).sort().join("、") || "无");
   }
@@ -186,7 +261,7 @@ export function projectRelationProjection(plan: string, packages: Record<string,
       name,
       value.replace(
         /(## 测试用例：[\s\S]*?)(?=\n## 测试用例：|$)/g,
-        (block) => rewriteCaseFields(block, rulesByCase, reqsByCase)
+        (block) => rewriteCaseFields(block, rulesByCase, reqsByCase, v2)
       )
     ])
   );

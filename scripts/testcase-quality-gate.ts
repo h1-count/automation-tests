@@ -1,4 +1,5 @@
 export const RULE_COVERAGE_MARKER = "结构版本：rule-coverage-v1";
+export const RULE_DESIGN_LEDGER_MARKER_V2 = "rule-design-ledger-v2";
 
 type CaseRecord = { caseId: string; ruleIds: string[]; source: string };
 export type RuleRecord = {
@@ -18,21 +19,25 @@ function cells(line: string): string[] {
 }
 
 export function parseRuleRecords(plan: string): RuleRecord[] {
-  const section = plan.split("## 规则覆盖台账")[1]?.split("## ")[0] ?? "";
+  const v2 = plan.includes(RULE_DESIGN_LEDGER_MARKER_V2);
+  const section = plan.split(v2 ? "## 规则设计台账" : "## 规则覆盖台账")[1]?.split("## ")[0] ?? "";
   return section
     .split("\n")
     .filter((line) => /^\|\s*RULE-/.test(line))
     .map((line) => {
       const row = cells(line);
+      const conclusion = row[v2 ? 10 : 8] ?? "";
       return {
         ruleId: row[0] ?? "",
         requirementId: row[1] ?? "",
         type: row[3] ?? "",
-        designEvidence: row[6] ?? "",
-        applicability: row[7] ?? "",
-        coverageStatus: row[8] ?? "",
+        designEvidence: row[v2 ? 7 : 6] ?? "",
+        applicability: v2
+          ? conclusion === "不适用" ? "不适用" : conclusion === "待确认" ? "待补充" : conclusion === "受控执行" ? "受控执行" : "适用"
+          : row[7] ?? "",
+        coverageStatus: conclusion,
         caseIds: (row[9] ?? "").match(/\b[A-Z][A-Z0-9]+(?:-[A-Z0-9]+){2,}\b/g) ?? [],
-        basis: row[10] ?? ""
+        basis: v2 ? `${row[2] ?? ""}；${row[8] ?? ""}` : row[10] ?? ""
       };
     });
 }
@@ -45,7 +50,7 @@ export function summarizeRuleCoverage(plan: string): string {
 }
 
 export function validateRuleCoverage(plan: string, cases: CaseRecord[], options: { requireCaseLinks?: boolean } = {}): RuleCoverageIssue[] {
-  if (!plan.includes(RULE_COVERAGE_MARKER)) {
+  if (!plan.includes(RULE_COVERAGE_MARKER) && !plan.includes(RULE_DESIGN_LEDGER_MARKER_V2)) {
     return [{ name: "规则覆盖台账", detail: "历史请求未标记 rule-coverage-v1，保持兼容警告。" }];
   }
   const rules = parseRuleRecords(plan);

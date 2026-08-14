@@ -26,9 +26,14 @@ import type {
   FormalExecutionSummary,
   FormalFailureClassification,
   FormalOperationEvidenceRecord,
+  FormalSelectorRepairSafetyProof,
+  FormalSelectorRepairIncidentReference,
   FormalStoredFailureClassification
 } from "./types.js";
-import type { ExecutionDeferredCase } from "./authorization.js";
+import type {
+  ExecutionDeferredCase,
+  ExecutionSelectorRepairContext
+} from "./authorization.js";
 import type { ExecutionOperationKind } from "./authorization.js";
 import type { DataHygieneStatus } from "../test-data/types.js";
 import type { SafeJsonValue } from "../task-workflow/types.js";
@@ -40,6 +45,7 @@ import {
 import { sanitizeOperationEvidenceRecord } from "./operationEvidence.js";
 import { buildExecutionDependencyPlan } from "./dependencyPlan.js";
 import { canonicalJson, sha256Canonical } from "../task-workflow/canonicalJson.js";
+import { caseResultDigest } from "./selectorRepair.js";
 
 const acceptedDataHygieneStatuses = new Set<DataHygieneStatus>([
   "clean",
@@ -103,6 +109,7 @@ export class FormalExecutionStore {
     runRequestId?: string;
     suiteId?: string;
     suiteVersion?: string;
+    repairContext?: ExecutionSelectorRepairContext;
   }): Promise<FormalExecutionRecord> {
     return this.ledger.withExclusive(async () => {
       const existing = await this.read(input.authorizationDigest);
@@ -122,6 +129,9 @@ export class FormalExecutionStore {
         existing.capabilities = Object.fromEntries(input.capabilities.map((item) => [item.capabilityId, item]));
         existing.deferredCases = input.deferredCases ?? existing.deferredCases ?? [];
         existing.targetBuildDigest = input.targetBuildDigest ?? existing.targetBuildDigest;
+        if (JSON.stringify(existing.repairContext) !== JSON.stringify(input.repairContext)) {
+          throw new Error("Formal execution repair context differs from its authorization.");
+        }
         existing.updatedAt = new Date().toISOString();
         await this.write(existing);
         return existing;
@@ -149,6 +159,7 @@ export class FormalExecutionStore {
         manifestDigest,
         businessOracleContractDigest,
         targetBuildDigest: input.targetBuildDigest,
+        ...(input.repairContext ? { repairContext: input.repairContext } : {}),
         testDataRunId: input.testDataRunId,
         startedAt: timestamp,
         updatedAt: timestamp,
@@ -196,7 +207,18 @@ export class FormalExecutionStore {
         ])),
         operationReservations: Object.fromEntries(selectedCaseIds.map((caseId) => [caseId, {}]))
       };
+      if (input.repairContext) {
+        await this.materializeCarriedCases(record, input.repairContext, timestamp);
+      }
       await this.write(record);
+      for (const carried of input.repairContext?.carriedCases ?? []) {
+        await this.writeCaseEvidenceBundle(
+          record.authorizationDigest,
+          record.cases[carried.caseId]!,
+          record.caseEvidencePolicies?.[carried.caseId] ?? "standard",
+          record.dataEvidence?.[carried.caseId]
+        );
+      }
       return record;
     });
   }
@@ -205,6 +227,124 @@ export class FormalExecutionStore {
     const path = this.statePath(authorizationDigest);
     if (!existsSync(path)) return null;
     return JSON.parse(await readFile(path, "utf8")) as FormalExecutionRecord;
+  }
+
+  async selectorRepairSafety(
+    authorizationDigest: string,
+    caseId: string,
+    attempt: number
+  ): Promise<FormalSelectorRepairSafetyProof> {
+    const record = await this.require(authorizationDigest);
+    this.assertWritableRecord(record, "inspect selector repair safety");
+    const result = requireCase(record, caseId);
+    const current = result.attempts.find((item) => item.attempt === attempt);
+    if (!current || attemptFinality(current) !== "pending") {
+      throw new Error(`Selector repair requires an open attempt for ${caseId}#${attempt}.`);
+    }
+    const progress = record.stageProgress?.[caseId];
+    const dataEvidence = record.dataEvidence?.[caseId];
+    const proof: FormalSelectorRepairSafetyProof = {
+      safe: false,
+      completedStageCount: progress?.completedStages.length ?? 0,
+      transitionCount: Object.keys(progress?.transitions ?? {}).length,
+      dataIntentCount: dataEvidence?.intents.length ?? 0,
+      dataResourceCount: dataEvidence?.resources.length ?? 0,
+      operationReservationCount: Object.keys(record.operationReservations?.[caseId] ?? {}).length,
+      producedResourceCount: Object.values(record.resources).filter((resource) =>
+        resource.producerCaseId === caseId && resource.available
+      ).length
+    };
+    proof.safe = [
+      proof.completedStageCount,
+      proof.transitionCount,
+      proof.dataIntentCount,
+      proof.dataResourceCount,
+      proof.operationReservationCount,
+      proof.producedResourceCount
+    ].every((count) => count === 0);
+    return proof;
+  }
+
+  private async materializeCarriedCases(
+    target: FormalExecutionRecord,
+    repairContext: ExecutionSelectorRepairContext,
+    timestamp: string
+  ): Promise<void> {
+    const source = await this.read(repairContext.priorAuthorizationDigest);
+    if (!source) {
+      throw new Error("Selector repair prior formal execution record is missing.");
+    }
+    if (
+      source.authorizationDigest !== repairContext.priorAuthorizationDigest
+      || source.requestId !== target.requestId
+      || source.projectId !== target.projectId
+      || source.environment !== target.environment
+      || source.manifestDigest !== target.manifestDigest
+      || source.businessOracleContractDigest !== target.businessOracleContractDigest
+    ) {
+      throw new Error("Selector repair prior execution differs from the current immutable run boundary.");
+    }
+    if (!cleanupAccepted(source.cleanup ?? { status: "unknown", dataHygieneStatus: "unknown" })) {
+      throw new Error("Selector repair cannot carry results without accepted prior data hygiene.");
+    }
+    if (Object.values(source.stageProgress ?? {}).some((progress) =>
+      Object.values(progress.transitions).some((transition) => transition.status === "waiting")
+    )) {
+      throw new Error("Selector repair cannot carry results with pending external transitions.");
+    }
+    for (const carried of repairContext.carriedCases) {
+      const sourceResult = source.cases[carried.caseId];
+      const targetResult = target.cases[carried.caseId];
+      const latest = sourceResult?.attempts.at(-1);
+      if (
+        !sourceResult
+        || !targetResult
+        || !latest
+        || attemptFinality(latest) !== "terminal"
+        || !["passed", "failed"].includes(sourceResult.status)
+      ) {
+        throw new Error(`Selector repair case ${carried.caseId} has no conclusive source result.`);
+      }
+      if (caseResultDigest(sourceResult) !== carried.sourceCaseResultDigest) {
+        throw new Error(`Selector repair case ${carried.caseId} source result digest drifted.`);
+      }
+      const sourceEvidencePath = resolve(
+        this.artifactRoot,
+        source.authorizationDigest.slice(0, 12),
+        "case-evidence",
+        `${carried.caseId}.json`
+      );
+      if (
+        !existsSync(sourceEvidencePath)
+        || sha256Text(await readFile(sourceEvidencePath, "utf8"))
+          !== carried.sourceEvidenceBundleDigest
+      ) {
+        throw new Error(`Selector repair case ${carried.caseId} evidence bundle drifted.`);
+      }
+      if (canonicalJson(
+        (source.caseBusinessOracles?.[carried.caseId] ?? []) as unknown as SafeJsonValue
+      ) !== canonicalJson(
+        (target.caseBusinessOracles?.[carried.caseId] ?? []) as unknown as SafeJsonValue
+      )) {
+        throw new Error(`Selector repair case ${carried.caseId} business Oracle changed.`);
+      }
+      target.cases[carried.caseId] = {
+        caseId: carried.caseId,
+        status: sourceResult.status,
+        attempts: [structuredClone(latest)],
+        reason: sourceResult.reason,
+        updatedAt: timestamp,
+        carriedFrom: {
+          schemaVersion: "formal-carried-case-origin-v1",
+          sourceAuthorizationDigest: carried.sourceAuthorizationDigest,
+          sourceCaseResultDigest: carried.sourceCaseResultDigest,
+          sourceEvidenceBundleDigest: carried.sourceEvidenceBundleDigest
+        }
+      };
+      target.dataEvidence![carried.caseId] = structuredClone(
+        source.dataEvidence?.[carried.caseId] ?? { intents: [], resources: [] }
+      );
+    }
   }
 
   /** Reopens only terminal cases that have no durable business side effect or
@@ -371,6 +511,7 @@ export class FormalExecutionStore {
       runtimeFailure?: boolean;
       blockEvidence?: FormalBlockEvidence;
       operationEvidence?: FormalOperationEvidenceRecord[];
+      selectorRepairIncident?: FormalSelectorRepairIncidentReference;
     }
   ): Promise<void> {
     await this.ledger.withExclusive(async () => {
@@ -398,6 +539,8 @@ export class FormalExecutionStore {
           || current.finality !== "terminal"
           || JSON.stringify(current.oracleResults ?? []) !== JSON.stringify(oracleResults)
           || JSON.stringify(current.blockEvidence) !== JSON.stringify(details?.blockEvidence)
+          || JSON.stringify(current.selectorRepairIncident)
+            !== JSON.stringify(details?.selectorRepairIncident)
           || JSON.stringify(current.failureClassification) !== JSON.stringify(failureClassification)
         ) {
           throw new Error(`Formal attempt ${caseId}#${attempt} already ended with a different terminal result.`);
@@ -416,6 +559,9 @@ export class FormalExecutionStore {
       current.operationEvidence = details?.operationEvidence?.map((item) =>
         sanitizeOperationEvidenceRecord(item)
       );
+      current.selectorRepairIncident = details?.selectorRepairIncident
+        ? validateSelectorRepairIncidentReference(details.selectorRepairIncident)
+        : undefined;
       current.oracleResults = oracleResults;
       current.endedAt = timestamp;
       current.durationMs = Math.max(
@@ -949,7 +1095,11 @@ export class FormalExecutionStore {
           operationEvidence: item.attempts.flatMap((attempt) =>
             attempt.operationEvidence ?? []
           ),
-          oracleResults: latestAttempt?.oracleResults
+          oracleResults: latestAttempt?.oracleResults,
+          ...(latestAttempt?.selectorRepairIncident
+            ? { selectorRepairIncident: latestAttempt.selectorRepairIncident }
+            : {}),
+          ...(item.carriedFrom ? { carriedFrom: item.carriedFrom } : {})
         };
       });
     const counts: FormalExecutionSummary["counts"] = {
@@ -999,6 +1149,7 @@ export class FormalExecutionStore {
       manifestDigest: record.manifestDigest,
       businessOracleContractDigest: record.businessOracleContractDigest,
       targetBuildDigest: record.targetBuildDigest,
+      ...(record.repairContext ? { repairContext: record.repairContext } : {}),
       scopeStatus,
       testOutcome,
       dataHygieneStatus: cleanup.dataHygieneStatus,
@@ -1084,6 +1235,9 @@ export class FormalExecutionStore {
       "",
       `- 请求：${summary.requestId}`,
       `- 授权摘要：${summary.authorizationDigest.slice(0, 12)}`,
+      ...(summary.repairContext
+        ? [`- 定位修复：重跑 ${summary.repairContext.retryCaseIds.length}，沿用 ${summary.repairContext.carriedCases.length}`]
+        : []),
       `- 完整性：${summary.complete ? "完整" : "不完整"}`,
       `- 通过/失败/阻塞/跳过/未知：${summary.counts.passed}/${summary.counts.failed}/${summary.counts.blocked}/${summary.counts.skipped}/${summary.counts.unknown}`,
       "",
@@ -1137,6 +1291,7 @@ export class FormalExecutionStore {
       schemaVersion: "case-evidence-bundle-v2",
       caseId: result.caseId,
       status: result.status,
+      carriedFrom: result.carriedFrom,
       redactionStatus: evidencePolicy === "sensitive"
         ? "safe_alternative_evidence"
         : "verified_redaction",
@@ -1160,7 +1315,8 @@ export class FormalExecutionStore {
         operationEvidence: attempt.operationEvidence ?? [],
         oracleResults: attempt.oracleResults ?? [],
         failureClassification: attempt.failureClassification,
-        reason: attempt.reason
+        reason: attempt.reason,
+        selectorRepairIncident: attempt.selectorRepairIncident
       }))
     });
   }
@@ -1937,6 +2093,14 @@ function renderExecutionSummary(
     `- 授权摘要：${summary.authorizationDigest}`,
     `- 环境：${summary.environment}`,
     `- 目标构建摘要：${summary.targetBuildDigest ?? "未提供（兼容历史授权）"}`,
+    ...(summary.repairContext
+      ? [
+          `- 定位修复来源授权：${summary.repairContext.priorAuthorizationDigest}`,
+          `- 定位修复 incident：${summary.repairContext.incidentDigests.join(", ")}`,
+          `- 本次重跑：${summary.repairContext.retryCaseIds.join(", ")}`,
+          `- 安全沿用：${summary.repairContext.carriedCases.map((item) => item.caseId).join(", ") || "无"}`
+        ]
+      : []),
     `- 业务 Oracle 合同摘要：${summary.businessOracleContractDigest ?? "未提供（只读历史记录）"}`,
     `- 范围状态：${summary.scopeStatus}`,
     `- 测试结果：${summary.testOutcome}`,
@@ -1951,10 +2115,10 @@ function renderExecutionSummary(
     `- 未执行：${summary.counts.unknown}`,
     `- 等待外部转换：${summary.pendingTransitions.length}`,
     "",
-    "| caseId | 状态 | 尝试 | 业务 Oracle | 失败分类 | 操作证据 | 附件证据 | 原因 |",
-    "| --- | --- | ---: | --- | --- | --- | --- | --- |",
+    "| caseId | 状态 | 来源 | 尝试 | 业务 Oracle | 失败分类 | 操作证据 | 附件证据 | 原因 |",
+    "| --- | --- | --- | ---: | --- | --- | --- | --- | --- |",
     ...summary.cases.map((item) =>
-      `| ${item.caseId} | ${item.status} | ${item.attempts} | ${businessOracleSummary(item.oracleResults)} | ${failureClassificationSummary(item.failureClassification)} | ${operationEvidenceSummary(item.operationEvidence)} | ${item.evidenceRefs.map((ref) => `\`${ref}\``).join("<br>")} | ${sanitize(item.reason)} |`
+      `| ${item.caseId} | ${item.status} | ${item.carriedFrom ? `沿用 ${item.carriedFrom.sourceAuthorizationDigest.slice(0, 12)}` : "本次执行"} | ${item.attempts} | ${businessOracleSummary(item.oracleResults)} | ${failureClassificationSummary(item.failureClassification)} | ${operationEvidenceSummary(item.operationEvidence)} | ${item.evidenceRefs.map((ref) => `\`${ref}\``).join("<br>")} | ${sanitize(item.reason)} |`
     ),
     "",
     "## 本次未执行的延期用例",
@@ -2078,4 +2242,22 @@ function validateEvidenceRefs(values?: string[]): string[] | undefined {
     }
   }
   return normalized.sort();
+}
+
+function validateSelectorRepairIncidentReference(
+  value: FormalSelectorRepairIncidentReference
+): FormalSelectorRepairIncidentReference {
+  if (
+    value.schemaVersion !== "formal-selector-repair-reference-v1"
+    || !/^selector-repair-[a-f0-9]{24}$/u.test(value.incidentId)
+    || !/^[a-f0-9]{64}$/u.test(value.digest)
+    || !["eligible", "rejected"].includes(value.eligibility)
+  ) {
+    throw new Error("Formal selector repair incident reference is invalid.");
+  }
+  const paths = validateEvidenceRefs([value.path]);
+  if (!paths?.[0] || !value.path.includes("/selector-repair/")) {
+    throw new Error("Formal selector repair incident reference has an invalid path.");
+  }
+  return { ...value, path: paths[0] };
 }

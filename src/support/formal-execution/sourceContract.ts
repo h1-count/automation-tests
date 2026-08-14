@@ -218,8 +218,9 @@ async function validateBusinessTraceability(input: {
 
   const rules = parseRuleCaseRecords(plan);
   const designs = parseRuleDesignDetails(plan);
+  const v2 = plan.includes("rule-design-ledger-v2");
   const requirementIds = new Set(
-    markdownTableRows(markdownSection(plan, "## 需求追溯矩阵"))
+    markdownTableRows(markdownSection(plan, v2 ? "## 需求索引" : "## 需求追溯矩阵"))
       .flatMap((row) => extractIds(row[0] ?? "", /\bREQ-[A-Z0-9]+(?:-[A-Z0-9]+)+\b/g))
   );
   const casePackages = packageCaseBlocks(packages);
@@ -233,7 +234,9 @@ async function validateBusinessTraceability(input: {
     if (!rule.caseIds.includes(contract.caseId)) {
       throw new Error(`${contract.ruleRef} does not map to ${contract.caseId} in plan.md.`);
     }
-    if (!["适用", "受控执行"].includes(rule.applicability)) {
+    if (!(v2
+      ? ["已覆盖", "受控执行"].includes(rule.applicability)
+      : ["适用", "受控执行"].includes(rule.applicability))) {
       throw new Error(`${contract.ruleRef} is not applicable for formal execution in plan.md.`);
     }
     if (rule.reqIds.length === 0 || rule.reqIds.some((reqId) => !requirementIds.has(reqId))) {
@@ -255,7 +258,11 @@ async function validateBusinessTraceability(input: {
       throw new Error(`${contract.caseId} is missing or duplicated across current testcase packages.`);
     }
     const packageMatch = packageMatches[0]!;
-    const declaredRuleRefs = extractMetadataRefs(packageMatch.block, "规则覆盖编号", "RULE");
+    const declaredRuleRefs = extractMetadataRefs(
+      packageMatch.block,
+      v2 ? "规则编号" : "规则覆盖编号",
+      "RULE"
+    );
     if (!declaredRuleRefs.includes(contract.ruleRef)) {
       throw new Error(`${contract.caseId} testcase package does not declare ${contract.ruleRef}.`);
     }
@@ -303,7 +310,7 @@ function packageCaseBlocks(packages: Record<string, string>): Array<{
   block: string;
 }> {
   return Object.entries(packages).flatMap(([name, content]) =>
-    content.split(/^## 测试用例：/m).slice(1).flatMap((body) => {
+    content.split(/^## 测试用例[：:]/m).slice(1).flatMap((body) => {
       const block = `## 测试用例：${body}`;
       const caseId = parseCaseIds(
         block.match(/^\|\s*用例编号\s*\|\s*(.*?)\s*\|\s*$/m)?.[1] ?? ""

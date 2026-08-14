@@ -32,6 +32,14 @@ export interface SimplifiedPhase {
   waiting?: SimplifiedWaiting;
 }
 
+export const v7UserPhaseIds = ["design", "engineering", "execution", "reporting"] as const;
+export type V7UserPhaseId = (typeof v7UserPhaseIds)[number];
+export interface V7UserPhase {
+  id: V7UserPhaseId;
+  status: SimplifiedPhaseStatus;
+  waiting?: SimplifiedWaiting;
+}
+
 const phaseGroups: Record<SimplifiedPhaseId, readonly WorkflowPhase[]> = {
   planning: ["planning", "plan_confirmation"],
   cases: ["case_generation", "case_validation"],
@@ -151,6 +159,37 @@ export function projectSimplifiedPhases(
       ...(status === "waiting"
         ? { waiting: waitingFor(gate, activities) }
         : {})
+    };
+  });
+}
+
+const v7PhaseGroups: Record<V7UserPhaseId, readonly WorkflowPhase[]> = {
+  design: [
+    "planning",
+    "case_generation",
+    "case_validation",
+    "case_review",
+    "initial_review",
+    "review_resolution",
+    "final_review",
+    "case_confirmation"
+  ],
+  engineering: ["engineering", "script_review"],
+  execution: ["execution_authorization", "execution"],
+  reporting: ["reporting", "completion"]
+};
+
+export function projectV7UserPhases(gate: WorkflowProjection): V7UserPhase[] {
+  return v7UserPhaseIds.map((id) => {
+    const phases = new Set(v7PhaseGroups[id]);
+    const activities = Object.values(gate.activities).filter((activity) =>
+      phases.has(activity.definition.phase)
+    );
+    const status = statusFor(gate, activities);
+    return {
+      id,
+      status,
+      ...(status === "waiting" ? { waiting: waitingFor(gate, activities) } : {})
     };
   });
 }

@@ -27,6 +27,13 @@ import {
 } from "./formalDecisionFixture.js";
 
 const requestId = "web/demo/registration-1";
+
+function compatibilityManager(root: string): DurableWorkflowManager {
+  return new DurableWorkflowManager(requestId, root, {
+    compatibilityDefinitionVersion: "v5"
+  });
+}
+
 const execFileAsync = promisify(execFile);
 const manageCliPath = resolve(
   process.cwd(),
@@ -294,6 +301,182 @@ async function makeWorkspace(): Promise<string> {
   return root;
 }
 
+function v7PlanMarkdown(): string {
+  return `# 测试设计索引：注册
+
+> 结构版本：test-design-index-v2 / rule-design-ledger-v2 / case-relation-projection-v2。
+
+## 基本信息
+
+| 项目 | 内容 |
+| --- | --- |
+| 测试请求 | ${requestId} |
+| 测试类型 | Web |
+| 目标环境 | test |
+
+## 测试范围
+
+### 包含
+
+- 注册。
+
+### 不包含
+
+- 无。
+
+## 资料来源
+
+| 来源 ID / sectionId | 可点击链接与精确定位 | 版本 / SHA-256 | 用途 |
+| --- | --- | --- | --- |
+| SRC-DEMO-001 | [需求](../../../../sources/demo.md)；注册章节 | ${"a".repeat(64)} | 范围和规则 |
+
+## 环境、静态资产与数据安全边界
+
+| 类别 | 已确定边界 | 未决项或门禁 |
+| --- | --- | --- |
+| 环境 | test | 无 |
+| 静态资产 | 不适用 | 无 |
+| 数据 | no_write | 无 |
+| 权限与安全 | 只读 | 无 |
+
+## 需求索引
+
+| 需求编号 | 来源定位 | 优先级 | 可验证需求 | 适用性与依据 |
+| --- | --- | --- | --- | --- |
+| REQ-DEMO-001 | SRC-DEMO-001；注册章节 | P0 | 有效输入可以完成注册 | 适用 |
+
+## 规则设计台账
+
+| 规则编号 | 需求编号 | 来源定位 | 覆盖域 | 触发条件 | 输入边界 | 可观察预期 | 设计技术 | 数据/执行门禁 | 关联 caseId | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| RULE-DEMO-001 | REQ-DEMO-001 | SRC-DEMO-001；注册章节 | 业务 | 提交 | 有效输入 | 显示注册成功页 | 场景法 | no_write | DEMO-REG-001 | 已覆盖 |
+
+## 用例包目录
+
+| 用例包 | 覆盖模块或流程 | 原子用例编号 | 特殊门禁 |
+| --- | --- | --- | --- |
+| \`cases-registration.md\` | 注册 | DEMO-REG-001 | 无 |
+
+## 变更影响分析
+
+| 变更编号 | 来源 | 受影响 REQ/RULE | 受影响 caseId | 影响结论 |
+| --- | --- | --- | --- | --- |
+| 无 | 无 | 无 | 无 | 无影响 |
+
+## 假设、缺口与风险
+
+### 假设
+
+- 无。
+
+### 缺口与待确认项
+
+- 无。
+
+### 风险
+
+- 无。
+
+## 评审记录
+
+| 字段 | 内容 |
+| --- | --- |
+| 评审批次与输入摘要 | deterministic_only |
+| 适用 reviewer 与依据 | 低风险 |
+| 最新结论 | 可提交确认 |
+| 发现与处置摘要 | 无 |
+
+## 正式用户决定
+
+| 决定类型 | subjectDigest | 正式决定 | 决定内容与适用范围 | 后续处理 |
+| --- | --- | --- | --- | --- |
+
+## 确认后的工程映射
+
+| caseId | 代码/图谱定位 | 自动化能力与脚本 | 定位及断言证据 | 数据/环境前置 | 风险或差异 |
+| --- | --- | --- | --- | --- | --- |
+`;
+}
+
+function v7CasesMarkdown(): string {
+  return `> 结构版本：testcase-v2。
+
+# 用例包：注册
+
+## 用例目录
+
+| 用例编号 | 标题 |
+| --- | --- |
+| DEMO-REG-001 | 注册成功 |
+
+## 测试用例：注册成功
+
+## 基本信息
+
+| 项目 | 内容 |
+| --- | --- |
+| 用例编号 | DEMO-REG-001 |
+| 需求编号 | REQ-DEMO-001 |
+| 规则编号 | RULE-DEMO-001 |
+| 模块 | 注册 |
+| 优先级 | P0 |
+| 测试类型 | Web |
+| 目标环境 | test |
+| 数据策略 | no_write |
+| 风险等级 | 低 |
+
+## 来源
+
+| manifest id / sectionId | 可点击链接与精确定位 | 来源 SHA-256 | 支持的步骤或预期 |
+| --- | --- | --- | --- |
+| SRC-DEMO-001 | [需求](../../../../sources/demo.md)；注册章节 | ${"a".repeat(64)} | 提交结果 |
+
+## 前置条件
+
+- 注册页可用。
+- 数据预算与清理不适用。
+
+## 步骤
+
+| 序号 | 操作 | 输入 |
+| --- | --- | --- |
+| 1 | 提交注册 | 有效非敏感输入 |
+
+## 预期结果
+
+- 显示注册成功页。
+
+## 假设与待确认项
+
+### 假设
+
+- 无。
+
+### 待确认项
+
+- 无。
+`;
+}
+
+async function makeV7Workspace(): Promise<string> {
+  const root = await mkdtemp(resolve(tmpdir(), "durable-workflow-v7-"));
+  const requestRoot = resolve(root, `testcases/${requestId}`);
+  await mkdir(requestRoot, { recursive: true });
+  await mkdir(resolve(root, "sources"), { recursive: true });
+  await writeFile(resolve(root, "sources/demo.md"), "# Demo registration requirement\n", "utf8");
+  const projected = projectRelationProjection(v7PlanMarkdown(), {
+    "cases-registration.md": v7CasesMarkdown()
+  });
+  assert.deepEqual(projected.issues, []);
+  await writeFile(resolve(requestRoot, "plan.md"), projected.plan, "utf8");
+  await writeFile(
+    resolve(requestRoot, "cases-registration.md"),
+    projected.packages["cases-registration.md"]!,
+    "utf8"
+  );
+  return root;
+}
+
 async function appendWorkflowEvent(
   manager: DurableWorkflowManager,
   input: {
@@ -349,7 +532,7 @@ async function advanceToReviewReady(manager: DurableWorkflowManager): Promise<vo
 test("deleting disposable runtime preserves the exact event-derived business state", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     const started = await manager.startActivity("source-selection", "worker-a");
     await manager.succeedActivity("source-selection", {
@@ -359,7 +542,7 @@ test("deleting disposable runtime preserves the exact event-derived business sta
     const before = await manager.projection();
 
     await rm(resolve(root, ".local/test-task-runtime"), { recursive: true, force: true });
-    const after = await new DurableWorkflowManager(requestId, root).projection();
+    const after = await compatibilityManager(root).projection();
 
     assert.deepEqual(after, before);
   } finally {
@@ -370,14 +553,14 @@ test("deleting disposable runtime preserves the exact event-derived business sta
 test("resume turns a lease-less running activity into reconciliation instead of retrying it", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     await manager.startActivity("source-selection", "worker-a");
     await rm(resolve(root, ".local/test-task-runtime"), { recursive: true, force: true });
 
-    const beforeResume = await new DurableWorkflowManager(requestId, root).projection();
+    const beforeResume = await compatibilityManager(root).projection();
     assert.equal(beforeResume.activities["source-selection"]?.state, "RUNNING");
-    const resumed = await new DurableWorkflowManager(requestId, root).resume("host wake");
+    const resumed = await compatibilityManager(root).resume("host wake");
     assert.equal(resumed.activities["source-selection"]?.state, "RECONCILING");
     assert.equal(resumed.workflowState, "RECONCILING");
   } finally {
@@ -388,7 +571,7 @@ test("resume turns a lease-less running activity into reconciliation instead of 
 test("manager-owned artifact publication durably succeeds and removes staging runtime residue", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     const source = await manager.startActivity("source-selection", "publisher");
     await manager.succeedActivity("source-selection", {
@@ -424,7 +607,7 @@ test("manager-owned artifact publication durably succeeds and removes staging ru
 test("artifact ownership is validated before publication can modify another file", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await writeFile(resolve(root, "package.json"), "{\"private\":true}\n", "utf8");
     await manager.initialize();
     const source = await manager.startActivity("source-selection", "publisher");
@@ -460,7 +643,7 @@ test("artifact ownership is validated before publication can modify another file
 test("a prepared publication conflict immediately enters durable reconciliation", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     const source = await manager.startActivity("source-selection", "publisher");
     await manager.succeedActivity("source-selection", {
@@ -520,7 +703,7 @@ test("a prepared publication conflict immediately enters durable reconciliation"
 test("claimless reconciliation completes a prepared publication only when the target is unchanged", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     const source = await manager.startActivity("source-selection", "publisher");
     await manager.succeedActivity("source-selection", {
@@ -571,7 +754,7 @@ test("claimless reconciliation completes a prepared publication only when the ta
 test("CLI retry abandons only an expired publication whose final target is still unchanged", async () => {
   const root = await realpath(await makeWorkspace());
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     const source = await manager.startActivity("source-selection", "publisher");
     await manager.succeedActivity("source-selection", {
@@ -655,7 +838,7 @@ test("CLI retry abandons only an expired publication whose final target is still
 test("artifact retry is forbidden after a prepared target is already published", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     const source = await manager.startActivity("source-selection", "publisher");
     await manager.succeedActivity("source-selection", {
@@ -719,7 +902,7 @@ test("artifact retry is forbidden after a prepared target is already published",
 test("repository plan subject drift invalidates acceptance and resume opens a new callback", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -790,7 +973,7 @@ test("repository plan subject drift invalidates acceptance and resume opens a ne
 test("derived RULE caseId projection does not invalidate accepted plan confirmation", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -834,7 +1017,7 @@ test("derived RULE caseId projection does not invalidate accepted plan confirmat
 test("resume completes a published formal decision from history after runtime deletion", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -863,7 +1046,7 @@ test("resume completes a published formal decision from history after runtime de
       force: true
     });
 
-    const recovered = await new DurableWorkflowManager(requestId, root)
+    const recovered = await compatibilityManager(root)
       .resume("recover callback from history and final plan");
     assert.equal(recovered.activities["plan-confirmation"]?.state, "SUCCEEDED");
     assert.equal(
@@ -878,7 +1061,7 @@ test("resume completes a published formal decision from history after runtime de
 test("resume republishes a prepared callback plan after its worker lease expires", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -949,7 +1132,7 @@ test("resume republishes a prepared callback plan after its worker lease expires
 test("lost staging before rename leaves the callback waiting and permits a rebuilt publication", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -1039,7 +1222,7 @@ test("lost staging before rename leaves the callback waiting and permits a rebui
 test("expired callback publisher fencing cannot resolve but history recovery can", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -1093,7 +1276,7 @@ test("expired callback publisher fencing cannot resolve but history recovery can
 test("missing staged bytes with an unchanged final plan remains safely rebuildable", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -1164,7 +1347,7 @@ test("missing staged bytes with an unchanged final plan remains safely rebuildab
 test("callback plan publication cannot rewrite unrelated formal decisions", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await writeFile(
       manager.planPath,
       `${await readFile(manager.planPath, "utf8")}\n## 正式用户决定\n\n`
@@ -1217,7 +1400,7 @@ test("callback plan publication cannot rewrite unrelated formal decisions", asyn
 test("callback plan publication preserves earlier decisions for the same subject", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -1271,7 +1454,7 @@ test("callback plan publication preserves earlier decisions for the same subject
 test("resolved callback replay is exact, survives later decisions, and rejects different plan bytes", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -1353,7 +1536,7 @@ test("every formal callback resolution returns a cleaned durable checkpoint", as
   ] as const) {
     const root = await makeWorkspace();
     try {
-      const manager = new DurableWorkflowManager(requestId, root);
+      const manager = compatibilityManager(root);
       await manager.initialize();
       for (const activityId of ["source-selection", "plan-validation"]) {
         const claim = await manager.startActivity(activityId, "worker-a");
@@ -1405,7 +1588,7 @@ test("every formal callback resolution returns a cleaned durable checkpoint", as
 test("formal callback publication detects a plan change between validation and prepare", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -1466,7 +1649,7 @@ test("formal callback publication detects a plan change between validation and p
 test("derived caseId backfill is ignored but later static plan changes still invalidate confirmation", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await writeFile(
       manager.planPath,
       planMarkdown().replace("| 注册 | 字段 |", "| 注册 \\| Web | 字段 |"),
@@ -1539,7 +1722,7 @@ test("derived caseId backfill is ignored but later static plan changes still inv
 test("a repository subject change while confirmation is waiting cannot be accepted", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -1592,7 +1775,7 @@ test("a repository subject change while confirmation is waiting cannot be accept
 test("resume carries one legacy plan confirmation across evidence-backed testcase evolution", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize({ reviewerRoles: ["requirements"] });
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "legacy-carry-worker");
@@ -1761,7 +1944,7 @@ test("resume carries one legacy plan confirmation across evidence-backed testcas
 test("a cancelled callback durably cancels the workflow instead of stranding a branch", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -1800,7 +1983,7 @@ test("a cancelled callback durably cancels the workflow instead of stranding a b
 test("workflow cancellation is rejected while an activity remains in flight", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     await manager.startActivity("source-selection", "worker-a");
     const before = await manager.gate();
@@ -1822,7 +2005,7 @@ test("workflow cancellation is rejected while an activity remains in flight", as
 test("due retries stay dormant while the workflow is suspended or globally blocked", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     const started = await manager.startActivity("source-selection", "worker-a");
     const retryAt = new Date(Date.now() + 60_000).toISOString();
@@ -1857,7 +2040,7 @@ test("due retries stay dormant while the workflow is suspended or globally block
 test("manager completeness gate rejects a labelled 2-of-13 package without advancing review", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     const ids = Array.from(
       { length: 13 },
       (_, index) => `DEMO-REG-${String(index + 1).padStart(3, "0")}`
@@ -1937,7 +2120,7 @@ test("manager completeness gate rejects a labelled 2-of-13 package without advan
 test("review batch freezes every plan-referenced controlled source and refuses a missing source", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     const sourcePath = resolve(root, "sources/requirements/demo/registration.md");
     await mkdir(resolve(sourcePath, ".."), { recursive: true });
     await writeFile(sourcePath, "# Controlled registration requirement\n", "utf8");
@@ -1980,7 +2163,7 @@ test("review batch freezes every plan-referenced controlled source and refuses a
 test("manager persists v2 risk with combined and strict-only impact scope v3", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     const caseIds = [
       ...Array.from({ length: 3 }, (_, index) =>
         `OPEN-LOGIN-20260803-${String(index + 1).padStart(3, "0")}`
@@ -2148,7 +2331,7 @@ test("manager persists v2 risk with combined and strict-only impact scope v3", a
 test("light workflow reaches deterministic review resolution without reviewer events", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     const fixture = relationFixture(["DEMO-REG-001"], 1);
     await writeFile(manager.planPath, fixture.plan, "utf8");
     await writeFile(
@@ -2211,10 +2394,172 @@ test("light workflow reaches deterministic review resolution without reviewer ev
   }
 });
 
+test("v7 revision_requested invalidates design and resume repairs a crash before invalidation", async () => {
+  const root = await makeV7Workspace();
+  try {
+    const manager = new DurableWorkflowManager(requestId, root);
+    await manager.initialize({
+      capabilities: ["web"],
+      casePackages: ["cases-registration.md"]
+    });
+    for (const activityId of [
+      "source-selection",
+      "plan-validation",
+      "case-generation-cases-registration-md",
+      "relation-sync",
+      "completeness-validation"
+    ]) {
+      const claim = await manager.startActivity(activityId, "v7-design-worker");
+      await succeedManagerActivity(
+        manager,
+        activityId,
+        claim.claimToken,
+        `${activityId} verified`
+      );
+    }
+    const reviewActivities = Object.values((await manager.gate()).activities)
+      .filter((activity) => activity.definition.kind === "review");
+    if (reviewActivities.length) {
+      const batchId = "REV-V7-REVISION";
+      await manager.startReviewBatch({ batchId });
+      for (const activity of reviewActivities) {
+        const role = activity.definition.metadata?.role;
+        assert.equal(typeof role, "string");
+        const agentTaskId = `${batchId}-${String(role)}`;
+        await manager.dispatchReviewer({
+          activityId: activity.id,
+          batchId,
+          role: String(role),
+          agentTaskId
+        });
+        await manager.submitReviewer({
+          activityId: activity.id,
+          batchId,
+          role: String(role),
+          planEvidenceRef: manager.planPath,
+          agentTaskId
+        });
+      }
+    }
+    const reviewResolution = await manager.startActivity(
+      "case-review-resolution",
+      "v7-review-worker"
+    );
+    await manager.publishArtifactsAndSucceed("case-review-resolution", {
+      claimToken: reviewResolution.claimToken,
+      publishId: "v7-review-resolution",
+      verification: "deterministic review converged",
+      outcome: "converged",
+      artifacts: [{
+        targetPath: `testcases/${requestId}/plan.md`,
+        content: await readFile(manager.planPath)
+      }]
+    });
+
+    const subjectDigest = await manager.callbackSubjectDigest("case-confirmation");
+    await manager.requestCallback({
+      activityId: "case-confirmation",
+      callbackId: "v7-case-confirmation",
+      subjectDigest,
+      kind: "case_confirmation"
+    });
+    await assert.rejects(
+      manager.resolveCallback({
+        activityId: "case-confirmation",
+        callbackId: "v7-case-confirmation",
+        subjectDigest,
+        resolution: "rejected"
+      }),
+      /rejected is legacy-only/
+    );
+    await recordFormalDecision(
+      manager,
+      "case-confirmation",
+      subjectDigest,
+      "revision_requested"
+    );
+    const revised = await manager.resolveCallback({
+      activityId: "case-confirmation",
+      callbackId: "v7-case-confirmation",
+      subjectDigest,
+      resolution: "revision_requested"
+    });
+    assert.equal(revised.activities["plan-validation"]?.state, "READY");
+    assert.notEqual(revised.activities.build?.state, "READY");
+    assert.ok((await manager.events()).some((event) =>
+      event.type === "ActivitiesInvalidated"
+      && event.payload.reason === "case_confirmation_revision_requested"
+    ));
+
+    const history = await readFile(manager.history.historyPath, "utf8");
+    const lines = history.trimEnd().split("\n");
+    const invalidation = JSON.parse(lines.at(-1)!) as { type: string };
+    assert.equal(invalidation.type, "ActivitiesInvalidated");
+    await writeFile(manager.history.historyPath, `${lines.slice(0, -1).join("\n")}\n`, "utf8");
+    await rm(resolve(root, ".local/test-task-runtime"), { recursive: true, force: true });
+
+    const recoveredManager = new DurableWorkflowManager(requestId, root);
+    const beforeResume = await recoveredManager.gate();
+    assert.equal(beforeResume.activities["case-confirmation"]?.state, "BLOCKED");
+    assert.notEqual(beforeResume.activities.build?.state, "READY");
+    const recovered = await recoveredManager.resume("recover v7 revision invalidation");
+    assert.equal(recovered.activities["plan-validation"]?.state, "READY");
+    assert.notEqual(recovered.activities.build?.state, "READY");
+    assert.ok((await recoveredManager.events()).some((event) =>
+      event.type === "ActivitiesInvalidated"
+      && event.payload.reason === "case_confirmation_revision_requested"
+    ));
+
+    const casePath = resolve(recoveredManager.requestRoot, "cases-registration.md");
+    await writeFile(
+      casePath,
+      (await readFile(casePath, "utf8")).replace("显示注册成功页", "显示注册完成页"),
+      "utf8"
+    );
+    for (const activityId of [
+      "plan-validation",
+      "case-generation-cases-registration-md",
+      "relation-sync",
+      "completeness-validation"
+    ]) {
+      const claim = await recoveredManager.startActivity(activityId, "v7-revision-worker");
+      await succeedManagerActivity(
+        recoveredManager,
+        activityId,
+        claim.claimToken,
+        `${activityId} rerun after revision`
+      );
+    }
+    const revisedReview = await recoveredManager.startActivity(
+      "case-review-resolution",
+      "v7-revision-review-worker"
+    );
+    await recoveredManager.publishArtifactsAndSucceed("case-review-resolution", {
+      claimToken: revisedReview.claimToken,
+      publishId: "v7-revised-review-resolution",
+      verification: "revised design review converged",
+      outcome: "converged",
+      artifacts: [{
+        targetPath: `testcases/${requestId}/plan.md`,
+        content: await readFile(recoveredManager.planPath)
+      }]
+    });
+    const revisedSubjectDigest = await recoveredManager.callbackSubjectDigest("case-confirmation");
+    assert.notEqual(revisedSubjectDigest, subjectDigest);
+    assert.equal(
+      (await recoveredManager.gate()).activities["case-confirmation"]?.state,
+      "READY"
+    );
+    assert.notEqual((await recoveredManager.gate()).activities.build?.state, "READY");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("reviewer submission requires a distinct running host binding and records only an isolation proof", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize({
       reviewerRoles: ["requirements"],
       sessionId: "primary-session",
@@ -2292,7 +2637,7 @@ test("reviewer submission requires a distinct running host binding and records o
 test("resume preserves a durably dispatched reviewer without duplicating its batch", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize({ reviewerRoles: ["requirements"] });
     for (const activityId of ["source-selection", "plan-validation"]) {
       const claim = await manager.startActivity(activityId, "worker-a");
@@ -2342,7 +2687,7 @@ test("resume preserves a durably dispatched reviewer without duplicating its bat
     });
     await rm(resolve(root, ".local/test-task-runtime"), { recursive: true, force: true });
 
-    const recoveredManager = new DurableWorkflowManager(requestId, root);
+    const recoveredManager = compatibilityManager(root);
     const durableHead = (await recoveredManager.projection()).head;
     const recovered = await recoveredManager.resume("reviewer host was lost");
     assert.equal(recovered.activities["case-review-requirements"]?.state, "RUNNING");
@@ -2432,7 +2777,7 @@ test("resume preserves a durably dispatched reviewer without duplicating its bat
 test("durable reviewer dispatch survives runtime binding failure and resume repairs without redispatch", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await advanceToReviewReady(manager);
     const batchId = "REV-RUNTIME-REPAIR";
     const activityId = "case-review-requirements";
@@ -2507,7 +2852,7 @@ test("durable reviewer dispatch survives runtime binding failure and resume repa
 test("resume rebuilds an unchanged reviewer snapshot and rotates a drifted one", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await advanceToReviewReady(manager);
     const batchId = "REV-RESUME-DRIFT";
     const activityId = "case-review-requirements";
@@ -2523,7 +2868,7 @@ test("resume rebuilds an unchanged reviewer snapshot and rotates a drifted one",
       force: true
     });
 
-    const recovered = new DurableWorkflowManager(requestId, root);
+    const recovered = compatibilityManager(root);
     const unchangedHead = (await recovered.projection()).head;
     const unchanged = await recovered.resume("rebuild unchanged reviewer snapshot");
     assert.deepEqual(unchanged.head, unchangedHead);
@@ -2554,7 +2899,7 @@ test("resume rebuilds an unchanged reviewer snapshot and rotates a drifted one",
 test("review input drift before the first dispatch rotates without invalidating unowned activities", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await advanceToReviewReady(manager);
     const batchId = "REV-PRE-DISPATCH-DRIFT";
     const activityId = "case-review-requirements";
@@ -2602,7 +2947,7 @@ test("review input drift before the first dispatch rotates without invalidating 
 test("reconciliation closes a published artifact only after final readback matches", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize();
     const source = await manager.startActivity("source-selection", "publisher");
     await manager.succeedActivity("source-selection", {
@@ -2670,7 +3015,7 @@ test("reconciliation closes a published artifact only after final readback match
 test("expired fencing token is rejected while claimless reconciliation can recover the orphan", async () => {
   const root = await makeWorkspace();
   try {
-    const manager = new DurableWorkflowManager(requestId, root);
+    const manager = compatibilityManager(root);
     await manager.initialize({
       capabilities: ["web"],
       writesData: false,

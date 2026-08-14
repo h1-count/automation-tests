@@ -1,22 +1,23 @@
-# 工程脚本
+# 工程脚本入口
 
-`scripts/` 存放不属于具体测试用例的工程脚本，例如环境检查、认证初始化、测试数据准备/清理和报告生成。
+本文件只登记命令入口。规则正文见 [测试规范索引](../docs/testing/README.md)，参数以 `package.json` 和各命令 `--help` 为准。
 
-| 脚本类别 | 职责 |
+| 用途 | 命令 |
 | --- | --- |
-| 认证初始化 | 创建本机受控认证会话，例如 `capture-open-platform-auth-state.ts`。 |
-| 环境检查 | `check-environment.ts`：无参数时执行完整本地预检；`--plan [--asset <assetId>]` 检查目标环境、开放平台测试账号引用、认证会话与已选静态资产的脱敏状态。计划模式中 Appium、设备、包名和 Activity 缺失只标记工程待验证，不阻塞计划或用例生成；两种模式均不访问业务服务或输出敏感值。 |
-| 静态资产 | `check-test-assets.ts` 校验 `test-assets/manifest.yaml`、文件路径和 SHA-256；`select-test-asset.ts` 按项目、类型、平台和范围选择唯一 `active` 候选，不按文件名或时间猜测。 |
-| Markdown 格式门禁 | `npm run check:markdown -- <仓库内 Markdown 路径>` 校验实际文件的表头、分隔行、数据行列数及字面量换行；仅分隔行列数错误可加 `--fix` 确定性修复，数据行或正文问题必须修订生成内容后复检。 |
-| 用例关系同步 | `npm run testcases:sync-relations -- <runtime 暂存请求目录>` 只更新暂存的 `REQ → RULE → caseId` 派生视图，再由工作流原子发布；`--check <最终请求目录>` 仅验证最终文件，不写入。 |
-| Web selector 验证与受控探索 | 首次在本机 checkout 执行 `browser:exploration:setup -- --adapter current-host`，再用 `check:web-exploration -- --request <type/project/request>` 判断是否可进行只读真实页面候选探索。eligible 的 Web/H5 使用隔离 Chrome 与网络 guard 读取 accessibility snapshot、脱敏 console/network metadata；fallback 直接走源码路径。随后统一使用 `test:web:verify-selectors -- <*.selector-verify.spec.ts> --target-build-digest <sha256> --route-state <route/state> --locale <locale> --role <role>` 做无头、单 worker、零写入验证；只有 Playwright 验证可写 `runtime_verified`。交互或动态语义未解时使用 `test:web:inspect -- <spec>`。所有探索配置排除 `*.formal.spec.ts`，不保留正式结果产物。 |
-| 稳定套件复用 | `manage-test-suite.ts` 提供 `npm run test:suite:assess -- --suite <type/project/feature> --environment <test/pre> [--profile <full_feature/smoke/affected/failed_or_blocked>]` 和 `test:suite:status`。评估从 `stable-test-suite-manifest-v1`、精确脚本闭包、契约组件摘要与 `impactMap` 派生 `direct_execute/affected_rebuild/full_replan`，不接受手填结论。完成请求用 `task:manage suite-promote --request <completed-request> --suite <suiteId>` 物化无日期设计资产；直接分支用 `suite-readiness-publish`。完整 reset 只归档单次请求，保留 `testcases/**/suites/` 与 `tests/**/suites/`。 |
-| 正式执行 | 统一入口 `npm run test:execute -- --request <type/project/request>`；Web/H5 保留 `test:web:execute` 兼容入口。`--resume` 恢复同一授权，`--headed` 仅用于显式调试；文件路径和用户 `--grep` 被拒绝。Runner 从冻结 manifest 的命名资源构建拓扑波次，每波只发现当前已解锁 `caseId`，不依赖脚本文件顺序；同一波的 Playwright 产物写入独立 `wave-N` 目录，最终由同一正式记录聚合。waiting transition 只 park，不执行业务 cleanup 或结束 test-data run；terminal teardown 固定按 BrowserServer、settlement、Capability Provider、制品扫描依次独立收口。默认本地生成 Playwright HTML；JUnit 仅 CI，Allure 仅 `AUTOMATION_REPORT_PROFILE=trend`。确定性输出位于 `artifacts/test-results/formal/<摘要>/run-summary.json`、`execution-summary.md` 和 `case-evidence/`。未实现正式 adapter 的类型会明确拒绝，不回退到未治理命令。 |
-| 正式判定真实性 | 新生成的请求级候选只接受 `formal-execution-manifest-v3`，稳定套件直跑只接受受控晋升后的 suite-scoped v4。每个 runnable case 必须绑定来自 reviewed 注册资料或已接受正式决定的业务 Oracle，并通过 `verifyBusinessOracle()` 产生结构化结果。脚本评审、授权、Runner 与 `execution-run-finalize` 共用候选依赖闭包：递归冻结运行 helper，排除 `import type`，直接 Formal Runner 模块作为 byte-frozen runtime leaf；新增、删除、遗漏、非字面量动态导入或摘要漂移均拒绝。Runner 启动前与封印前还会重算来源、Oracle 和 build identity。runnable case 禁止写成 `skipped`；`blocked` 必须绑定 Store 已持久化的能力、命名资源或 waiting transition 事实，其他未定案异常形成 terminal `unknown`。`unknown` 持久化但不封印，由专用 finalize 登记 outcome blocker；入口不接受人工 outcome、classification 或 digest 参数。 |
-| 本机台账恢复 | `npm run test-data:recover`：只遍历 `.local/test-ledger/` 中本机、当前项目、指定非生产环境且归属明确的资源；未注册清理动作或风险不明时只标记人工处理，不扫描业务数据。它只用于恢复，不是清理或重置命令。 |
-| Durable Workflow | 请求目录中的 `workflow-history.ndjson` 是唯一运行事实；`.local/test-task-runtime/` 只保存可丢弃的租约、session/reviewer 绑定和暂存引用，不保存 Goal 状态。新的 suite-aware run 使用 v6 三分支；未完成 v5 按原定义继续，v3/v4 只读回放。直接复用发布绑定 `runRequestId + suiteId + suiteVersion` 的 `execution-authorization-v5`；定向/全量重建在当前请求中重新形成设计时使用 v4 授权，完成后再受控晋升为新 suite 版本。零 runnable 不请求执行确认。多阶段执行使用 `execution-transition-park --claim <lease>` 冻结当前波次，再以 `execution-transition-resolve --transition <id> --outcome <token> [--attestation <key=true>]` 恢复同一 run；命令只保存摘要，不接收账号或通知正文。`run/report` 带 `formal-execution-completion-seal-v1` 契约，禁止用通用 success、artifact publish 或 confirmed reconcile 关闭；分别使用 `execution-run-finalize` 和 `execution-report-finalize`，后者只发布 seal 确定性生成的两个正式摘要，并将 report 成功与 `WorkflowCompleted` 原子追加。 |
-| 项目经验 | `npm run knowledge:manage -- candidate-add --project <project> ...` 会立即原位写入同项目 Git 经验库，同时在 `.local/project-knowledge-candidates/` 保存待验证控制元数据；同一适用范围的新策略覆盖当前条目，旧版由 Git 历史保留。`candidate-promote` 只在受控探索或正式执行后更新证据状态；`experience-add`、`candidate-abandon` 与 `candidate-reconcile` 分别用于已验证直接登记和候选复盘。所有经验元数据都不得包含敏感信息或复制需求事实。 |
-| 完整测试状态重置 | `reset-full-test-state.ts` 是“完整重置 / 清除所有测试数据 / 从头测试”的唯一入口。先运行 `npm run reset:full-test-state -- --dry-run` 查看范围；用户确认完整范围后再运行正式命令。它清理运行产物、认证会话和可丢弃 runtime，将活跃请求连同 history 归档到 `testcases/archive/`，并把请求专属脚本放入对应归档请求的 `automation/` 子目录。未清理的外部资源台账必须先恢复或取得明确残留决定，不能被静默归档。共享能力、sources、test-assets、项目经验、用户偏好、代码仓库和已有正式历史不进入清理范围；规则测试入口为 `npm run test:maintenance`。 |
-| 报告脚本 | 聚合或转换 Runner 产生的报告。 |
+| 环境预检 | `npm run check:environment`、`npm run check:environment -- --plan [--asset <assetId>]` |
+| 静态资产 | `npm run check:test-assets`、`npm run test-assets:select -- ...` |
+| Markdown | `npm run check:markdown -- <paths>` |
+| 架构与职责 | `npm run check:architecture` |
+| 规则设计 | `npm run check:rule-design -- <plan.md>` |
+| 用例关系 | `npm run testcases:sync-relations -- <暂存请求目录>`、`npm run testcases:sync-relations -- --check <最终请求目录>` |
+| 资料索引 | `npm run check:knowledge-index`、`npm run knowledge:search -- ...` |
+| 稳定套件 | `npm run test:suite:assess -- ...`、`npm run test:suite:status -- ...` |
+| Durable Workflow | `npm run task:initialize -- ...`、`npm run task:resume -- ...`、`npm run task:status -- ...`、`npm run task:gate -- ...`、`npm run task:manage -- --help` |
+| 定位修复回退 | `npm run task:manage -- execution-scope-reopen --request <id> --selector-repair <incident-path>` |
+| selector | `npm run check:web-exploration -- ...`、`npm run test:web:verify-selectors -- ...`、`npm run test:web:inspect -- ...` |
+| 正式执行 | `npm run test:execute -- --request <id>`、`npm run test:web:execute -- --request <id>` |
+| 报告 | `npm run report:playwright`、`npm run report:allure` |
+| 本机资源恢复 | `npm run test-data:recover` |
+| 完整重置 | `npm run reset:full-test-state -- --dry-run`、`npm run reset:full-test-state` |
 
-脚本命令入口由 `package.json` 维护；新增命令时必须同步新增对应脚本和说明。
+新增、重命名或删除入口时，必须同步更新 `package.json` 与本表。

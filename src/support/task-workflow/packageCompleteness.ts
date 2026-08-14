@@ -12,6 +12,15 @@ export const DEFAULT_REQUIRED_CASE_SECTIONS = [
   "评审与演进回链"
 ] as const;
 
+export const V2_REQUIRED_CASE_SECTIONS = [
+  "基本信息",
+  "来源",
+  "前置条件",
+  "步骤",
+  "预期结果",
+  "假设与待确认项"
+] as const;
+
 export interface TestcaseBodyCompleteness {
   caseId?: string;
   title: string;
@@ -52,7 +61,11 @@ export function evaluateTestcasePackage(
   options: TestcasePackageCompletenessOptions = {}
 ): TestcasePackageCompleteness {
   const sources = Array.isArray(markdownSources) ? markdownSources : [markdownSources];
-  const requiredSections = [...(options.requiredSections ?? DEFAULT_REQUIRED_CASE_SECTIONS)];
+  const v2Structure = sources.some((source) => /结构版本[：:]\s*testcase-v2\b/u.test(source));
+  const requiredSections = [...(
+    options.requiredSections
+    ?? (v2Structure ? V2_REQUIRED_CASE_SECTIONS : DEFAULT_REQUIRED_CASE_SECTIONS)
+  )];
   const caseIdPattern = options.caseIdPattern ?? /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$/;
   const directoryIds = unique(
     sources.flatMap((source) => extractDirectoryCaseIds(source, caseIdPattern))

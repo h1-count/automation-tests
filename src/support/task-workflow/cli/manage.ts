@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import {
   buildExecutionAuthorizationManifest,
   EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
@@ -12,7 +13,8 @@ import {
   type ExecutionCaseScope,
   type ExecutionExternalTransitionSummary,
   type ExecutionOperationKind,
-  type ExecutionResourcePoolBudget
+  type ExecutionResourcePoolBudget,
+  type ExecutionSelectorRepairContext
 } from "../../formal-execution/authorization.js";
 import {
   evaluateCapabilitiesWithProviders,
@@ -30,6 +32,14 @@ import { resolveFormalRunnerAdapter } from "../../formal-execution/runnerAdapter
 import { assessExecutionReadiness } from "../../formal-execution/readiness.js";
 import { TestDataManager } from "../../test-data/testDataManager.js";
 import type { FormalExecutionManifest } from "../../formal-execution/types.js";
+import {
+  applySelectorRepairIncident,
+  assessSelectorRepairRecovery,
+  loadSelectorRepairIncident,
+  repairContextFromEvent,
+  selectorRepairEventContext,
+  selectorRepairIncidentPathsFromEvent
+} from "../../formal-execution/selectorRepair.js";
 import {
   assessStableTestSuite,
   loadStableTestSuite,
@@ -395,6 +405,75 @@ function output(args: string[], value: unknown, text: string): void {
   process.stdout.write(`${args.includes("--json") ? JSON.stringify(value, null, 2) : text}\n`);
 }
 
+async function currentSelectorRepairAssessment(
+  manager: DurableWorkflowManager,
+  incidentPaths?: string[]
+) {
+  const snapshot = await loadConfirmedExecutionAuthorization(
+    manager.requestId,
+    undefined,
+    [],
+    manager.workspaceRoot
+  );
+  const manifest = await loadFormalExecutionManifestFromPath(
+    `tests/${manager.requestId}/execution.manifest.ts`,
+    {
+      workspaceRoot: manager.workspaceRoot,
+      expectedRequestId: manager.requestId
+    }
+  );
+  const store = new FormalExecutionStore(
+    resolve(manager.workspaceRoot, ".local/test-ledger"),
+    resolve(manager.workspaceRoot, "artifacts/test-results/formal")
+  );
+  const record = await store.read(snapshot.digest);
+  if (!record) throw new Error("Selector repair requires the current formal execution record.");
+  return assessSelectorRepairRecovery({
+    requestId: manager.requestId,
+    snapshot,
+    record,
+    manifest,
+    workspaceRoot: manager.workspaceRoot,
+    ...(incidentPaths?.length ? { incidentPaths } : {})
+  });
+}
+
+async function latestActiveSelectorRepair(manager: DurableWorkflowManager): Promise<{
+  context: ExecutionSelectorRepairContext;
+  incidentPaths: string[];
+} | undefined> {
+  const events = await manager.events();
+  const invalidation = [...events].reverse().find((event) =>
+    event.type === "ActivitiesInvalidated" && event.payload.selectorRepair !== undefined
+  );
+  if (!invalidation) return undefined;
+  const republished = events.some((event) =>
+    event.seq > invalidation.seq
+    && event.type === "ActivitySucceeded"
+    && event.payload.activityId === "readiness"
+  );
+  if (republished) return undefined;
+  const context = repairContextFromEvent(invalidation.payload.selectorRepair);
+  if (!context) return undefined;
+  return {
+    context,
+    incidentPaths: selectorRepairIncidentPathsFromEvent(
+      invalidation.payload.selectorRepair
+    )
+  };
+}
+
+async function applyPendingSelectorRepair(manager: DurableWorkflowManager): Promise<void> {
+  const pending = await latestActiveSelectorRepair(manager);
+  if (!pending) return;
+  for (const path of pending.incidentPaths) {
+    await applySelectorRepairIncident(
+      await loadSelectorRepairIncident(path, manager.workspaceRoot),
+      manager.workspaceRoot
+    );
+  }
+}
+
 async function scriptReviewAssessment(
   manager: DurableWorkflowManager,
   view: WorkflowGateView,
@@ -465,6 +544,7 @@ async function main(): Promise<void> {
       "  execution-readiness-publish --claim <lease> --environment <name> [--target-build-digest <sha256>] --script <path> --case-id <id> [--case-risk <id:level>] --operation <kind> [--selector-evidence-digest <sha256>] [--review-evidence <runtime-json>] --verified <evidence>",
       "  suite-readiness-publish --claim <lease> --environment <test|pre>  # all suite identities and scopes are derived",
       "  execution-authorization-publish --claim <lease> --environment <name> --script <path> --case-id <id> --operation <kind> [--budget <type:max>] --data-write-policy <no_write|ephemeral_cleanup|reusable_fixture|tracked_residual> [--review-evidence <runtime-json>] --verified <evidence>",
+      "  execution-scope-reopen --selector-repair <incident-path> [--selector-repair <incident-path> ...] [--reason <text>]",
       "  execution-run-finalize --claim <lease>",
       "  execution-report-finalize --claim <lease>",
       "  execution-transition-resolve --transition <id> --outcome <safe-token> [--attestation <key=true>] [--owner <name>]",
@@ -555,7 +635,22 @@ async function main(): Promise<void> {
 
   if (command === "resume") {
     if (sessionId) await manager.bindSession(sessionId, targetThreadId);
-    const view = await manager.resume(option(args, "--reason") ?? "explicit_cli_resume");
+    await applyPendingSelectorRepair(manager);
+    let view = await manager.resume(option(args, "--reason") ?? "explicit_cli_resume");
+    if (
+      view.definitionVersion === "v7"
+      && view.activities.run?.state === "BLOCKED"
+      && view.activities.run.blockerIds.some((id) => id.startsWith("deterministic-outcome-"))
+    ) {
+      const assessment = await currentSelectorRepairAssessment(manager);
+      if (assessment.status === "eligible") {
+        view = await manager.reopenExecutionScope(
+          "eligible_selector_drift_repair",
+          selectorRepairEventContext(assessment)
+        );
+        await applyPendingSelectorRepair(manager);
+      }
+    }
     output(args, view, workflowStatusText(view));
     return;
   }
@@ -879,6 +974,8 @@ async function main(): Promise<void> {
   }
 
   if (command === "execution-readiness-publish") {
+    await applyPendingSelectorRepair(manager);
+    const activeSelectorRepair = await latestActiveSelectorRepair(manager);
     const suppliedScripts = options(args, "--script");
     const formalManifestScript = `tests/${requestId}/execution.manifest.ts`;
     const scripts = [...new Set([
@@ -900,7 +997,7 @@ async function main(): Promise<void> {
       );
     }
     const reuseMetadata = before.activities["reuse-assessment"]?.definition.metadata;
-    if (before.definitionVersion === "v6"
+    if (["v6", "v7"].includes(before.definitionVersion)
       && reuseMetadata?.decision === "affected_rebuild") {
       const expectedCaseIds = Array.isArray(reuseMetadata.selectedCaseIds)
         ? reuseMetadata.selectedCaseIds.filter((item): item is string => typeof item === "string").sort()
@@ -1028,6 +1125,17 @@ async function main(): Promise<void> {
       process.exitCode = 2;
       return;
     }
+    if (activeSelectorRepair?.context) {
+      const expectedCaseIds = [...new Set([
+        ...activeSelectorRepair.context.retryCaseIds,
+        ...activeSelectorRepair.context.carriedCases.map((item) => item.caseId)
+      ])].sort();
+      if (JSON.stringify(readiness.runnableCaseIds) !== JSON.stringify(expectedCaseIds)) {
+        throw new Error(
+          "Selector repair readiness must preserve the complete prior execution case scope."
+        );
+      }
+    }
     const reviewEvidence = await validateScriptReviewEvidenceFiles({
       assessment: scriptAssessment,
       evidencePaths: options(args, "--review-evidence"),
@@ -1045,6 +1153,9 @@ async function main(): Promise<void> {
       capabilityEvidence: readiness.capabilityEvidence,
       targetBuildDigest,
       selectorEvidenceDigests,
+      ...(activeSelectorRepair?.context
+        ? { repairContext: activeSelectorRepair.context }
+        : {}),
       scriptReview: {
         level: scriptAssessment.level,
         evidenceDigests: reviewEvidence.map((item) => item.digest)
@@ -1405,6 +1516,26 @@ async function main(): Promise<void> {
   }
 
   if (command === "execution-scope-reopen") {
+    const incidentPaths = options(args, "--selector-repair");
+    if (incidentPaths.length) {
+      const assessment = await currentSelectorRepairAssessment(manager, incidentPaths);
+      if (assessment.status !== "eligible") {
+        throw new Error(
+          `Selector repair cannot reopen execution scope: ${assessment.reason ?? assessment.status}.`
+        );
+      }
+      const view = await manager.reopenExecutionScope(
+        option(args, "--reason") ?? "eligible_selector_drift_repair",
+        selectorRepairEventContext(assessment)
+      );
+      await applyPendingSelectorRepair(manager);
+      output(
+        args,
+        { assessment, workflow: view },
+        `已记录并应用 ${assessment.incidents.length} 个定位修复；旧执行授权失效，请重新完成 build、readiness 和执行清单确认。`
+      );
+      return;
+    }
     const view = await manager.reopenExecutionScope(required(args, "--reason"));
     output(args, view, "工程设计、脚本评审和旧执行授权已失效；请从 engineering 重新推进。");
     return;
@@ -1434,7 +1565,9 @@ async function main(): Promise<void> {
       result,
       result.kind === "parked"
         ? result.parkReason === "deterministic_outcome"
-          ? `run 已暂停；${result.outcomeAssessment.terminalUnknownCount} 个终态 unknown 必须由后续可信 attempt 消除。`
+          ? result.outcomeAssessment.allTerminalUnknownsRepairable
+            ? `run 已暂停；${result.outcomeAssessment.terminalUnknownCount} 个终态 unknown 均为可修复定位漂移，task:resume 将回退脚本阶段。`
+            : `run 已暂停；${result.outcomeAssessment.terminalUnknownCount} 个终态 unknown 必须由后续可信 attempt 消除。`
           : `run 已暂停；等待数据卫生收口：${result.dataHygieneStatus}。`
         : `run 已绑定 FormalExecutionStore 结果 ${result.evidence.resultDigest.slice(0, 12)}。`
     );

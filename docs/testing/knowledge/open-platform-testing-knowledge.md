@@ -92,3 +92,17 @@
 - 验证条件：完成一次受控正式注册执行，证明发送不重复、页面输入后自动继续、超时不重发且所有产物不含验证码。
 - 最近更新：2026-08-04T09:38:57.012Z
 <!-- project-experience:9A6554D32CD4:end -->
+
+<!-- project-experience:F1A2B3C4D5E6:start -->
+<a id="exp-f1a2b3c4d5e6"></a>
+## 2026-08-12：本地 dev 登录页真实 selector 与简化契约的偏差
+
+- 经验编号：EXP-F1A2B3C4D5E6
+- 适用范围：开放平台本地 dev（`[DEV]Hommor Aura 平台`）`127.0.0.1:3098` 账号密码登录的 selector 契约
+- 证据状态：待验证
+- 观察：formal run 暴露真实 a11y 树与受控探索时简化的 selector 契约有偏差——登录提交按钮 accessible name 为「账号密码登录」（非「登录」），且未勾选「同意登录用户协议」checkbox 时为 disabled；模式切换按钮为「切换为账号密码登录」/「切换为短信验证码登录」（非「账号登录」/「验证码登录」）；手机号字段含 0/11 计数器。受控探索的 `getByRole(hasText)` 简化定位在真实页面不唯一/不精确，导致 002/003/005 `openAccountLogin` 切换失败 30s timeout。
+- 当前优先策略：build selector 契约时，登录提交用 `getByRole('button', { name: '账号密码登录' })`，提交前先勾选「同意登录用户协议」checkbox；模式切换用「切换为账号密码登录」/「切换为短信验证码登录」全称；selector 证据必须来自真实页面的完整 a11y 快照而非简化 hasText。
+- 证据引用：`artifacts/test-results/playwright/wave-8/*-LOGIN-002-*/error-context.md`
+- 验证条件：修正 selector 契约后完成一次 formal run，证明 001-005 用例 selector 稳定命中、不再 timeout。
+- 最近更新：2026-08-12T00:00:00.000Z
+<!-- project-experience:F1A2B3C4D5E6:end -->

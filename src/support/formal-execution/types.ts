@@ -1,7 +1,8 @@
 import type {
   ExecutionAuthorizationSnapshot,
   ExecutionDeferredCase,
-  ExecutionOperationKind
+  ExecutionOperationKind,
+  ExecutionSelectorRepairContext
 } from "./authorization.js";
 import type { TestDataManager } from "../test-data/testDataManager.js";
 import type {
@@ -43,6 +44,31 @@ export type FormalPermissionProfile = "read_only" | "test_write" | "privileged_t
 export type FormalExecutionScopeStatus = "complete" | "partial";
 export type FormalExecutionTestOutcome = "passed" | "failed" | "mixed" | "inconclusive";
 export type FormalExecutionDataHygieneStatus = DataHygieneStatus | "unknown";
+
+export interface FormalSelectorRepairSafetyProof {
+  safe: boolean;
+  completedStageCount: number;
+  transitionCount: number;
+  dataIntentCount: number;
+  dataResourceCount: number;
+  operationReservationCount: number;
+  producedResourceCount: number;
+}
+
+export interface FormalSelectorRepairIncidentReference {
+  schemaVersion: "formal-selector-repair-reference-v1";
+  incidentId: string;
+  digest: string;
+  path: string;
+  eligibility: "eligible" | "rejected";
+}
+
+export interface FormalCarriedCaseOrigin {
+  schemaVersion: "formal-carried-case-origin-v1";
+  sourceAuthorizationDigest: string;
+  sourceCaseResultDigest: string;
+  sourceEvidenceBundleDigest: string;
+}
 
 export interface FormalExecutionCompletionSeal {
   schemaVersion: "formal-execution-completion-seal-v1";
@@ -321,6 +347,7 @@ export interface FormalCaseAttempt {
   blockEvidence?: FormalBlockEvidence;
   operationEvidence?: FormalOperationEvidenceRecord[];
   oracleResults?: FormalBusinessOracleResult[];
+  selectorRepairIncident?: FormalSelectorRepairIncidentReference;
 }
 
 export interface FormalStageCheckpoint {
@@ -354,6 +381,7 @@ export interface FormalCaseResult {
   attempts: FormalCaseAttempt[];
   reason?: string;
   updatedAt: string;
+  carriedFrom?: FormalCarriedCaseOrigin;
 }
 
 export interface FormalNamedResource {
@@ -399,6 +427,7 @@ export interface FormalExecutionRecord {
   /** Required on v3 records and derived only from immutable case oracle definitions. */
   businessOracleContractDigest?: string;
   targetBuildDigest?: string;
+  repairContext?: ExecutionSelectorRepairContext;
   testDataRunId: string;
   startedAt: string;
   updatedAt: string;
@@ -441,6 +470,7 @@ export interface FormalExecutionSummary {
   manifestDigest: string;
   businessOracleContractDigest?: string;
   targetBuildDigest?: string;
+  repairContext?: ExecutionSelectorRepairContext;
   scopeStatus: FormalExecutionScopeStatus;
   testOutcome: FormalExecutionTestOutcome;
   dataHygieneStatus: FormalExecutionDataHygieneStatus;
@@ -457,6 +487,8 @@ export interface FormalExecutionSummary {
     dataEvidence?: FormalCaseDataEvidence;
     operationEvidence?: FormalOperationEvidenceRecord[];
     oracleResults?: FormalBusinessOracleResult[];
+    selectorRepairIncident?: FormalSelectorRepairIncidentReference;
+    carriedFrom?: FormalCarriedCaseOrigin;
   }>;
   capabilities: FormalCapabilityResult[];
   resources: FormalNamedResource[];
@@ -490,6 +522,7 @@ export interface FormalCaseRuntime {
   snapshot: ExecutionAuthorizationSnapshot;
   manager: TestDataManager;
   runId: string;
+  attempt: number;
   confirmResource(name: string, evidence: string): Promise<void>;
   publishResource(name: string, ledgerResourceId: string, evidence: string): Promise<void>;
   consumeResource(name: string): Promise<FormalResourceHandle>;
@@ -515,4 +548,6 @@ export interface FormalCaseRuntime {
   transitionOutcome(transitionId: string): Promise<string | undefined>;
   transitionRecord(transitionId: string): Promise<FormalExternalTransitionRecord | undefined>;
   awaitExternalTransition(transitionId: string): Promise<never>;
+  selectorRepairSafety(): Promise<FormalSelectorRepairSafetyProof>;
+  selectorRepairDependentCaseIds(): string[];
 }

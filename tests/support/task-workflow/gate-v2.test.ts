@@ -12,15 +12,10 @@ import {
   isSafeWorkflowReply,
   type WorkflowGateView
 } from "../../../src/support/task-workflow/index.js";
-import {
-  buildFormalDecisionPlan,
-  recordFormalDecision
-} from "./formalDecisionFixture.js";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = process.cwd();
 const gatePath = resolve(repositoryRoot, "src/support/task-workflow/cli/gate.ts");
-const managePath = resolve(repositoryRoot, "src/support/task-workflow/cli/manage.ts");
 const statusPath = resolve(repositoryRoot, "src/support/task-workflow/cli/status.ts");
 const tsxLoader = pathToFileURL(resolve(repositoryRoot, "node_modules/tsx/dist/loader.mjs")).href;
 const requestId = "web/demo/gate-v2";
@@ -31,6 +26,8 @@ async function workspace(): Promise<string> {
   await mkdir(requestRoot, { recursive: true });
   await writeFile(resolve(requestRoot, "plan.md"), [
     "# Gate v2 plan",
+    "",
+    "> 结构版本：test-design-index-v2 / rule-design-ledger-v2 / case-relation-projection-v2。",
     "",
     "## 基本信息",
     "",
@@ -155,86 +152,25 @@ test("Gate v2 exposes continuation without legacy scheduling fields", async (con
   assert.equal("wake" in view, false);
 });
 
-test("accepted plan callback immediately exposes case generation in the same gate result", async (context) => {
+test("v7 plan validation immediately exposes case generation without a plan callback", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
   const manager = new DurableWorkflowManager(requestId, root);
   await manager.initialize({ capabilities: ["web"], casePackages: ["cases-registration.md"] });
   await succeed(manager, "source-selection");
   await succeed(manager, "plan-validation");
-  const digest = await manager.callbackSubjectDigest("plan-confirmation");
-  await manager.requestCallback({
-    activityId: "plan-confirmation",
-    callbackId: "confirm-plan",
-    subjectDigest: digest,
-    kind: "plan_confirmation"
-  });
-  const planSource = resolve(root, "plan-with-formal-decision.md");
-  await writeFile(
-    planSource,
-    await buildFormalDecisionPlan(
-      manager,
-      "plan-confirmation",
-      digest,
-      "accepted"
-    ),
-    "utf8"
-  );
-  const resolveArgs = [
-    "--import",
-    tsxLoader,
-    managePath,
-    "callback-resolve",
-    "--request",
-    requestId,
-    "--callback",
-    "confirm-plan",
-    "--resolution",
-    "accepted",
-    "--plan-source",
-    planSource
-  ];
-  await execFileAsync(process.execPath, resolveArgs, { cwd: root });
   const accepted = await manager.gate();
 
   assert.equal(accepted.continuation.kind, "continue_now");
   assert.equal(accepted.reply.kind, "none");
   assert.deepEqual(accepted.readyActivities, ["case-generation-cases-registration-md"]);
-  const events = await manager.events();
-  const preparedIndex = events.findIndex((event) =>
-    event.type === "ArtifactPublishPrepared"
-    && event.payload.activityId === "plan-confirmation"
-  );
-  const resolvedIndex = events.findIndex((event) =>
-    event.type === "CallbackResolved"
-    && event.payload.activityId === "plan-confirmation"
-  );
-  assert.ok(preparedIndex >= 0 && resolvedIndex > preparedIndex);
+  assert.equal(accepted.activities["plan-confirmation"], undefined);
+  assert.equal((await manager.events()).some((event) =>
+    event.type === "CallbackRequested"
+  ), false);
   assert.equal(
     Object.keys((await manager.runtime.read())?.stagingRefs ?? {}).length,
     0
-  );
-  const historyAfterResolution = await readFile(manager.historyPath, "utf8");
-  await execFileAsync(process.execPath, resolveArgs, { cwd: root });
-  assert.equal(await readFile(manager.historyPath, "utf8"), historyAfterResolution);
-  const conflictingPlanSource = resolve(root, "conflicting-plan-replay.md");
-  await writeFile(
-    conflictingPlanSource,
-    `${await readFile(planSource, "utf8")}\n<!-- different replay bytes -->\n`,
-    "utf8"
-  );
-  await assert.rejects(
-    execFileAsync(process.execPath, [
-      ...resolveArgs.slice(0, -1),
-      conflictingPlanSource
-    ], { cwd: root }),
-    (error: unknown) => {
-      assert.match(
-        String((error as { stderr?: string }).stderr ?? error),
-        /replay planContent conflicts/
-      );
-      return true;
-    }
   );
 });
 
@@ -336,14 +272,9 @@ test("Stop Hook emits one continuation, prevents recursion, and allows safe user
 
   await succeed(manager, "source-selection");
   await succeed(manager, "plan-validation");
-  const digest = await manager.callbackSubjectDigest("plan-confirmation");
-  await manager.requestCallback({
-    activityId: "plan-confirmation",
-    callbackId: "confirm-plan",
-    subjectDigest: digest,
-    kind: "plan_confirmation"
-  });
-  assert.deepEqual(await hook(root, false), {});
+  const afterValidation = await hook(root, false);
+  assert.equal(afterValidation.decision, "block");
+  assert.match(String(afterValidation.reason), /不得宣称工作流完成/);
 });
 
 test("provider-neutral host continuation keeps vendor envelope fields out of the core contract", async (context) => {

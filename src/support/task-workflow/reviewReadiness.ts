@@ -47,6 +47,21 @@ const requiredPlanMarkers: Array<{ label: string; alternatives: string[] }> = [
   }
 ];
 
+const requiredV2PlanMarkers: Array<{ label: string; alternatives: string[] }> = [
+  { label: "## 资料来源", alternatives: ["## 资料来源"] },
+  { label: "## 测试范围", alternatives: ["## 测试范围"] },
+  {
+    label: "## 环境、静态资产与数据安全边界",
+    alternatives: ["## 环境、静态资产与数据安全边界"]
+  },
+  { label: "## 需求索引", alternatives: ["## 需求索引"] },
+  { label: "## 规则设计台账", alternatives: ["## 规则设计台账"] },
+  { label: "rule-design-ledger-v2", alternatives: ["rule-design-ledger-v2"] },
+  { label: "## 用例包目录", alternatives: ["## 用例包目录"] },
+  { label: "## 假设、缺口与风险", alternatives: ["## 假设、缺口与风险"] },
+  { label: "## 评审记录", alternatives: ["## 评审记录"] }
+];
+
 function uniqueMatches(value: string, pattern: RegExp): string[] {
   return [...new Set(value.match(pattern) ?? [])].sort();
 }
@@ -76,9 +91,19 @@ function markdownSection(body: string, heading: string): string {
 function sourceIdentityIssues(packages: Record<string, string>): string[] {
   const issues: string[] = [];
   for (const [name, source] of Object.entries(packages)) {
+    const v2 = /结构版本[：:]\s*testcase-v2\b/u.test(source);
     for (const body of testcaseBodies(source)) {
       const caseId = testcaseId(body);
       const section = markdownSection(body, "来源");
+      if (v2) {
+        if (!/\bSRC-[A-Z0-9][A-Z0-9-]*\b/.test(section)) {
+          issues.push(`${name}:${caseId} 来源缺少稳定来源 ID。`);
+        }
+        if (!/\[[^\]]+\]\([^)]+\)|(?:章节|页面|字段)/.test(section)) {
+          issues.push(`${name}:${caseId} 来源缺少可点击链接或精确定位。`);
+        }
+        continue;
+      }
       if (!/\bmanifest\b/i.test(section)) {
         issues.push(`${name}:${caseId} 来源缺少 manifest id。`);
       }
@@ -123,7 +148,8 @@ export function evaluateReviewReadiness(
   input: ReviewReadinessInput
 ): ReviewReadinessReport {
   const issues: string[] = [];
-  for (const marker of requiredPlanMarkers) {
+  const v2 = input.plan.includes("rule-design-ledger-v2");
+  for (const marker of v2 ? requiredV2PlanMarkers : requiredPlanMarkers) {
     if (!marker.alternatives.some((value) => input.plan.includes(value))) {
       issues.push(`plan.md 缺少 ${marker.label}。`);
     }

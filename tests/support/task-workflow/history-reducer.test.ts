@@ -12,6 +12,7 @@ import {
   WorkflowHistoryStore,
   WorkflowTransitionError,
   activitiesExpandedPayload,
+  buildLegacyV5WorkflowDefinition,
   buildWorkflowDefinition,
   calculateEventDigest,
   canonicalJson,
@@ -34,7 +35,7 @@ function sha256(value: string): string {
 function definition(
   overrides: Partial<Parameters<typeof buildWorkflowDefinition>[0]> = {}
 ): WorkflowDefinition {
-  return buildWorkflowDefinition({
+  return buildLegacyV5WorkflowDefinition({
     requestId: "web/open-platform/registration",
     planDigest,
     capabilities: ["web"],
@@ -441,30 +442,45 @@ test("an unverifiable history lock is recovered only after its fallback timeout"
   assert.equal((await store.read()).length, 1);
 });
 
-test("new definition is v5-only, risk-selectable, and has exactly three fixed confirmations", () => {
-  const defaults = definition();
-  assert.equal(defaults.definitionVersion, "v5");
+test("new v7 definition has one design confirmation and no plan/conflict callback", () => {
+  const defaults = buildWorkflowDefinition({
+    requestId: "web/open-platform/registration-v7",
+    planDigest,
+    capabilities: ["web"],
+    casePackages: ["cases-registration.md"]
+  });
+  assert.equal(defaults.definitionVersion, "v7");
   assert.deepEqual(
     defaults.reviewPolicy?.requiredRoles,
     ["requirements", "design", "traceability"]
   );
-  const selected = definition({ reviewerRoles: ["interaction"] });
+  const selected = buildWorkflowDefinition({
+    requestId: "web/open-platform/registration-v7",
+    planDigest,
+    capabilities: ["web"],
+    casePackages: ["cases-registration.md"],
+    reviewerRoles: ["interaction"]
+  });
   assert.deepEqual(selected.reviewPolicy?.requiredRoles, ["interaction"]);
   assert.ok(selected.activities
     .filter((activity) => activity.kind === "review")
-    .every((activity) => activity.concurrencyLimit === 3));
+    .every((activity) => activity.concurrencyLimit === selected.reviewPolicy?.maxConcurrentReviewers));
   const callbackIds = selected.activities
     .filter((activity) => [
-      "plan-confirmation",
       "case-confirmation",
       "execution-authorization"
     ].includes(activity.id))
     .map((activity) => activity.id);
   assert.deepEqual(callbackIds, [
-    "plan-confirmation",
     "case-confirmation",
     "execution-authorization"
   ]);
+  assert.equal(selected.activities.some((activity) => activity.id === "plan-confirmation"), false);
+  assert.equal(selected.activities.some((activity) => activity.id === "case-review-conflict-decision"), false);
+  assert.deepEqual(
+    selected.activities.find((activity) => activity.kind === "case_generation")?.dependencies,
+    ["plan-validation"]
+  );
   assert.equal(selected.activities.some((activity) => activity.id === "asset-change-decision"), false);
 });
 

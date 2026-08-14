@@ -136,7 +136,11 @@ function structuredPlanText(planText: string): string {
     const isRiskSectionEntry = /^[-*]\s+/u.test(line)
       && /测试范围|安全|数据|副作用|权限|风险|执行|门禁/iu.test(activeSection);
     if (isTableRow || isExplicitMarker || isRiskSectionEntry) {
-      selected.push(line);
+      selected.push(
+        /^\|\s*权限与安全\s*\|/u.test(line)
+          ? line.replace(/^\|\s*权限与安全\s*\|/u, "|")
+          : line
+      );
     }
   }
   return selected.join("\n");

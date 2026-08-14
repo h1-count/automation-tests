@@ -6,7 +6,8 @@ import {
 } from "./public-task-command-contract.js";
 import {
   inspectRuleResponsibilities,
-  RULE_OWNER_PATHS
+  RULE_OWNER_PATHS,
+  SUPPORTING_DOCUMENT_ROLES
 } from "./rule-responsibility-contract.js";
 
 type CheckStatus = "PASS" | "WARN" | "FAIL";
@@ -61,7 +62,9 @@ function checkResponsibilityOwnership(): void {
     path: relative(projectRoot, path).split(sep).join("/"),
     content: readFileSync(path, "utf8")
   }));
-  const inspection = inspectRuleResponsibilities(documents);
+  const supportingDocuments = Object.keys(SUPPORTING_DOCUMENT_ROLES)
+    .map((path) => ({ path, content: read(path) }));
+  const inspection = inspectRuleResponsibilities(documents, supportingDocuments);
 
   record(
     inspection.ownerViolations.length === 0 ? "PASS" : "FAIL",
@@ -76,6 +79,13 @@ function checkResponsibilityOwnership(): void {
     inspection.delegationViolations.length === 0
       ? "流程规范的专项摘要均立即链接唯一 owner，并保持为无子标题的单段短委托。"
       : inspection.delegationViolations.join("；")
+  );
+  record(
+    inspection.supportingViolations.length === 0 ? "PASS" : "FAIL",
+    "Skill 与模板职责边界",
+    inspection.supportingViolations.length === 0
+      ? "Skill 只负责编排、模板只负责结构，且未复制责任规范正文。"
+      : inspection.supportingViolations.join("；")
   );
 }
 

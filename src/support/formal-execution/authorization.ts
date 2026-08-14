@@ -110,6 +110,22 @@ export interface ExecutionExternalTransitionSummary {
   requiredAttestationKeys: string[];
 }
 
+export interface ExecutionCarriedCase {
+  caseId: string;
+  sourceAuthorizationDigest: string;
+  sourceCaseResultDigest: string;
+  sourceEvidenceBundleDigest: string;
+}
+
+export interface ExecutionSelectorRepairContext {
+  schemaVersion: "selector-repair-context-v1";
+  priorAuthorizationDigest: string;
+  incidentDigests: string[];
+  affectedCaseIds: string[];
+  retryCaseIds: string[];
+  carriedCases: ExecutionCarriedCase[];
+}
+
 interface ExecutionAuthorizationCommon {
   requestId: string;
   environment: string;
@@ -146,6 +162,7 @@ export interface ExecutionAuthorizationSnapshot extends ExecutionAuthorizationCo
   formalManifestPath?: string;
   entryScriptPaths?: string[];
   authorizationMode?: "policy_auto_no_write" | "user_confirmed";
+  repairContext?: ExecutionSelectorRepairContext;
   digest: string;
   status: "confirmed";
   createdAt: string;
@@ -192,6 +209,7 @@ export interface ExecutionAuthorizationManifestV4 extends ExecutionAuthorization
   resourcePoolBudgets: ExecutionResourcePoolBudget[];
   resourcePoolEvidence: ExecutionResourcePoolEvidence[];
   externalTransitions?: ExecutionExternalTransitionSummary[];
+  repairContext?: ExecutionSelectorRepairContext;
   readinessDigest: string;
   digest: string;
   callbackId: string;
@@ -255,6 +273,7 @@ export interface BuildExecutionAuthorizationManifestInput {
   resourcePoolBudgets?: ExecutionResourcePoolBudget[];
   resourcePoolEvidence?: ExecutionResourcePoolEvidence[];
   externalTransitions?: ExecutionExternalTransitionSummary[];
+  repairContext?: ExecutionSelectorRepairContext;
   suiteRef?: {
     suiteId: string;
     suiteVersion: string;
@@ -294,6 +313,7 @@ type ExecutionAuthorizationDigestBaseV4 = ExecutionAuthorizationCommon & {
   resourcePoolBudgets: ExecutionResourcePoolBudget[];
   resourcePoolEvidence: ExecutionResourcePoolEvidence[];
   externalTransitions?: ExecutionExternalTransitionSummary[];
+  repairContext?: ExecutionSelectorRepairContext;
   readinessDigest: string;
 };
 
@@ -414,6 +434,9 @@ export function buildExecutionAuthorizationManifest(
   );
   const schemaVersion = input.schemaVersion
     ?? LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
+  if (input.repairContext && schemaVersion !== EXECUTION_AUTHORIZATION_SCHEMA_VERSION) {
+    throw new Error("Selector repair context is supported only by execution-authorization-v4.");
+  }
   const scriptPaths = resolveLocalScriptDependencyClosure({
     workspaceRoot,
     entryPaths: input.scriptPaths
@@ -468,6 +491,9 @@ export function buildExecutionAuthorizationManifest(
         resourcePoolEvidence: normalizeResourcePoolEvidence(input.resourcePoolEvidence ?? []),
         ...(input.externalTransitions?.length
           ? { externalTransitions: normalizeExternalTransitions(input.externalTransitions) }
+          : {}),
+        ...(schemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION && input.repairContext
+          ? { repairContext: normalizeRepairContext(input.repairContext) }
           : {})
       };
   const base = normalizeDigestBase(schemaVersion === STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
@@ -643,6 +669,7 @@ function parseExecutionAuthorizationManifest(
     "resourcePoolBudgets",
     "resourcePoolEvidence",
     "externalTransitions",
+    "repairContext",
     "readinessDigest",
     "allowedOperations",
     "resourceBudgets",
@@ -665,6 +692,12 @@ function parseExecutionAuthorizationManifest(
     && raw.schemaVersion !== LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
   ) {
     throw new Error("Unsupported execution authorization manifest schema.");
+  }
+  if (
+    raw.repairContext !== undefined
+    && raw.schemaVersion !== EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+  ) {
+    throw new Error("Selector repair context is supported only by execution-authorization-v4.");
   }
   if (raw.requestId !== requestId) {
     throw new Error("Execution authorization manifest belongs to another request.");
@@ -715,7 +748,11 @@ function parseExecutionAuthorizationManifest(
           resourcePoolEvidence: parseResourcePoolEvidence(raw.resourcePoolEvidence),
           ...(raw.externalTransitions === undefined
             ? {}
-            : { externalTransitions: parseExternalTransitions(raw.externalTransitions) })
+            : { externalTransitions: parseExternalTransitions(raw.externalTransitions) }),
+          ...(raw.schemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+            && raw.repairContext !== undefined
+            ? { repairContext: parseRepairContext(raw.repairContext) }
+            : {})
         };
   const base = normalizeDigestBase(
     raw.schemaVersion === STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
@@ -906,6 +943,9 @@ function normalizeDigestBase(
         resourcePoolEvidence: normalizeResourcePoolEvidence(value.resourcePoolEvidence),
         ...(value.externalTransitions?.length
           ? { externalTransitions: normalizeExternalTransitions(value.externalTransitions) }
+          : {}),
+        ...(value.repairContext
+          ? { repairContext: normalizeRepairContext(value.repairContext) }
           : {})
       };
     }
@@ -1016,6 +1056,7 @@ function validateDigestBase(value: ExecutionAuthorizationDigestBase): void {
     }
     if (isV4DigestBase(value)) {
       validateV4Scope(value);
+      if (value.repairContext) validateRepairContext(value.repairContext, value.caseIds);
     }
     if (isV5DigestBase(value)) {
       validateV4Scope(value);
@@ -1251,6 +1292,114 @@ function parseExternalTransitions(value: unknown): ExecutionExternalTransitionSu
     throw new Error("execution-authorization-v4 externalTransitions must be an array.");
   }
   return normalizeExternalTransitions(value as ExecutionExternalTransitionSummary[]);
+}
+
+function normalizeRepairContext(
+  value: ExecutionSelectorRepairContext
+): ExecutionSelectorRepairContext {
+  return {
+    schemaVersion: "selector-repair-context-v1",
+    priorAuthorizationDigest: value.priorAuthorizationDigest,
+    incidentDigests: [...new Set(value.incidentDigests)].sort(),
+    affectedCaseIds: [...new Set(value.affectedCaseIds)].sort(),
+    retryCaseIds: [...new Set(value.retryCaseIds)].sort(),
+    carriedCases: value.carriedCases.map((item) => ({
+      caseId: item.caseId.trim(),
+      sourceAuthorizationDigest: item.sourceAuthorizationDigest,
+      sourceCaseResultDigest: item.sourceCaseResultDigest,
+      sourceEvidenceBundleDigest: item.sourceEvidenceBundleDigest
+    })).sort((left, right) => left.caseId.localeCompare(right.caseId))
+  };
+}
+
+function parseRepairContext(value: unknown): ExecutionSelectorRepairContext {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("execution-authorization-v4 repairContext must be an object.");
+  }
+  const raw = value as Record<string, unknown>;
+  if (raw.schemaVersion !== "selector-repair-context-v1") {
+    throw new Error("Execution selector repair context has an unsupported schema.");
+  }
+  if (!Array.isArray(raw.carriedCases)) {
+    throw new Error("Execution selector repair context carriedCases must be an array.");
+  }
+  return normalizeRepairContext({
+    schemaVersion: "selector-repair-context-v1",
+    priorAuthorizationDigest: requireDigest(
+      raw.priorAuthorizationDigest,
+      "repairContext.priorAuthorizationDigest"
+    ),
+    incidentDigests: parseStringArray(
+      raw.incidentDigests,
+      "repairContext.incidentDigests"
+    ).map((digest) => requireDigest(digest, "repairContext.incidentDigest")),
+    affectedCaseIds: parseStringArray(
+      raw.affectedCaseIds,
+      "repairContext.affectedCaseIds"
+    ),
+    retryCaseIds: parseStringArray(raw.retryCaseIds, "repairContext.retryCaseIds"),
+    carriedCases: raw.carriedCases.map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new Error("Execution selector repair context contains an invalid carried case.");
+      }
+      const carried = item as Record<string, unknown>;
+      return {
+        caseId: requireString(carried.caseId, "repairContext.carriedCase.caseId"),
+        sourceAuthorizationDigest: requireDigest(
+          carried.sourceAuthorizationDigest,
+          "repairContext.carriedCase.sourceAuthorizationDigest"
+        ),
+        sourceCaseResultDigest: requireDigest(
+          carried.sourceCaseResultDigest,
+          "repairContext.carriedCase.sourceCaseResultDigest"
+        ),
+        sourceEvidenceBundleDigest: requireDigest(
+          carried.sourceEvidenceBundleDigest,
+          "repairContext.carriedCase.sourceEvidenceBundleDigest"
+        )
+      };
+    })
+  });
+}
+
+function validateRepairContext(
+  value: ExecutionSelectorRepairContext,
+  authorizedCaseIds: string[]
+): void {
+  if (value.schemaVersion !== "selector-repair-context-v1") {
+    throw new Error("Execution selector repair context has an unsupported schema.");
+  }
+  requireDigest(value.priorAuthorizationDigest, "repairContext.priorAuthorizationDigest");
+  if (!value.incidentDigests.length || !value.affectedCaseIds.length || !value.retryCaseIds.length) {
+    throw new Error("Execution selector repair context requires incidents, affected cases, and retry cases.");
+  }
+  value.incidentDigests.forEach((digest) => requireDigest(digest, "repairContext.incidentDigest"));
+  assertUnique(value.affectedCaseIds, "repairContext affected caseId");
+  assertUnique(value.retryCaseIds, "repairContext retry caseId");
+  assertUnique(value.carriedCases.map((item) => item.caseId), "repairContext carried caseId");
+  const authorized = new Set(authorizedCaseIds);
+  const retry = new Set(value.retryCaseIds);
+  const carried = new Set(value.carriedCases.map((item) => item.caseId));
+  if (value.affectedCaseIds.some((caseId) => !retry.has(caseId))) {
+    throw new Error("Every affected selector repair case must be retried.");
+  }
+  if ([...retry, ...carried].some((caseId) => !authorized.has(caseId))) {
+    throw new Error("Execution selector repair context references a case outside authorization.");
+  }
+  if ([...retry].some((caseId) => carried.has(caseId))) {
+    throw new Error("A selector repair case cannot be both retried and carried.");
+  }
+  if (authorizedCaseIds.some((caseId) => !retry.has(caseId) && !carried.has(caseId))) {
+    throw new Error("Execution selector repair context must classify every authorized case.");
+  }
+  for (const item of value.carriedCases) {
+    requireDigest(item.sourceAuthorizationDigest, "carried sourceAuthorizationDigest");
+    requireDigest(item.sourceCaseResultDigest, "carried sourceCaseResultDigest");
+    requireDigest(item.sourceEvidenceBundleDigest, "carried sourceEvidenceBundleDigest");
+    if (item.sourceAuthorizationDigest !== value.priorAuthorizationDigest) {
+      throw new Error("Carried selector repair cases must come from the prior authorization.");
+    }
+  }
 }
 
 function isReadinessAuthorizationSchema(value: string): value is

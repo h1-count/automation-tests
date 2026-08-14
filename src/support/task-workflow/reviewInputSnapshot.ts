@@ -122,7 +122,7 @@ function semanticReviewContent(sourcePath: string, content: Uint8Array): Uint8Ar
   if (sourcePath.endsWith("/plan.md")) {
     return Buffer.from(normalizePlanProjection(stripTopLevelSections(
       markdown,
-      /^(?:多角色评审记录|用例集评审与演进|工程层|预计交付物)/u
+      /^(?:评审记录|多角色评审记录|用例集评审与演进|确认后的工程映射|工程层|预计交付物)/u
     )), "utf8");
   }
   if (/\/cases-[^/]+\.md$/u.test(sourcePath)) {

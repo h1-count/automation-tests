@@ -21,8 +21,29 @@ const plan = `
 | RULE-REG-003 | 唯一性提交路径 | 不适用 | 重复名称 | 显示资料定义重复名称提示 | 已有重复名称 | 写入授权 | OPEN-REG-003 | 受控执行 |
 `;
 
+const v2Plan = `
+> 结构版本：test-design-index-v2 / rule-design-ledger-v2 / case-relation-projection-v2。
+
+## 规则设计台账
+| 规则编号 | 需求编号 | 来源定位 | 覆盖域 | 触发条件 | 输入边界 | 可观察预期 | 设计技术 | 数据/执行门禁 | 关联 caseId | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| RULE-REG-101 | REQ-REG-101 | SRC-REG-001；注册 | 输入 | 提交 | 有效邮箱 | 显示注册成功页 | 等价类 | no_write | OPEN-REG-101 | 已覆盖 |
+`;
+
 test("严格预检要求每条适用规则的可审查设计结论", () => {
   assert.deepEqual(validateRuleDesignMatrix(plan), []);
+});
+
+test("v2 统一规则台账直接通过设计预检", () => {
+  assert.deepEqual(validateRuleDesignMatrix(v2Plan), []);
+  assert.ok(
+    validateRuleDesignMatrix(v2Plan.replace("显示注册成功页", "功能正常"))
+      .some((issue) => issue.includes("缺少具体输入或可观察预期"))
+  );
+  assert.ok(
+    validateRuleDesignMatrix(v2Plan.replace("no_write", "待填写"))
+      .some((issue) => issue.includes("缺少数据/执行门禁"))
+  );
 });
 
 test("严格预检拒绝泛化预期和缺失选填声明", () => {

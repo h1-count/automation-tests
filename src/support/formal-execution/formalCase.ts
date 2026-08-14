@@ -38,6 +38,8 @@ import type {
 import { assertLocalResourceHandoff } from "./resourceHandoff.js";
 import { registerFormalPageSessionGroups } from "./pageSessionGroups.js";
 import { assertFormalBuildAuthorizationCompatibility } from "./selectorBuildIdentity.js";
+import { FormalSelectorRepairError } from "../web/guardedSelector.js";
+import { selectorRepairRetryCaseIds } from "./selectorRepair.js";
 
 type FormalFixtures = {
   page: Page;
@@ -66,6 +68,9 @@ interface InternalRuntime extends Omit<
   | "transitionOutcome"
   | "transitionRecord"
   | "awaitExternalTransition"
+  | "selectorRepairSafety"
+  | "selectorRepairDependentCaseIds"
+  | "attempt"
 > {
   store: FormalExecutionStore;
   manifest: FormalExecutionManifest;
@@ -161,6 +166,7 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
         snapshot: runtime.snapshot,
         manager: runtime.manager,
         runId: runtime.runId,
+        attempt,
         confirmResource: async (name, evidence) =>
           runtime.store.confirmResource(runtime.snapshot.digest, name, caseId, evidence),
         publishResource: async (name, ledgerResourceId, evidence) => {
@@ -228,6 +234,16 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
           );
           throw new FormalExternalTransitionRequired(caseId, transitionId);
         },
+        selectorRepairSafety: () => runtime.store.selectorRepairSafety(
+          runtime.snapshot.digest,
+          caseId,
+          attempt
+        ),
+        selectorRepairDependentCaseIds: () => selectorRepairRetryCaseIds(
+          runtime.manifest,
+          runtime.snapshot.caseIds,
+          [caseId]
+        ).filter((candidateCaseId) => candidateCaseId !== caseId),
         addEvidence: (reference) => evidenceRefs.push(reference),
         addAssertion: (description) => assertions.push(description),
         addOperationEvidence: (evidence) => {
@@ -314,6 +330,10 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
       testInfo.annotations.push({ type: "formalStatus", description: completion.status });
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Unknown formal case failure.";
+      const selectorRepairIncident = error instanceof FormalSelectorRepairError
+        ? error.incident
+        : undefined;
+      if (selectorRepairIncident) evidenceRefs.push(selectorRepairIncident.path);
       const blockEvidence = error instanceof FormalExternalTransitionRequired
         ? { cause: "external_transition" as const, transitionId: error.transitionId }
         : error instanceof FormalBlockedError
@@ -359,7 +379,8 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
         {
           assertions,
           ...(completion.status === "unknown" ? { runtimeFailure: true } : {}),
-          operationEvidence
+          operationEvidence,
+          ...(selectorRepairIncident ? { selectorRepairIncident } : {})
         }
       );
       testInfo.annotations.push({
@@ -601,7 +622,8 @@ async function createRuntime(): Promise<InternalRuntime> {
     targetBuildDigest: snapshot.targetBuildDigest,
     runRequestId,
     suiteId: snapshot.suiteId,
-    suiteVersion: snapshot.suiteVersion
+    suiteVersion: snapshot.suiteVersion,
+    repairContext: snapshot.repairContext
   });
   return {
     snapshot,

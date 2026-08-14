@@ -13,7 +13,7 @@ import {
 import { DurableWorkflowManager } from "../../../src/support/task-workflow/workflowManager.js";
 import { semanticBuildEvidenceDigest } from "../../../src/support/formal-execution/buildEvidenceIdentity.js";
 
-test("v6 direct reuse records assessment and skips design regeneration", async () => {
+test("v7 direct reuse records assessment and skips design confirmation", async () => {
   const root = await createStableSuiteHarness();
   const manager = new DurableWorkflowManager("web/demo/retest-001", root);
   const gate = await manager.initialize({
@@ -21,12 +21,13 @@ test("v6 direct reuse records assessment and skips design regeneration", async (
     reuse: "auto",
     environment: "test"
   });
-  assert.equal(gate.definitionVersion, "v6");
+  assert.equal(gate.definitionVersion, "v7");
   assert.equal(gate.activities["reuse-assessment"]?.state, "SUCCEEDED");
   assert.equal(gate.activities["reuse-assessment"]?.outcome, "direct_execute");
   assert.equal(gate.activities["suite-validation"]?.state, "SUCCEEDED");
   assert.equal(gate.activities.readiness?.state, "READY");
   assert.equal(gate.activities["source-selection"], undefined);
+  assert.equal(gate.activities["case-confirmation"], undefined);
   assert.equal(gate.activities["execution-authorization"]?.definition.kind, "policy_authorization");
   assert.equal(await fileExists(resolve(root, "testcases/web/demo/retest-001/plan.md")), false);
   const started = (await manager.events())[0]!;
@@ -36,7 +37,7 @@ test("v6 direct reuse records assessment and skips design regeneration", async (
   );
 });
 
-test("v6 affected rebuild exposes only the deterministic impacted branch", async () => {
+test("v7 affected rebuild confirms affected cases before build and readiness", async () => {
   const root = await createStableSuiteHarness();
   await writeFile(
     resolve(root, "tests/web/demo/suites/registration/registration.formal.spec.ts"),
@@ -48,10 +49,13 @@ test("v6 affected rebuild exposes only the deterministic impacted branch", async
     reuse: "auto",
     environment: "test"
   });
-  assert.equal(gate.definitionVersion, "v6");
+  assert.equal(gate.definitionVersion, "v7");
   assert.equal(gate.activities["reuse-assessment"]?.outcome, "affected_rebuild");
   assert.equal(gate.activities["impact-location"]?.state, "READY");
   assert.equal(gate.activities["source-selection"], undefined);
+  assert.deepEqual(gate.activities["case-confirmation"]?.definition.dependencies, ["targeted-review"]);
+  assert.deepEqual(gate.activities.build?.definition.dependencies, ["case-confirmation"]);
+  assert.deepEqual(gate.activities.readiness?.definition.dependencies, ["build"]);
   assert.equal(
     gate.activities.readiness?.definition.metadata?.outputSchemaVersion,
     "execution-authorization-v4"
@@ -68,7 +72,7 @@ test("v6 affected rebuild exposes only the deterministic impacted branch", async
   );
 });
 
-test("v6 full replan keeps the request plan and the complete design branch", async () => {
+test("v7 full replan keeps one case confirmation and no plan confirmation", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "stable-suite-v6-full-"));
   const requestRoot = resolve(root, "testcases/web/demo/new-feature-run");
   await mkdir(requestRoot, { recursive: true });
@@ -86,10 +90,12 @@ test("v6 full replan keeps the request plan and the complete design branch", asy
     reuse: "auto",
     environment: "test"
   });
-  assert.equal(gate.definitionVersion, "v6");
+  assert.equal(gate.definitionVersion, "v7");
   assert.equal(gate.activities["reuse-assessment"]?.outcome, "full_replan");
   assert.equal(gate.activities["source-selection"]?.state, "READY");
   assert.equal(gate.activities["impact-location"], undefined);
+  assert.equal(gate.activities["plan-confirmation"], undefined);
+  assert.ok(gate.activities["case-confirmation"]);
   assert.equal(
     gate.activities.readiness?.definition.metadata?.outputSchemaVersion,
     "execution-authorization-v4"

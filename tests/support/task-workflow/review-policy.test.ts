@@ -17,6 +17,12 @@ import { recordFormalDecision } from "./formalDecisionFixture.js";
 
 const requestId = "web/demo/repeatable-review";
 
+function compatibilityManager(root: string): DurableWorkflowManager {
+  return new DurableWorkflowManager(requestId, root, {
+    compatibilityDefinitionVersion: "v5"
+  });
+}
+
 function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -321,7 +327,7 @@ async function evolveAndInvalidate(
 test("four progressing revisions can repeat the full case-review before latest convergence", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
-  const manager = new DurableWorkflowManager(requestId, root);
+  const manager = compatibilityManager(root);
   await manager.initialize({
     capabilities: ["web"],
     casePackages: ["cases-main.md"],
@@ -365,7 +371,7 @@ test("four progressing revisions can repeat the full case-review before latest c
 test("review-policy-v2 stops after two semantic evolution cycles in one epoch", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
-  const manager = new DurableWorkflowManager(requestId, root);
+  const manager = compatibilityManager(root);
   await manager.initialize({
     capabilities: ["web"],
     casePackages: ["cases-main.md"]
@@ -448,7 +454,7 @@ test("review-policy-v2 stops after two semantic evolution cycles in one epoch", 
 test("automatic evolution preserves plan confirmation unless the user-owned plan boundary changes", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
-  const manager = new DurableWorkflowManager(requestId, root);
+  const manager = compatibilityManager(root);
   await manager.initialize({
     capabilities: ["web"],
     casePackages: ["cases-main.md"],
@@ -539,7 +545,7 @@ test("automatic evolution preserves plan confirmation unless the user-owned plan
 test("review resolution rejects scope, rule, and testcase changes before publication", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
-  const manager = new DurableWorkflowManager(requestId, root);
+  const manager = compatibilityManager(root);
   await manager.initialize({
     capabilities: ["web"],
     casePackages: ["cases-main.md"],
@@ -650,7 +656,7 @@ test("review resolution rejects scope, rule, and testcase changes before publica
 test("two consecutive unchanged revisions block on the third identical signature", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
-  const manager = new DurableWorkflowManager(requestId, root);
+  const manager = compatibilityManager(root);
   await manager.initialize({
     capabilities: ["web"],
     casePackages: ["cases-main.md"],
@@ -689,7 +695,7 @@ test("two consecutive unchanged revisions block on the third identical signature
 test("human conflict cannot bypass evolution, re-review, and case confirmation", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
-  const manager = new DurableWorkflowManager(requestId, root);
+  const manager = compatibilityManager(root);
   await manager.initialize({ capabilities: ["web"], casePackages: ["cases-main.md"] });
   await advanceToReview(manager);
   await completeReviewBatch(manager, "REV-CONFLICT");
@@ -763,7 +769,7 @@ test("human conflict cannot bypass evolution, re-review, and case confirmation",
 test("case subject drift reconciles in-flight downstream work before reopening confirmation", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
-  const manager = new DurableWorkflowManager(requestId, root);
+  const manager = compatibilityManager(root);
   await manager.initialize({
     capabilities: ["web"],
     casePackages: ["cases-main.md"],
@@ -812,7 +818,7 @@ test("case subject drift reconciles in-flight downstream work before reopening c
 test("a dispatched reviewer stays await_event regardless of elapsed wall-clock time", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
-  const manager = new DurableWorkflowManager(requestId, root);
+  const manager = compatibilityManager(root);
   await manager.initialize({
     capabilities: ["web"],
     casePackages: ["cases-main.md"],
@@ -845,7 +851,7 @@ test("a dispatched reviewer stays await_event regardless of elapsed wall-clock t
 test("one reviewer may retry three times in a batch and then becomes explicitly blocked", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
-  const manager = new DurableWorkflowManager(requestId, root);
+  const manager = compatibilityManager(root);
   await manager.initialize({
     capabilities: ["web"],
     casePackages: ["cases-main.md"],
@@ -884,7 +890,7 @@ test("one reviewer may retry three times in a batch and then becomes explicitly 
 test("review capacity admits three independent v4 reviewers and rejects only the fourth", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
-  const manager = new DurableWorkflowManager(requestId, root);
+  const manager = compatibilityManager(root);
   await manager.initialize({
     capabilities: ["web"],
     casePackages: ["cases-main.md"],
@@ -949,7 +955,7 @@ test("review capacity admits three independent v4 reviewers and rejects only the
 test("targeted re-review binds changed refs and reuses untouched reviewer evidence", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
-  const manager = new DurableWorkflowManager(requestId, root);
+  const manager = compatibilityManager(root);
   await manager.initialize({
     capabilities: ["web"],
     casePackages: ["cases-main.md"],
@@ -1035,7 +1041,7 @@ test("targeted re-review binds changed refs and reuses untouched reviewer eviden
 test("review invalidation deterministically derives omitted revision and findings digests", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
-  const manager = new DurableWorkflowManager(requestId, root);
+  const manager = compatibilityManager(root);
   await manager.initialize({
     capabilities: ["web"],
     casePackages: ["cases-main.md"],

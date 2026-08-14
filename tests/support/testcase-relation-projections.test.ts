@@ -4,7 +4,11 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { CASE_RELATION_PROJECTION_MARKER, synchronizeRequest } from "../../scripts/testcase-relation-projections.ts";
+import {
+  CASE_RELATION_PROJECTION_MARKER,
+  CASE_RELATION_PROJECTION_MARKER_V2,
+  synchronizeRequest
+} from "../../scripts/testcase-relation-projections.ts";
 import { parseCaseIds, projectRelationProjection, validateRelationProjection } from "../../src/support/testcase/relationProjection.ts";
 
 const plan = `# 测试计划
@@ -64,6 +68,57 @@ const cases = `# 用例包：登录
 | 规则覆盖编号 | 手工值 |
 `;
 
+const v2Plan = `# 测试设计索引：注册
+> 结构版本：test-design-index-v2 / rule-design-ledger-v2 / ${CASE_RELATION_PROJECTION_MARKER_V2.replace("结构版本：", "")}。
+
+## 需求索引
+| 需求编号 | 来源定位 | 优先级 | 可验证需求 | 适用性与依据 |
+| --- | --- | --- | --- | --- |
+| REQ-REG-001 | SRC-REG-001；注册 | P0 | 注册成功 | 适用 |
+
+## 规则设计台账
+| 规则编号 | 需求编号 | 来源定位 | 覆盖域 | 触发条件 | 输入边界 | 可观察预期 | 设计技术 | 数据/执行门禁 | 关联 caseId | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| RULE-REG-001 | REQ-REG-001 | SRC-REG-001；注册 | 业务 | 提交 | 有效输入 | 显示注册成功页 | 场景法 | no_write | DEMO-REG-001 | 已覆盖 |
+
+## 用例包目录
+| 用例包 | 覆盖模块或流程 | 原子用例编号 | 特殊门禁 |
+| --- | --- | --- | --- |
+| \`cases-register.md\` | 注册 | 手工值 | 无 |
+`;
+
+const v2Cases = `> 结构版本：testcase-v2。
+
+## 测试用例：注册成功
+
+## 基本信息
+| 项目 | 内容 |
+| --- | --- |
+| 用例编号 | DEMO-REG-001 |
+| 需求编号 | 手工值 |
+| 规则编号 | 手工值 |
+
+## 来源
+
+- SRC-REG-001；注册。
+
+## 前置条件
+
+- 注册页可用。
+
+## 步骤
+
+- 提交有效输入。
+
+## 预期结果
+
+- 显示注册成功页。
+
+## 假设与待确认项
+
+- 无。
+`;
+
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), "case-relations-"));
   await writeFile(join(directory, "plan.md"), plan, "utf8");
@@ -80,6 +135,25 @@ test("纯关系投影不读取或写入文件", () => {
   assert.equal(result.issues.length, 0);
   assert.match(result.plan, /AUTH-LOGIN-001、AUTH-LOGIN-002/);
   assert.match(result.packages["cases-login.md"]!, /规则覆盖编号 \| RULE-AUTH-001、RULE-AUTH-002/);
+});
+
+test("v2 统一规则台账同步双向关系且不生成旧矩阵", () => {
+  const result = projectRelationProjection(v2Plan, { "cases-register.md": v2Cases });
+  assert.deepEqual(result.issues, []);
+  assert.match(result.plan, /`cases-register\.md` \| 注册 \| DEMO-REG-001 \|/);
+  assert.match(result.packages["cases-register.md"]!, /\| 需求编号 \| REQ-REG-001 \|/);
+  assert.match(result.packages["cases-register.md"]!, /\| 规则编号 \| RULE-REG-001 \|/);
+  assert.doesNotMatch(result.plan, /## 覆盖矩阵|## 规则设计矩阵|## 需求追溯矩阵/);
+});
+
+test("v2 双向校验拒绝用例正文指向其他规则", () => {
+  const synchronized = projectRelationProjection(v2Plan, { "cases-register.md": v2Cases });
+  const invalidCases = synchronized.packages["cases-register.md"]!
+    .replace("RULE-REG-001", "RULE-REG-999");
+  assert.ok(
+    validateRelationProjection(synchronized.plan, { "cases-register.md": invalidCases })
+      .some((issue) => issue.name === "RULE ↔ caseId 双向追溯")
+  );
 });
 
 test("关系投影保留 Markdown 单元格中的转义管道", () => {

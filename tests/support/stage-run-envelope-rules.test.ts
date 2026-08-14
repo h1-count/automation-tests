@@ -18,7 +18,8 @@ import {
 } from "../../scripts/public-task-command-contract.js";
 import {
   inspectRuleResponsibilities,
-  RULE_OWNER_PATHS
+  RULE_OWNER_PATHS,
+  SUPPORTING_DOCUMENT_ROLES
 } from "../../scripts/rule-responsibility-contract.js";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -37,6 +38,7 @@ const caseReviewRisk = read("src/support/task-workflow/caseReviewRisk.ts");
 const reviewBatchScope = read("src/support/task-workflow/reviewBatchScope.ts");
 const reviewInputSnapshot = read("src/support/task-workflow/reviewInputSnapshot.ts");
 const planTemplate = read("skills/iot-automation-testing/templates/test-plan.template.md");
+const testcaseTemplate = read("skills/iot-automation-testing/templates/testcase.template.md");
 const selectorVerificationTemplate = read(
   "skills/iot-automation-testing/templates/playwright-selector-verification.spec.template.ts"
 );
@@ -73,7 +75,7 @@ test("stable suite reuse is deterministic and cannot reuse run facts", () => {
   assert.match(stableSuite, /resolveLocalScriptDependencyClosure/);
   assert.match(stableSuite, /impactMap/);
   assert.match(stableSuite, /completionSeal/);
-  assert.match(workflowDefinition, /definitionVersion: "v6"/);
+  assert.match(workflowDefinition, /definitionVersion: "v7"/);
   assert.match(workflowDefinition, /policy_auto_no_write/);
   assert.match(taskManage, /suite-readiness-publish/);
   assert.match(taskManage, /suite-promote/);
@@ -237,10 +239,15 @@ test("workflow responsibility markers have exactly one owner", () => {
     path,
     content: read(path)
   }));
-  const current = inspectRuleResponsibilities(documents);
+  const supportingDocuments = Object.keys(SUPPORTING_DOCUMENT_ROLES).map((path) => ({
+    path,
+    content: read(path)
+  }));
+  const current = inspectRuleResponsibilities(documents, supportingDocuments);
   assert.deepEqual(current, {
     ownerViolations: [],
-    delegationViolations: []
+    delegationViolations: [],
+    supportingViolations: []
   });
 
   const duplicateOwner = inspectRuleResponsibilities([
@@ -314,6 +321,31 @@ test("workflow responsibility markers have exactly one owner", () => {
       violation.includes("contains a heading")
     )
   );
+
+  const missingRole = inspectRuleResponsibilities(documents, supportingDocuments.map((document) =>
+    document.path === "skills/iot-automation-testing/SKILL.md"
+      ? { ...document, content: document.content.replace("<!-- role: orchestration-only -->", "") }
+      : document
+  ));
+  assert.ok(
+    missingRole.supportingViolations.some((violation) =>
+      violation.includes("missing role marker orchestration-only")
+    )
+  );
+
+  const duplicateTemplateSection = inspectRuleResponsibilities(
+    documents,
+    supportingDocuments.map((document) =>
+      document.path === "skills/iot-automation-testing/templates/test-plan.template.md"
+        ? { ...document, content: `${document.content}\n## 规则设计矩阵\n` }
+        : document
+    )
+  );
+  assert.ok(
+    duplicateTemplateSection.supportingViolations.some((violation) =>
+      violation.includes("forbidden duplicate section 规则设计矩阵")
+    )
+  );
 });
 
 test("public task commands are an exact allowlist", () => {
@@ -347,49 +379,49 @@ test("public task commands are an exact allowlist", () => {
   );
 });
 
-test("confirmation lifecycle keeps plan acceptance stable through automatic case evolution", () => {
+test("v7 lifecycle exposes one design confirmation and an independent execution authorization", () => {
   lineContainingAll(
     automationGuideline,
     [
-      "顶层阶段固定为",
-      "一次计划确认 callback",
-      "证据驱动演进与复审，直至收敛",
-      "一次用例确认 callback",
-      "一次不可变执行清单 callback",
-      "报告"
+      "v7 只有",
+      "用例确认",
+      "执行清单确认",
+      "两个固定用户门禁"
     ],
-    "fixed three-confirmation lifecycle"
+    "fixed v7 confirmation lifecycle"
   );
   lineContainingAll(
     agents,
     [
-      "计划确认一旦 `accepted`",
-      "顶层业务范围",
-      "自动演进与复审",
-      "不得单独触发重复计划确认"
+      "内部完成设计索引",
+      "只请求一次用例确认",
+      "`full_replan`",
+      "`affected_rebuild`",
+      "`direct_execute`"
     ],
-    "AGENTS stable plan confirmation"
+    "AGENTS v7 confirmation boundary"
   );
   lineContainingAll(
     automationGuideline,
     [
-      "`plan-confirmation-subject-v2`",
-      "`plan.md` 文件 digest 分离",
-      "顶层包含/排除业务流程",
-      "数据策略",
-      "权限上限"
+      "`case-confirmation-subject-v2`",
+      "有序 `caseIds`",
+      "全局边界",
+      "关联 `REQ/RULE`",
+      "最新评审摘要"
     ],
-    "plan confirmation projection"
+    "case confirmation projection"
   );
   lineContainingAll(
     automationGuideline,
     [
-      "删除无依据断言",
-      "拆分原子用例",
-      "不得失效计划确认",
-      "需要修订计划"
+      "`revision_requested`",
+      "full 分支",
+      "affected 分支",
+      "重新校验",
+      "生成 subject"
     ],
-    "automatic evolution versus material plan revision"
+    "revision regeneration"
   );
   lineContainingAll(
     testcaseGuideline,
@@ -397,36 +429,23 @@ test("confirmation lifecycle keeps plan acceptance stable through automatic case
       "测试范围",
       "只写",
       "顶层业务流程",
-      "字段规则",
-      "`caseId`"
+      "字段规则"
     ],
     "top-level test scope boundary"
   );
-  lineContainingAll(
-    skill,
-    [
-      "`case-review-resolution`",
-      "reviewer 正式结论和发现项",
-      "`case-review-evolution`",
-      "修改草案"
-    ],
-    "review activity ownership"
-  );
-  assert.match(
-    automationGuideline,
-    /`case-review-resolution` 只登记 reviewer 正式结论和发现项[\s\S]*`case-review-evolution`[\s\S]*自动修订/
-  );
+  assert.match(skill, /设计、用例和评审：\[testcase-guideline\.md\]/);
   assert.match(
     automationGuideline,
     /用例确认与执行授权保持独立 subject/
   );
-  assert.match(
-    automationGuideline,
-    /`PlanConfirmationCarriedForward`[\s\S]*不得伪造 `CallbackResolved`[\s\S]*重复 resume 必须幂等/
-  );
+  assert.match(testcaseGuideline, /`rejected` 仅供旧定义回放/);
   assert.doesNotMatch(
     planTemplate,
-    /计划确认边界|plan-confirmation-subject-v2/
+    /覆盖基准与拆分清单|独立覆盖矩阵|规则设计矩阵|规则邻域复核表|用例集评审汇总/
+  );
+  assert.doesNotMatch(
+    testcaseTemplate,
+    /自动化状态|是否需要人工确认|覆盖关联|评审与演进回链/
   );
 });
 
@@ -447,12 +466,8 @@ test("complete automation requests adapt to optional host lifecycle capabilities
   assert.match(lifecyclePreflight, /仍可启动或恢复仓库 workflow/);
   assert.match(lifecyclePreflight, /不得声称存在后台续跑保证/);
 
-  const skillPreflight = lineContainingAll(
-    skill,
-    ["完整自动化测试请求", "宿主提供长期任务能力", "同一 request ID"],
-    "Skill host capability preflight"
-  );
-  assert.match(skillPreflight, /能力不可用或调用失败时继续依赖仓库 workflow/);
+  assert.match(skill, /有同一 `runRequestId` history：运行 `task:resume`/);
+  assert.match(skill, /生命周期和恢复：\[automation-guideline\.md\]/);
   lineContainingAll(
     agents,
     ["接管预检", "稳定 `requestId` 的最小解析", "最小必要信息"],
@@ -465,14 +480,13 @@ test("complete automation requests adapt to optional host lifecycle capabilities
   );
   lineContainingAll(
     skill,
-    ["独立本机维护", "清理", "重置", "归档", "测试数据恢复", "恢复完整测试 workflow 不属于"],
+    ["独立清理", "重置", "归档", "数据恢复", "不进入测试 workflow"],
     "Skill maintenance versus workflow recovery"
   );
 
   for (const [name, document] of [
     ["AGENTS", agents],
-    ["lifecycle", automationGuideline],
-    ["Skill", skill]
+    ["lifecycle", automationGuideline]
   ] as const) {
     const shortTaskRule = lineContainingAll(
       document,
@@ -493,7 +507,7 @@ test("complete automation requests adapt to optional host lifecycle capabilities
   }
 });
 
-test("v5 build/readiness risk-grades script review without extra callbacks or activities", () => {
+test("v7 build/readiness risk-grades script review without extra callbacks or activities", () => {
   lineContainingAll(
     automationGuideline,
     [
@@ -509,20 +523,14 @@ test("v5 build/readiness risk-grades script review without extra callbacks or ac
     automationGuideline,
     [
       "风险分级只调整自动评审强度",
-      "计划",
-      "用例集",
-      "不可变执行清单",
-      "确认一次"
+      "不增加用户 callback",
+      "v7",
+      "确认用例",
+      "不可变执行清单"
     ],
     "fixed callback count"
   );
-  lineContainingAll(skill, ["`light`", "不派模型 reviewer"], "Skill light script review");
-  lineContainingAll(skill, ["`standard`", "`script_quality`"], "Skill standard script review");
-  lineContainingAll(
-    skill,
-    ["`strict`", "`script_quality`", "`execution_safety`"],
-    "Skill strict script review"
-  );
+  assert.match(skill, /`script_quality`[\s\S]*`execution_safety`/);
   assert.match(
     taskManage,
     /command === "script-review-assess"/
@@ -549,20 +557,10 @@ test("v5 build/readiness risk-grades script review without extra callbacks or ac
   );
 });
 
-test("v5 case review uses deterministic light and at most two isolated model roles", () => {
-  lineContainingAll(
-    automationGuideline,
-    ["`deterministic_only`", "`combined`", "`combined_with_impact`"],
-    "case review tier modes"
-  );
-  lineContainingAll(
-    automationGuideline,
-    ["最多同时运行 2 个", "最多 2 轮语义演进"],
-    "case review bounded concurrency and evolution"
-  );
+test("v7 case review keeps its bounded policy in the lifecycle implementation", () => {
   lineContainingAll(
     skill,
-    ["`light`", "不启动子 Agent", "不提交伪造 reviewer 事件"],
+    ["`deterministic_only`", "不创建 reviewer Activity", "伪造提交"],
     "Skill deterministic light review"
   );
   assert.match(reviewPolicy, /schemaVersion: "review-policy-v2"/);
@@ -577,7 +575,7 @@ test("v5 case review uses deterministic light and at most two isolated model rol
   );
 });
 
-test("v5 build delivers substantive candidates while readiness owns runtime availability", () => {
+test("v7 build delivers substantive candidates while readiness owns runtime availability", () => {
   lineContainingAll(
     automationGuideline,
     ["`build`", "完整、可审查", "`readiness`", "runnable/deferred"],
@@ -587,11 +585,6 @@ test("v5 build delivers substantive candidates while readiness owns runtime avai
     automationGuideline,
     ["`runtime_validation_pending`", "`reachableBoundary`", "`pendingCapabilityIds`"],
     "runtime-pending candidate contract"
-  );
-  lineContainingAll(
-    skill,
-    ["`script_quality`", "固定阻断", "`changes_required`"],
-    "script quality fixed-blocker rejection"
   );
   assert.match(formalExecutionTypes, /requiredOperations\?: ExecutionOperationKind\[\]/);
   assert.match(formalExecutionTypes, /operationBudgets\?: Array/);
@@ -621,11 +614,6 @@ test("formal execution derives topological waves only from named resources", () 
     automationGuideline,
     ["`producesResources → requiredResources`", "有向无环图", "`scheduledCaseIds`", "`executionWaves`", "`graphDigest`"],
     "dependency graph readiness contract"
-  );
-  lineContainingAll(
-    skill,
-    ["生产者可启动", "`scheduledCaseIds`", "deferred", "`graphDigest`"],
-    "Skill dependency graph readiness"
   );
   lineContainingAll(
     environmentGuideline,
@@ -666,11 +654,6 @@ test("formal page reuse is wave-scoped, no-write only and failure-honest", () =>
     environmentGuideline,
     ["Playwright", "重启 worker", "失败现场不承诺长期保留"],
     "page reuse failure recovery"
-  );
-  lineContainingAll(
-    skill,
-    ["同一波次", "Playwright 重启 worker", "不承诺保留失败页面"],
-    "Skill page reuse failure semantics"
   );
 });
 
@@ -813,11 +796,7 @@ test("optional host lifecycle follows workflow gate without replacing it", () =>
     ["| workflow `CANCELLED`", "不伪装为完成或阻塞", "由用户控制"],
     "CANCELLED host action"
   );
-  lineContainingAll(
-    skill,
-    ["`await_event`/`wait_until`", "等待窗口或墙钟时长本身不是 reviewer 失败依据", "task:manage blocker-resolve"],
-    "Skill waiting and blocker recovery"
-  );
+  assert.match(skill, /`continue_now` 在当前回合继续，`await_event` 等待已登记事件/);
 });
 
 test("host lifecycle remains external and unavailable capability degrades honestly", () => {
@@ -829,16 +808,11 @@ test("host lifecycle remains external and unavailable capability degrades honest
     automationGuideline,
     /宿主长期任务能力缺失或调用失败时[\s\S]*不得声称能力已启用[\s\S]*显式 `task:resume` 推进/
   );
-  assert.match(
-    skill,
-    /宿主能力缺失或调用失败时不得声称已启用[\s\S]*显式 `task:resume`/
-  );
-  assert.match(docsIndex, /宿主生命周期适配、停止事件适配边界/);
+  assert.match(docsIndex, /v7 复用分支与生命周期、Activity、callback、恢复、Gate/);
 
   for (const [name, document] of [
     ["AGENTS", agents],
-    ["lifecycle", automationGuideline],
-    ["Skill", skill]
+    ["lifecycle", automationGuideline]
   ] as const) {
     const persistenceRule = lineContainingAll(
       document,

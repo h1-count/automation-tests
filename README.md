@@ -7,7 +7,7 @@
 1. 阅读 [AGENTS.md](./AGENTS.md) 了解强制门禁与安全边界。
 2. 阅读 [测试规范索引](./docs/testing/README.md)，按任务打开唯一责任规范。
 3. 复制 `.env.example` 为本地 `.env`，填写当前环境所需的非公开配置。
-4. 提供需求、URL、截图、接口资料或物模型；AI 测试 Agent 会先输出测试计划，确认后再进入用例、脚本和执行。
+4. 提供需求、URL、截图、接口资料或物模型；AI 测试 Agent 会直接生成、校验和评审完整用例，用户确认用例后再进入脚本和执行清单确认。
 
 工程按“业务层 → 工程层 → 治理线”推进；完整流程、Graphify 定位和审核门禁以 [automation-guideline.md](./docs/testing/automation-guideline.md#32-双层模型与贯穿治理线) 为准。
 
@@ -19,7 +19,7 @@
 | 工程架构、组件与数据流 | [architecture-design.md](./docs/architecture-design.md) |
 | 生命周期、统一执行清单与人工挑战恢复 | [automation-guideline.md](./docs/testing/automation-guideline.md) |
 | 环境、运行模式、账号、验证码和测试数据 | [environment-guideline.md](./docs/testing/environment-guideline.md) |
-| 测试计划与用例格式 | [testcase-guideline.md](./docs/testing/testcase-guideline.md) |
+| 测试设计索引与用例格式 | [testcase-guideline.md](./docs/testing/testcase-guideline.md) |
 | selector、报告、失败分类 | [docs/testing/](./docs/testing/README.md) |
 | Agent 执行步骤、模板和示例 | [SKILL.md](./skills/iot-automation-testing/SKILL.md) |
 
@@ -44,7 +44,7 @@ ALLOW_PRODUCTION_TESTS=false
 # 环境检查
 npm run check:environment
 
-# 测试计划阶段的安全环境预检：只输出脱敏配置状态
+# 设计阶段的安全环境预检：只输出脱敏配置状态
 npm run check:environment -- --plan
 
 # 校验与选择纳入 Git 的静态测试资产；不会安装或执行 App
@@ -82,7 +82,7 @@ npm run task:gate -- --request web/<project>/<test-request> --assert-safe-reply
 npm run task:resume -- --request web/<project>/<test-request>
 npm run task:manage -- --help
 
-# 稳定功能套件：无可恢复的同 run history 时先评估，再初始化 v6 分支
+# 稳定功能套件：无可恢复的同 run history 时先评估，再初始化 v7 分支
 npm run test:suite:status -- --suite web/<project>/<feature>
 npm run test:suite:assess -- --suite web/<project>/<feature> --environment test --profile full_feature
 npm run task:initialize -- --request web/<project>/<new-run> --suite web/<project>/<feature> --reuse auto --environment test
@@ -128,7 +128,7 @@ npm run report:playwright
 npm run report:allure
 ```
 
-创建新测试时，先按 `plan.md → 用例确认 → 工程设计与脚本评审 → 统一执行清单` 门禁生成资产，再使用对应 Runner。
+创建新测试时，按“内部设计索引与完整用例 → 一次用例确认 → 工程与脚本 → 独立执行清单确认”推进，再使用对应 Runner。
 
 完整自动化测试请求按[生命周期规范](docs/testing/automation-guideline.md#314-durable-workflow生命周期与恢复)使用仓库 Durable Workflow 作为唯一事实源；宿主若提供长期任务或停止事件能力，只作为可选续跑适配，不写入仓库，也不扩大测试授权。任何宿主适配器都必须先在受信任工作区完成路径、文件摘要和权限检查；不能把适配器配置存在视为后台续跑保证。
 
@@ -141,7 +141,7 @@ automation-tests/
 ├── skills/iot-automation-testing/ # Agent 工作流、模板与示例
 ├── sources/                   # 原始测试资料
 ├── test-assets/               # 可复用静态测试资产
-├── testcases/                 # 计划、结构化用例与请求级 workflow-history.ndjson
+├── testcases/                 # 设计索引、结构化用例与请求级 workflow-history.ndjson
 ├── tests/                     # 可执行测试脚本
 ├── src/                       # action、client、fixture、env、support
 ├── scripts/                   # 工程脚本

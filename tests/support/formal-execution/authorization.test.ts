@@ -14,6 +14,7 @@ import {
   loadConfirmedExecutionAuthorization
 } from "../../../src/support/formal-execution/authorization.js";
 import { FormalExecutionStore } from "../../../src/support/formal-execution/formalExecutionStore.js";
+import { recordSelectorRepairIncident } from "../../../src/support/formal-execution/selectorRepair.js";
 import { resolveSelectorBuildIdentity } from "../../../src/support/formal-execution/selectorBuildIdentity.js";
 import {
   finalizeFormalReportWorkflow,
@@ -44,7 +45,8 @@ import {
 import {
   DurableWorkflowManager,
   formalDataHygieneBlockerId,
-  formalDeterministicOutcomeBlockerId
+  formalDeterministicOutcomeBlockerId,
+  workflowStatusText
 } from "../../../src/support/task-workflow/workflowManager.js";
 import { TestDataManager } from "../../../src/support/test-data/testDataManager.js";
 import { projectRelationProjection } from "../../../src/support/testcase/relationProjection.js";
@@ -63,10 +65,9 @@ const sourceDigest = createHash("sha256").update(sourceContent).digest("hex");
 
 function relationFixture(): { plan: string; cases: string } {
   const plan = [
-    "# Authorization plan",
+    "# 测试设计索引：Authorization",
     "",
-    "结构版本：case-relation-projection-v1",
-    "结构版本：rule-design-matrix-v1",
+    "> 结构版本：test-design-index-v2 / rule-design-ledger-v2 / case-relation-projection-v2。",
     "",
     "## 基本信息",
     "",
@@ -75,50 +76,92 @@ function relationFixture(): { plan: string; cases: string } {
     `| 测试请求 | \`${requestId}\` |`,
     "| 测试类型 | Web |",
     "| 目标环境 | test |",
-    "| 状态 | 已确认 |",
-    "",
     "## 测试范围",
     "",
     "### 包含",
     "",
     "- query only",
     "",
-    "## 输入资料",
+    "### 不包含",
     "",
-    `- manifest \`authorization-prd\`；sectionId \`query\`；SHA-256 \`${sourceDigest}\`。`,
+    "- production execution",
+    "",
+    "## 资料来源",
+    "",
+    "| 来源 ID / sectionId | 可点击链接与精确定位 | 版本 / SHA-256 | 用途 |",
+    "| --- | --- | --- | --- |",
+    `| SRC-AUTH-001 / query | [authorization source](../../../../sources/requirements/project/authorization.txt)；章节 query | ${sourceDigest} | REQ-AUTH-001 |`,
+    "",
+    "## 环境、静态资产与数据安全边界",
+    "",
+    "| 类别 | 已确定边界 | 未决项或门禁 |",
+    "| --- | --- | --- |",
+    "| 环境 | test；禁止生产 | 无 |",
+    "| 静态资产 | 不适用 | 无 |",
+    "| 数据 | no_write | 无 |",
+    "| 权限与安全 | 只允许查询；禁止安全挑战绕过 | 无 |",
+    "",
+    "## 需求索引",
+    "",
+    "| 需求编号 | 来源定位 | 优先级 | 可验证需求 | 适用性与依据 |",
+    "| --- | --- | --- | --- | --- |",
+    "| REQ-AUTH-001 | SRC-AUTH-001 / query | P0 | query response is visible | 适用；已注册资料明确要求 |",
+    "",
+    "## 规则设计台账",
+    "",
+    "| 规则编号 | 需求编号 | 来源定位 | 覆盖域 | 触发条件 | 输入边界 | 可观察预期 | 设计技术 | 数据/执行门禁 | 关联 caseId | 结论 |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    `| RULE-AUTH-001 | REQ-AUTH-001 | SRC-AUTH-001 / query | 业务规则 | issue query request | valid isolated query | visible query response | 场景法 | no_write；test only | ${caseId} | 已覆盖 |`,
     "",
     "## 用例包目录",
     "",
-    "| 用例包 | 覆盖模块或流程 | 计划覆盖范围 | 实际原子用例编号 | 特殊门禁 |",
+    "| 用例包 | 覆盖模块或流程 | 原子用例编号 | 特殊门禁 |",
+    "| --- | --- | --- | --- |",
+    "| `cases-core.md` | query | 待生成 | no_write |",
+    "",
+    "## 变更影响分析",
+    "",
+    "| 变更编号 | 来源 | 受影响 REQ/RULE | 受影响 caseId | 影响结论 |",
     "| --- | --- | --- | --- | --- |",
-    "| `cases-core.md` | query | query | 手工值 | 无 |",
+    "| 无 | 无 | 无 | 无 | 无影响 |",
     "",
-    "## 覆盖矩阵",
+    "## 假设、缺口与风险",
     "",
-    "| 覆盖域 | 适用性与依据 | 计划覆盖范围 | 结论 | 派生 caseId |",
+    "### 假设",
+    "",
+    "- 无",
+    "",
+    "### 缺口与待确认项",
+    "",
+    "- 无",
+    "",
+    "### 风险",
+    "",
+    "- 仅允许 test 环境只读查询。",
+    "",
+    "## 评审记录",
+    "",
+    "| 字段 | 内容 |",
+    "| --- | --- |",
+    "| 评审批次与输入摘要 | REV-AUTH-001；资料、设计索引和用例包 |",
+    "| 适用 reviewer 与依据 | requirements；业务预期来源复核 |",
+    "| 最新结论 | 可提交确认 |",
+    "| 发现与处置摘要 | 无未收口发现 |",
+    "",
+    "## 正式用户决定",
+    "",
+    "| 决定类型 | subjectDigest | 正式决定 | 决定内容与适用范围 | 后续处理 |",
     "| --- | --- | --- | --- | --- |",
-    "| 业务功能与规则 | requirement | query | 已覆盖 | 手工值 |",
     "",
-    "## 需求追溯矩阵",
+    "## 确认后的工程映射",
     "",
-    "| 追溯编号 | 需求来源与版本/章节 | 优先级 | 可验证业务规则 | 适用性 | 计划覆盖范围 | 派生 caseId | 覆盖状态 | 缺失信息或执行门禁 |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    "| REQ-AUTH-001 | Authorization PRD | P0 | query response | 适用 | query | 手工值 | 已覆盖 | no_write |",
-    "",
-    "## 规则覆盖台账",
-    "",
-    "| 规则编号 | 需求追溯编号 | 来源定位 | 规则类型 | 触发条件/输入 | 可观察预期 | 设计证据 | 适用性 | 覆盖状态 | 关联 caseId | 依据、执行门禁或裁决 |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    `| RULE-AUTH-001 | REQ-AUTH-001 | Authorization PRD | 业务规则 | query request | visible query response | scenario | 适用 | 已覆盖 | ${caseId} | no_write |`,
-    "",
-    "## 规则设计矩阵",
-    "",
-    "| 规则编号 | 字段或状态对象 | 必填/选填 | 有效、无效或边界输入 | 可观察预期 | 数据前置 | 执行门禁 | 关联 caseId | 结论 |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    `| RULE-AUTH-001 | query | 必填 | valid query request | visible query response | isolated read data | no_write | ${caseId} | 已覆盖 |`,
+    "| caseId | 代码/图谱定位 | 自动化能力与脚本 | 定位及断言证据 | 数据/环境前置 | 风险或差异 |",
+    "| --- | --- | --- | --- | --- | --- |",
     ""
   ].join("\n");
-  const cases = `# Core cases
+  const cases = `> 结构版本：testcase-v2。
+
+# 用例包：Core cases
 
 ## 用例目录
 
@@ -127,30 +170,51 @@ function relationFixture(): { plan: string; cases: string } {
 | ${caseId} | query |
 
 ## 测试用例：query
+
 ## 基本信息
+
+| 项目 | 内容 |
+| --- | --- |
 | 用例编号 | ${caseId} |
-| 需求追溯编号 | REQ-AUTH-001 |
-| 规则覆盖编号 | RULE-AUTH-001 |
+| 需求编号 | REQ-AUTH-001 |
+| 规则编号 | RULE-AUTH-001 |
+| 模块 | query |
+| 优先级 | P0 |
+| 测试类型 | Web |
+| 目标环境 | test |
 | 数据策略 | no_write |
 | 风险等级 | 低 |
+
 ## 来源
-| 资料类型 | 路径或链接 | 版本/说明 |
-| --- | --- | --- |
-| 需求文档 | requirements/authorization.txt | manifest \`authorization-prd\`；sectionId \`query\`；SHA-256 \`${sourceDigest}\` |
+
+| manifest id / sectionId | 可点击链接与精确定位 | 来源 SHA-256 | 支持的步骤或预期 |
+| --- | --- | --- | --- |
+| SRC-AUTH-001 / authorization-prd / query | [authorization source](../../../../sources/requirements/project/authorization.txt)；章节 query | ${sourceDigest} | query response is visible |
+
 ## 前置条件
-- ready
-## 操作步骤
-- query
+
+- test 环境可访问。
+- no_write，不创建业务数据。
+
+## 步骤
+
+| 序号 | 操作 | 输入 |
+| --- | --- | --- |
+| 1 | issue query | isolated query |
+
 ## 预期结果
-- visible
-## 覆盖关联
-- RULE-AUTH-001
-## 合理推断
-- none
-## 待补充信息
-- none
-## 评审与演进回链
-- pending
+
+- visible query response。
+
+## 假设与待确认项
+
+### 假设
+
+- 无。
+
+### 待确认项
+
+- 无。
 `;
   const projected = projectRelationProjection(plan, { "cases-core.md": cases });
   assert.deepEqual(projected.issues, []);
@@ -186,6 +250,7 @@ async function createVNextHarness(options: {
   publishAuthorization?: boolean;
   writesData?: boolean;
   legacyUnmarkedFormalCompletion?: boolean;
+  selectorRepairScript?: boolean;
   environmentCapability?: {
     id: string;
     variable: string;
@@ -205,9 +270,30 @@ async function createVNextHarness(options: {
     "tests/web/project/authorization/selector-contract.json"
   );
   const sourceContractPath = resolve(root, "contracts/formal-source.json");
-  const sourcePath = resolve(root, "sources/requirements/authorization.txt");
+  const sourcePath = resolve(root, "sources/requirements/project/authorization.txt");
   const sourceIndexPath = resolve(root, "sources/indexes/project.yaml");
-  const scriptContent = `declare const formalCase: (caseId: string, title: string, body: (fixtures: unknown, runtime: { verifyBusinessOracle(oracleId: string, evaluator: () => Promise<void>): Promise<string> }) => Promise<void>) => void;\ndeclare const verifyResult: () => Promise<void>;\nformalCase("${caseId}", "query", async (_fixtures, runtime) => { await runtime.verifyBusinessOracle("query-visible", async () => { await verifyResult(); }); });\n`;
+  const scriptContent = options.selectorRepairScript
+    ? [
+        "declare const formalCase: (caseId: string, title: string, body: (fixtures: unknown, runtime: { verifyBusinessOracle(oracleId: string, evaluator: () => Promise<void>): Promise<string> }) => Promise<void>) => void;",
+        "declare const verifyResult: () => Promise<void>;",
+        "declare const guardedRoleLocator: (input: unknown) => Promise<unknown>;",
+        `formalCase("${caseId}", "query", async (_fixtures, runtime) => {`,
+        "  await guardedRoleLocator({",
+        `    caseId: "${caseId}",`,
+        '    selectorId: "account-password-login",',
+        '    sourcePath: "tests/web/project/authorization/example.formal.spec.ts",',
+        '    role: "button",',
+        '    name: "登录",',
+        '    scopeId: "login-form",',
+        '    stateId: "account-password-mode",',
+        '    action: "click",',
+        "    businessAssertion: false",
+        "  });",
+        '  await runtime.verifyBusinessOracle("query-visible", async () => { await verifyResult(); });',
+        "});",
+        ""
+      ].join("\n")
+    : `declare const formalCase: (caseId: string, title: string, body: (fixtures: unknown, runtime: { verifyBusinessOracle(oracleId: string, evaluator: () => Promise<void>): Promise<string> }) => Promise<void>) => void;\ndeclare const verifyResult: () => Promise<void>;\nformalCase("${caseId}", "query", async (_fixtures, runtime) => { await runtime.verifyBusinessOracle("query-visible", async () => { await verifyResult(); }); });\n`;
   const scriptDigest = createHash("sha256").update(scriptContent).digest("hex");
   const selectorEvidenceContent = JSON.stringify({
     schemaVersion: "selector-contract-evidence-v1",
@@ -316,7 +402,7 @@ knowledge_indexes:
     covered_material_ids: [authorization-prd]
 materials:
   - id: authorization-prd
-    path: requirements/authorization.txt
+    path: requirements/project/authorization.txt
     applicable_projects: [project]
     status: active
 `, "utf8");
@@ -324,7 +410,7 @@ materials:
 index_status: reviewed
 documents:
   - material_id: authorization-prd
-    source_path: requirements/authorization.txt
+    source_path: requirements/project/authorization.txt
     source_sha256: ${sourceDigest}
     sections:
       - section_id: query
@@ -373,7 +459,6 @@ documents:
   }
   await succeed(manager, "source-selection");
   await succeed(manager, "plan-validation");
-  await acceptCallback(manager, "plan-confirmation", "a".repeat(64), "plan-confirmation");
   await succeed(manager, "case-generation-cases-core-md");
   await succeed(manager, "relation-sync");
   await succeed(manager, "completeness-validation");
@@ -1003,7 +1088,7 @@ test("public CLI strict review requires quality and execution-safety evidence", 
   );
 });
 
-test("v5 formal authorization is derived from the accepted v4 manifest callback", async (context) => {
+test("v7 formal authorization is derived from the accepted v4 manifest callback", async (context) => {
   const harness = await createVNextHarness();
   context.after(() => rm(harness.root, { recursive: true, force: true }));
   await acceptCallback(
@@ -1032,7 +1117,7 @@ test("v5 formal authorization is derived from the accepted v4 manifest callback"
   }]);
   assert.equal(snapshot.confirmationId, harness.manifest.callbackId);
   const gate = await harness.manager.gate();
-  assert.equal(gate.activities["plan-confirmation"]?.state, "SUCCEEDED");
+  assert.equal(gate.activities["plan-confirmation"], undefined);
   assert.equal(gate.activities["case-confirmation"]?.state, "SUCCEEDED");
   assert.equal(gate.activities["execution-authorization"]?.state, "SUCCEEDED");
   const head = gate.head;
@@ -1184,6 +1269,275 @@ test("execution scope reopen restarts engineering while preserving confirmed cas
   assert.equal(reopened.activities["execution-authorization"]?.state, "PENDING");
 });
 
+test("selector repair reopen preserves case confirmation and invalidates the old execution callback", async (context) => {
+  const harness = await createVNextHarness();
+  context.after(() => rm(harness.root, { recursive: true, force: true }));
+  await acceptCallback(
+    harness.manager,
+    "execution-authorization",
+    harness.manifest.digest,
+    harness.manifest.callbackId
+  );
+  const run = await harness.manager.startActivity("run", "selector-repair-runner");
+  const parked = await harness.manager.parkRunForDeterministicOutcome({
+    claimToken: run.claimToken,
+    executionSubjectDigest: harness.manifest.digest,
+    outcomeAssessment: {
+      status: "terminal_unknown",
+      pendingUnknownCount: 0,
+      terminalUnknownCount: 1,
+      terminalSelectorRepairCount: 1,
+      selectorRepairIncidentPaths: ["artifacts/test-results/formal/incident.json"],
+      allTerminalUnknownsRepairable: true
+    }
+  });
+  assert.equal(parked.projection.selectorRepairSubstate, "incident_recorded");
+  assert.match(workflowStatusText(parked.projection), /定位修复：incident 已记录，待安全回退/);
+  const repairContext = {
+    schemaVersion: "selector-repair-context-v1",
+    priorAuthorizationDigest: harness.manifest.digest,
+    incidentDigests: ["c".repeat(64)],
+    affectedCaseIds: [caseId],
+    retryCaseIds: [caseId],
+    carriedCases: []
+  };
+  const selectorRepair = {
+    schemaVersion: "selector-repair-reopen-v1",
+    incidentPaths: ["artifacts/test-results/formal/incident.json"],
+    priorExecutionDigest: repairContext.priorAuthorizationDigest,
+    incidentDigests: repairContext.incidentDigests,
+    affectedCaseIds: repairContext.affectedCaseIds,
+    retryCaseIds: repairContext.retryCaseIds,
+    carriedCases: []
+  } as unknown as SafeJsonValue;
+  const reopened = await harness.manager.reopenExecutionScope(
+    "eligible_selector_drift_repair",
+    selectorRepair
+  );
+  assert.equal(reopened.activities["case-confirmation"]?.state, "SUCCEEDED");
+  assert.equal(reopened.activities.build?.state, "READY");
+  assert.equal(reopened.activities.readiness?.state, "PENDING");
+  assert.equal(reopened.activities["execution-authorization"]?.state, "PENDING");
+  assert.equal(reopened.activities.run?.state, "PENDING");
+  assert.equal(reopened.selectorRepairSubstate, "script_repair");
+  assert.match(workflowStatusText(reopened), /定位修复：脚本修复中/);
+  const invalidation = [...await harness.manager.events()].reverse().find((event) =>
+    event.type === "ActivitiesInvalidated"
+  );
+  assert.deepEqual(invalidation?.payload.selectorRepair, selectorRepair);
+  await assert.rejects(
+    loadConfirmedExecutionAuthorization(requestId, "test", [], harness.root),
+    /accepted execution-authorization callback/
+  );
+});
+
+test("task:resume automatically applies one eligible selector repair and remains idempotent", async (context) => {
+  const harness = await createVNextHarness({ selectorRepairScript: true });
+  context.after(() => rm(harness.root, { recursive: true, force: true }));
+  await acceptCallback(
+    harness.manager,
+    "execution-authorization",
+    harness.manifest.digest,
+    harness.manifest.callbackId
+  );
+  const snapshot = await loadConfirmedExecutionAuthorization(
+    requestId,
+    "test",
+    [],
+    harness.root
+  );
+  const recorded = await recordSelectorRepairIncident({
+    snapshot,
+    caseId,
+    attempt: 1,
+    sourcePath: "tests/web/project/authorization/example.formal.spec.ts",
+    selectorId: "account-password-login",
+    candidateName: "账号密码登录",
+    observedCandidateCount: 1,
+    candidateActionable: true,
+    failureCode: "accessible_name_drift",
+    sideEffectProof: {
+      safe: true,
+      completedStageCount: 0,
+      transitionCount: 0,
+      dataIntentCount: 0,
+      dataResourceCount: 0,
+      operationReservationCount: 0,
+      producedResourceCount: 0
+    },
+    workspaceRoot: harness.root,
+    recordedAt: "2026-08-14T00:02:00.000Z"
+  });
+  const formalModule = await import(
+    `${pathToFileURL(harness.formalManifestPath).href}?selector-repair=${Date.now()}`
+  ) as { formalExecutionManifest: FormalExecutionManifest };
+  const store = new FormalExecutionStore(
+    resolve(harness.root, ".local/test-ledger"),
+    resolve(harness.root, "artifacts/test-results/formal")
+  );
+  await store.initialize({
+    manifest: formalModule.formalExecutionManifest,
+    authorizationDigest: snapshot.digest,
+    testDataRunId: "selector-repair-resume",
+    capabilities: [],
+    caseIds: [caseId],
+    deferredCases: [],
+    targetBuildDigest: snapshot.targetBuildDigest
+  });
+  const attempt = await store.beginCase(snapshot.digest, caseId);
+  await store.finishCase(
+    snapshot.digest,
+    caseId,
+    attempt,
+    "unknown",
+    "guarded selector drift",
+    [recorded.reference.path],
+    {
+      runtimeFailure: true,
+      selectorRepairIncident: recorded.reference
+    }
+  );
+  await store.recordDataEvidence(snapshot.digest, {
+    [caseId]: { intents: [], resources: [] }
+  });
+  await store.recordCleanup(
+    snapshot.digest,
+    "passed",
+    undefined,
+    { dataHygieneStatus: "clean" }
+  );
+  const run = await harness.manager.startActivity("run", "selector-repair-resume");
+  await harness.manager.parkRunForDeterministicOutcome({
+    claimToken: run.claimToken,
+    executionSubjectDigest: snapshot.digest,
+    outcomeAssessment: {
+      status: "terminal_unknown",
+      pendingUnknownCount: 0,
+      terminalUnknownCount: 1,
+      terminalSelectorRepairCount: 1,
+      selectorRepairIncidentPaths: [recorded.reference.path],
+      allTerminalUnknownsRepairable: true
+    }
+  });
+
+  await execFileAsync(process.execPath, [
+    "--import",
+    tsxLoader,
+    managePath,
+    "resume",
+    "--request",
+    requestId,
+    "--reason",
+    "selector-repair-test"
+  ], { cwd: harness.root });
+  const firstSource = await readFile(harness.scriptPath, "utf8");
+  assert.match(firstSource, /name: "账号密码登录"/u);
+  assert.doesNotMatch(firstSource, /name: "登录"/u);
+  const reopened = await harness.manager.gate();
+  assert.equal(reopened.activities["case-confirmation"]?.state, "SUCCEEDED");
+  assert.equal(reopened.activities.build?.state, "READY");
+  assert.equal(reopened.activities["execution-authorization"]?.state, "PENDING");
+  assert.equal(reopened.selectorRepairSubstate, "script_repair");
+  await assert.rejects(
+    loadConfirmedExecutionAuthorization(requestId, "test", [], harness.root),
+    /accepted execution-authorization callback|Script changed after execution authorization/
+  );
+
+  await execFileAsync(process.execPath, [
+    "--import",
+    tsxLoader,
+    managePath,
+    "resume",
+    "--request",
+    requestId,
+    "--reason",
+    "selector-repair-idempotence-test"
+  ], { cwd: harness.root });
+  assert.equal(await readFile(harness.scriptPath, "utf8"), firstSource);
+});
+
+test("repair context is part of the new execution authorization subject", async (context) => {
+  const harness = await createVNextHarness();
+  context.after(() => rm(harness.root, { recursive: true, force: true }));
+  const prior = harness.manifest;
+  if (prior.schemaVersion !== "execution-authorization-v4") {
+    throw new Error("Expected v4 authorization fixture.");
+  }
+  const buildRepairAuthorization = (incidentDigest: string) =>
+    buildExecutionAuthorizationManifest({
+      schemaVersion: "execution-authorization-v4",
+      requestId,
+      environment: prior.environment,
+      scriptPaths: prior.scriptDigests.map((item) => item.path),
+      caseIds: prior.caseIds,
+      allowedOperations: prior.allowedOperations,
+      resourceBudgets: prior.resourceBudgets,
+      dataWritePolicy: prior.dataWritePolicy,
+      residualTtlHours: prior.residualTtlHours,
+      targetBuildDigest: prior.targetBuildDigest,
+      runnableCaseIds: prior.runnableCaseIds,
+      deferredCases: prior.deferredCases,
+      capabilityEvidence: prior.capabilityEvidence,
+      selectorEvidenceDigests: prior.selectorEvidenceDigests,
+      scriptReview: prior.scriptReview,
+      caseScopes: prior.caseScopes,
+      resourcePoolBudgets: prior.resourcePoolBudgets,
+      resourcePoolEvidence: prior.resourcePoolEvidence,
+      externalTransitions: prior.externalTransitions,
+      repairContext: {
+        schemaVersion: "selector-repair-context-v1",
+        priorAuthorizationDigest: prior.digest,
+        incidentDigests: [incidentDigest],
+        affectedCaseIds: [caseId],
+        retryCaseIds: [caseId],
+        carriedCases: []
+      },
+      workspaceRoot: harness.root,
+      createdAt: "2026-08-14T00:00:00.000Z"
+    });
+  const first = buildRepairAuthorization("d".repeat(64));
+  const second = buildRepairAuthorization("e".repeat(64));
+  if (first.schemaVersion !== "execution-authorization-v4") {
+    throw new Error("Expected repaired v4 authorization.");
+  }
+  assert.notEqual(first.digest, prior.digest);
+  assert.notEqual(first.digest, second.digest);
+  assert.equal(first.repairContext?.priorAuthorizationDigest, prior.digest);
+  assert.throws(() => buildExecutionAuthorizationManifest({
+    ...{
+      schemaVersion: "execution-authorization-v4" as const,
+      requestId,
+      environment: prior.environment,
+      scriptPaths: prior.scriptDigests.map((item) => item.path),
+      caseIds: prior.caseIds,
+      allowedOperations: prior.allowedOperations,
+      resourceBudgets: prior.resourceBudgets,
+      dataWritePolicy: prior.dataWritePolicy,
+      residualTtlHours: prior.residualTtlHours,
+      targetBuildDigest: prior.targetBuildDigest,
+      runnableCaseIds: prior.runnableCaseIds,
+      deferredCases: prior.deferredCases,
+      capabilityEvidence: prior.capabilityEvidence,
+      selectorEvidenceDigests: prior.selectorEvidenceDigests,
+      scriptReview: prior.scriptReview,
+      caseScopes: prior.caseScopes,
+      resourcePoolBudgets: prior.resourcePoolBudgets,
+      resourcePoolEvidence: prior.resourcePoolEvidence,
+      externalTransitions: prior.externalTransitions,
+      workspaceRoot: harness.root,
+      createdAt: "2026-08-14T00:00:00.000Z"
+    },
+    repairContext: {
+      schemaVersion: "selector-repair-context-v1",
+      priorAuthorizationDigest: prior.digest,
+      incidentDigests: ["f".repeat(64)],
+      affectedCaseIds: [caseId],
+      retryCaseIds: [],
+      carriedCases: []
+    }
+  }), /requires incidents, affected cases, and retry cases/);
+});
+
 test("execution scope reopen also recovers a zero-runnable readiness blocker", async (context) => {
   const harness = await createVNextHarness({ publishAuthorization: false });
   context.after(() => rm(harness.root, { recursive: true, force: true }));
@@ -1237,27 +1591,23 @@ test("formal plan or script drift invalidates authorization", async (context) =>
   assert.equal(gate.continuation.referenceId, "execution-authorization");
 });
 
-test("removing accepted plan or case decisions invalidates the matching callback only", async (context) => {
-  for (const [activityId, decisionType] of [
-    ["plan-confirmation", "计划确认"],
-    ["case-confirmation", "用例确认"]
-  ] as const) {
-    const harness = await createVNextHarness();
-    context.after(() => rm(harness.root, { recursive: true, force: true }));
-    const plan = await readFile(harness.planPath, "utf8");
-    await writeFile(
-      harness.planPath,
-      plan.split("\n")
-        .filter((line) => !line.startsWith(`| ${decisionType} |`))
-        .join("\n"),
-      "utf8"
-    );
-    const gate = await harness.manager.gate();
-    assert.equal(gate.reply.kind, "none");
-    assert.equal(gate.continuation.kind, "continue_now");
-    assert.equal(gate.continuation.referenceId, activityId);
-    assert.equal(gate.activities[activityId]?.state, "BLOCKED");
-  }
+test("removing the accepted v7 case decision invalidates only case confirmation", async (context) => {
+  const harness = await createVNextHarness();
+  context.after(() => rm(harness.root, { recursive: true, force: true }));
+  assert.equal((await harness.manager.gate()).activities["plan-confirmation"], undefined);
+  const plan = await readFile(harness.planPath, "utf8");
+  await writeFile(
+    harness.planPath,
+    plan.split("\n")
+      .filter((line) => !line.startsWith("| 用例确认 |"))
+      .join("\n"),
+    "utf8"
+  );
+  const gate = await harness.manager.gate();
+  assert.equal(gate.reply.kind, "none");
+  assert.equal(gate.continuation.kind, "continue_now");
+  assert.equal(gate.continuation.referenceId, "case-confirmation");
+  assert.equal(gate.activities["case-confirmation"]?.state, "BLOCKED");
 });
 
 test("formal decision rows are outside plan scope but remain mandatory for execution", async (context) => {

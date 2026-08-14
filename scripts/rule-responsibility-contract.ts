@@ -23,7 +23,34 @@ export interface RuleDocument {
 export interface RuleResponsibilityInspection {
   ownerViolations: string[];
   delegationViolations: string[];
+  supportingViolations: string[];
 }
+
+export const SUPPORTING_DOCUMENT_ROLES = {
+  "skills/iot-automation-testing/SKILL.md": "orchestration-only",
+  "skills/iot-automation-testing/templates/test-plan.template.md": "structure-only",
+  "skills/iot-automation-testing/templates/testcase.template.md": "structure-only",
+  "skills/iot-automation-testing/templates/playwright.spec.template.ts": "structure-only"
+} as const;
+
+const forbiddenTemplateSections: Record<string, readonly string[]> = {
+  "skills/iot-automation-testing/templates/test-plan.template.md": [
+    "覆盖基准与拆分清单",
+    "覆盖矩阵",
+    "独立需求追溯矩阵",
+    "规则设计矩阵",
+    "规则邻域复核表",
+    "用例集评审汇总",
+    "预计交付物",
+    "测试方式"
+  ],
+  "skills/iot-automation-testing/templates/testcase.template.md": [
+    "自动化状态",
+    "是否需要人工确认",
+    "覆盖关联",
+    "评审与演进回链"
+  ]
+};
 
 const ownerMarkerPattern = /<!--\s*owns:\s*([a-z.]+)\s*-->/g;
 const delegationStartPattern = /^<!--\s*delegates:\s*([a-z.]+(?:\s*,\s*[a-z.]+)*)\s*-->$/;
@@ -163,8 +190,69 @@ function inspectDelegations(
   return violations;
 }
 
+function normalizedParagraphs(content: string): string[] {
+  return content
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph
+      .replace(/<!--.*?-->/gs, "")
+      .replace(/\s+/g, " ")
+      .trim())
+    .filter((paragraph) => paragraph.length >= 120
+      && !paragraph.startsWith("|")
+      && !paragraph.startsWith("```")
+      && !paragraph.startsWith("#"));
+}
+
+function inspectSupportingDocuments(
+  ownerDocuments: readonly RuleDocument[],
+  supportingDocuments: readonly RuleDocument[]
+): string[] {
+  const violations: string[] = [];
+  const ownerParagraphs = new Map<string, string>();
+  for (const document of ownerDocuments) {
+    for (const paragraph of normalizedParagraphs(document.content)) {
+      ownerParagraphs.set(paragraph, document.path);
+    }
+  }
+  const normalizedSupporting = supportingDocuments.map((document) => ({
+    path: normalizeRepositoryPath(document.path),
+    content: document.content
+  }));
+  for (const [path, role] of Object.entries(SUPPORTING_DOCUMENT_ROLES)) {
+    const document = normalizedSupporting.find((candidate) => candidate.path === path);
+    if (!document) {
+      violations.push(`${path}: missing supporting document.`);
+      continue;
+    }
+    if (
+      !document.content.includes(`<!-- role: ${role} -->`)
+      && !document.content.includes(`// role: ${role}`)
+    ) {
+      violations.push(`${path}: missing role marker ${role}.`);
+    }
+    if (ownerMarkerPattern.test(document.content)) {
+      violations.push(`${path}: supporting documents cannot own normative rules.`);
+    }
+    ownerMarkerPattern.lastIndex = 0;
+    for (const heading of forbiddenTemplateSections[path] ?? []) {
+      const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`^#{1,6}\\s+${escaped}\\s*$`, "mu").test(document.content)) {
+        violations.push(`${path}: forbidden duplicate section ${heading}.`);
+      }
+    }
+    for (const paragraph of normalizedParagraphs(document.content)) {
+      const ownerPath = ownerParagraphs.get(paragraph);
+      if (ownerPath) {
+        violations.push(`${path}: duplicates normative paragraph from ${ownerPath}.`);
+      }
+    }
+  }
+  return violations;
+}
+
 export function inspectRuleResponsibilities(
-  documents: readonly RuleDocument[]
+  documents: readonly RuleDocument[],
+  supportingDocuments: readonly RuleDocument[] = []
 ): RuleResponsibilityInspection {
   const normalizedDocuments = documents.map((document) => ({
     path: normalizeRepositoryPath(document.path),
@@ -176,6 +264,9 @@ export function inspectRuleResponsibilities(
   );
   return {
     ownerViolations,
-    delegationViolations: inspectDelegations(automationDocument, owners)
+    delegationViolations: inspectDelegations(automationDocument, owners),
+    supportingViolations: supportingDocuments.length
+      ? inspectSupportingDocuments(normalizedDocuments, supportingDocuments)
+      : []
   };
 }

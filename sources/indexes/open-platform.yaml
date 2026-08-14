@@ -130,7 +130,7 @@ documents:
         visual_read_required: false
   - material_id: open-platform-axure-prototype
     source_path: prototypes/open-platform
-    source_sha256: d4e823a2b1c2c81d899ce3f1d00baee640257f9fc6c0cdc77d0e0493506a13cd
+    source_sha256: 0c21f0f7c472d2fd0cf712201c46cfd584ec5607cfe6a4b01d778c5243bc08e6
     extraction: structured-html
     visual_review: on-demand
     sections:

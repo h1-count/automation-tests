@@ -35,6 +35,24 @@ test("light profile uses deterministic checks without a model reviewer", () => {
   ]);
 });
 
+test("v7 boundary category labels do not create a false strict review", () => {
+  const policy = buildReviewPolicy({
+    planText: `# 设计索引
+
+## 环境、静态资产与数据安全边界
+
+| 类别 | 已确定边界 | 未决项或门禁 |
+| --- | --- | --- |
+| 权限与安全 | 只读 | 无 |
+`,
+    writesData: false,
+    capabilities: ["web"],
+    casePackages: ["cases-registration.md"]
+  });
+  assert.equal(policy.riskProfile, "light");
+  assert.deepEqual(policy.requiredRoles, []);
+});
+
 test("new workflow definitions pin the selected risk profile and reviewer reason", () => {
   const definition = buildWorkflowDefinition({
     requestId: "web/demo/simple-login",

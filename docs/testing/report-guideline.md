@@ -17,7 +17,7 @@
 - 测试结果、截图、Trace、视频、日志和协议摘要统一放在 `artifacts/`，不得提交到 Git。
 - 失败证据必须足以支持失败分类；证据不足时分类为“未知问题”，不能猜测为产品问题。
 - 报告和日志必须满足[环境规范的敏感采集边界](./environment-guideline.md#61-运行模式)，只保存完成审核所需的脱敏信息。
-- 主 Agent 可读取报告并输出分析、修复建议和 diff，但不能自动修改正式脚本或重新执行，必须等待用户审核。
+- 主 Agent 可读取报告并输出分析、修复建议和 diff。只有流程规范已接受的 v7 定位漂移才能自动回退脚本阶段；其他正式脚本修改或重新执行仍须按适用确认门禁处理。
 - 报告必须基于“测试范围完成判定”，不能仅转述 Runner 的通过数。存在阻塞、未知或未执行范围时，结论必须标记为“部分完成”或“未完成”。
 - 偏好与经验采用双通道沉淀：用户明确的长期协作偏好即时写入 Git 忽略的 `.local/testing-memory.md` 并立即用于当前任务；未验证的项目观察写入 Git 忽略的项目候选队列，已验证的项目经验直接写入当前项目经验库。报告完成后只做复盘、合并、失效清理和状态汇总，不是唯一提升时点。原始需求、协议和接口契约仍属于 `sources/` 原始知识资料库。两者都不替代正式报告。
 - Playwright 受控探索记录不是正式测试结果；可在报告“测试依据”中以脱敏形式引用，但不得写为通过、失败、跳过或执行证据。
@@ -30,6 +30,7 @@
 | `artifacts/test-results/formal/<摘要>/run-summary.json` | `formal-run-summary-v2`：逐 case 状态、Oracle 契约/结果摘要、受控分类、范围、测试结论、能力和数据卫生事实。旧 v1 和已封印的 legacy 投影只读保留。 | completion seal 报告生成器。 |
 | `artifacts/test-results/formal/<摘要>/execution-summary.md` | 从同一 completion seal 确定性生成的中文摘要。 | completion seal 报告生成器。 |
 | `artifacts/test-results/formal/<摘要>/case-evidence/` | 每个已执行 case 的结构化证据索引。 | 正式 Runner。 |
+| `artifacts/test-results/formal/<摘要>/selector-repair/` | `selector-repair-incident-v1`：定位失败、唯一候选、副作用证明、影响范围和脱敏证据引用。 | 受控 Web/H5 定位包装器。 |
 | `artifacts/playwright-report/` | Web 本地默认可视化报告。 | Playwright。 |
 | `artifacts/test-results/junit.xml` | CI 需要时生成的 JUnit 结果。 | CI report profile。 |
 | `artifacts/allure-results/`、`artifacts/allure-report/` | 只有趋势分析 profile 才生成的 Allure 产物。 | `AUTOMATION_REPORT_PROFILE=trend`。 |
@@ -71,6 +72,8 @@ traceReference
 sanitizedNetworkSummary
 operationEvidence (operation / source / contractId / method / path / status / outcome / finality / fallback / reconciliation)
 stageProgress (completedStages / waitingTransitions / resolvedTransitions)
+selectorRepairIncident (incidentId / digest / eligibility / safe path)
+carriedFrom (source execution / result digest / evidence digest)
 sanitizedConsoleSummary
 redactionStatus
 ```
@@ -90,6 +93,8 @@ redactionStatus
 - 正式 Playwright reporter 只把通过泄漏检查且位于 `artifacts/` 的附件关联到 `CaseEvidenceBundle`；HTML、JUnit、Allure 和附件在报告收口前统一执行文本清洗与泄漏扫描，无法安全清洗的二进制附件直接删除且不得保留引用。
 - `redactionStatus` 只能为“已验证脱敏”“使用安全替代证据”或“脱敏未确认”。值为“脱敏未确认”时不得发布产物，也不得将 case 标记为 `passed`。
 - `run-summary.json`、中文摘要和启用的 Runner 报告必须引用同一 `CaseEvidenceBundle`；未启用的 JUnit、Allure、视频或 Trace 不构成证据缺口。
+- 定位 incident 只保存原定位、唯一候选、role/容器/状态标识、摘要、计数型副作用证明、影响 case 和脱敏证据路径；禁止保存完整 DOM、带参数 URL、输入值、Cookie、凭据、响应正文或真实用户数据。
+- 定位修复后的报告以新执行清单为完整统计范围，每个 case 只统计一次；分别标记 `carriedFrom` 的沿用结果和本次 retry 结果，不把旧 run 与新 run 的同一 case 重复计数。
 
 ## 5. 报告最小字段
 
@@ -113,6 +118,7 @@ redactionStatus
 - 通过、失败、跳过、阻塞和未知的数量。
 - 每个失败/阻塞用例的失败步骤、错误摘要、证据路径和分类。
 - 每个已运行 `caseId` 的 `CaseEvidenceBundle` 索引、证据完整性和脱敏状态；通过用例也不得省略。延期用例单列 readiness blocker 和解除条件。
+- 存在定位修复时，记录 incident 摘要、原/新定位、受影响与重跑 case、沿用 case、原授权摘要和新执行清单摘要；不得展示定位之外的页面正文。
 - 多阶段用例的已完成阶段、当前等待转换、恢复次数及最终自动验证结果；待审核、审核通过后晋升、驳回后重新发起和受控残留分别统计。
 - 按 [environment-guideline.md](./environment-guideline.md) 汇总测试数据准备、清理结果、台账脱敏摘要与残留风险；不得在报告正文回显资源 ID、合成值或敏感数据。
 - 分别输出 `testOutcome` 与 `dataHygieneStatus`：前者只依据可靠的功能断言和范围状态，后者分类汇总已清理的临时资源、已晋升或归还的可复用 fixture、已隔离或退役的异常资源、受控残留、过期和未知归属。逐 run 的 `functionalStatus` 保留为功能事实，不参与数据卫生反推。已登记且基线合格的 `reusable_fixture` 结论为“已登记且可复用”，不记为未清理残留。不得用清理或恢复失败覆盖已判定的功能结果，也不得把功能通过表述为数据卫生通过。
@@ -128,6 +134,7 @@ redactionStatus
 - 确定性 JSON/Markdown 摘要路径，以及本次 profile 实际启用的 Playwright HTML、JUnit 或 Allure 入口。
 - 本次复盘状态：用户偏好、项目经验分别为“已更新 / 待验证 / 已验证 / 已覆盖 / 无需更新”，并附不含敏感信息的原因摘要和证据定位。未完成验证不得延迟经验登记，只影响证据状态。
 - 正式执行来源：例如 Playwright Chromium、Playwright Chrome、Appium、API Client 或 MQTT Client；并明确列出不计入统计的探索依据。
+- 若发生定位修复，明确区分“沿用结果”和“本次重跑”，并说明最终统计已按新执行清单去重。
 
 通过率使用 `passed ÷ (passed + failed)`，失败率使用 `failed ÷ (passed + failed)`。`skipped`、`blocked` 和 `unknown` 不进入通过率分母，但必须单独列出；分母为零时显示“不适用”。Web 测试对象统计页面或用户旅程，API 统计接口，App 统计页面或功能流，IoT 统计已验证链路。
 
@@ -170,7 +177,7 @@ redactionStatus
 | 分类 | 判定依据 | 建议后续动作 |
 | --- | --- | --- |
 | 产品问题 | 环境、数据和脚本前置条件满足，实际业务结果违反已确认预期。 | 提交缺陷或通知研发，附最小复现与证据。 |
-| 脚本问题 | 产品行为符合预期，但 selector、等待、断言、测试实现或数据处理不正确。 | 输出脚本修复 diff，待审核后修改。 |
+| 脚本问题 | 产品行为符合预期，但 selector、等待、断言、测试实现或数据处理不正确。 | 合格 v7 定位漂移按流程规范回退并重新确认执行清单；其他问题输出修复 diff，按适用门禁处理。 |
 | 环境问题 | 服务、网络、认证、设备、Appium、Broker 或依赖不可用。 | 修复或恢复环境后复测。 |
 | 测试数据问题 | 测试账号、设备、数据前置、清理或隔离不满足要求。 | 调整 fixture、准备/清理脚本或测试数据。 |
 | 未知问题 | 证据不足、现象无法稳定复现或多个分类都无法确认。 | 补充日志/Trace/观测点后继续排查。 |
@@ -217,6 +224,7 @@ redactionStatus
 - 失败是否附有足够证据，且分类未超出证据范围。
 - 是否泄露密码、Token、密钥、真实用户信息或敏感 Payload。
 - 是否区分产品问题、环境问题、测试数据问题和脚本问题。
+- 定位修复是否展示 incident、沿用与重跑来源，且每个 case 在最终统计中只出现一次。
 - 是否记录测试数据清理结果和残留风险。
 - 是否从 `task:status` 获取最终阶段、未完成项、阻断原因或待确认项，并确保这些动态信息没有写回 `plan.md`。
 - 主 Agent 的建议是否包含依据、置信度、风险和待审核操作。

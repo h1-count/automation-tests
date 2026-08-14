@@ -36,6 +36,9 @@ export interface FormalDeterministicOutcomeAssessment {
   status: "settled" | "pending" | "terminal_unknown";
   pendingUnknownCount: number;
   terminalUnknownCount: number;
+  terminalSelectorRepairCount?: number;
+  selectorRepairIncidentPaths?: string[];
+  allTerminalUnknownsRepairable?: boolean;
 }
 
 export interface DerivedFormalRunCompletion {
@@ -167,6 +170,11 @@ export function deriveFormalDeterministicOutcomeAssessment(
   const pendingUnknownCount = summary.cases.filter((item) =>
     item.status === "unknown" && item.attemptFinality !== "terminal"
   ).length;
+  const repairable = summary.cases.filter((item) =>
+    item.status === "unknown"
+    && item.attemptFinality === "terminal"
+    && item.selectorRepairIncident?.eligibility === "eligible"
+  );
   return {
     status: terminalUnknownCount > 0
       ? "terminal_unknown"
@@ -174,7 +182,13 @@ export function deriveFormalDeterministicOutcomeAssessment(
         ? "pending"
         : "settled",
     pendingUnknownCount,
-    terminalUnknownCount
+    terminalUnknownCount,
+    terminalSelectorRepairCount: repairable.length,
+    selectorRepairIncidentPaths: [...new Set(repairable.map((item) =>
+      item.selectorRepairIncident!.path
+    ))].sort(),
+    allTerminalUnknownsRepairable: terminalUnknownCount > 0
+      && repairable.length === terminalUnknownCount
   };
 }
 

@@ -5,6 +5,7 @@ import type {
 } from "./types.js";
 
 export const PLAN_CONFIRMATION_SUBJECT_SCHEMA_V2 = "plan-confirmation-subject-v2";
+export const CASE_CONFIRMATION_SUBJECT_SCHEMA_V2 = "case-confirmation-subject-v2";
 
 export function normalizeDecisionMarkdown(value: string): string {
   return value.replace(/\r\n/g, "\n").trimEnd() + "\n";
@@ -467,6 +468,105 @@ export function casePackageDecisionProjection(value: string): string {
     /^\|\s*状态\s*\|[^|\n]*\|\s*$/gm,
     "| 状态 | <derived> |"
   );
+}
+
+const v2CaseSemanticSections = new Set([
+  "基本信息",
+  "来源",
+  "前置条件",
+  "步骤",
+  "操作步骤",
+  "预期结果",
+  "假设与待确认项"
+]);
+
+export interface CaseConfirmationSemanticCase {
+  caseId: string;
+  semanticSummary: string;
+  refs: string[];
+}
+
+/** Returns the complete semantic body for each testcase while excluding package
+ * directories and any legacy status/review backlinks. */
+export function caseConfirmationSemanticCases(value: string): CaseConfirmationSemanticCase[] {
+  const source = normalizeDecisionMarkdown(value);
+  const starts = [...source.matchAll(/^##\s+测试用例[：:]\s*(.+?)\s*$/gm)];
+  return starts.flatMap((start, index) => {
+    const body = source.slice(start.index ?? 0, starts[index + 1]?.index ?? source.length);
+    const caseId = [...body.matchAll(/^\|\s*用例编号\s*\|\s*([^|]+?)\s*\|/gm)]
+      .map((match) => cleanPlanSubjectText(match[1] ?? ""))
+      .find(Boolean);
+    if (!caseId) return [];
+    const sections = markdownSections(body)
+      .filter((section) => section.heading.startsWith("测试用例：")
+        || section.heading.startsWith("测试用例:")
+        || v2CaseSemanticSections.has(section.heading))
+      .map((section) => section.body);
+    const semanticSummary = normalizeDecisionMarkdown(sections.join("\n\n")).replace(
+      /^\|\s*状态\s*\|[^|\n]*\|\s*$/gm,
+      "| 状态 | <derived> |"
+    );
+    const refs = uniqueSorted(
+      [...semanticSummary.matchAll(/\b(?:REQ|RULE|SRC|ISO)-[A-Z0-9][A-Z0-9-]*\b/g)]
+        .map((match) => match[0]!)
+    );
+    return [{ caseId, semanticSummary, refs }];
+  });
+}
+
+function filterAffectedDesignSection(body: string, refs: Set<string>): string {
+  const [heading, ...lines] = body.split("\n");
+  const kept = lines.filter((line) => {
+    const found = [...line.matchAll(/\b(?:REQ|RULE|SRC|ISO|[A-Z][A-Z0-9]*)-[A-Z0-9][A-Z0-9-]*\b/g)]
+      .map((match) => match[0]!);
+    return found.some((ref) => refs.has(ref));
+  });
+  return [heading, ...kept].join("\n").trimEnd();
+}
+
+/** Version-7 case confirmation projection. Formal decisions, runtime state and
+ * post-confirmation engineering mapping never participate in the subject. */
+export function caseConfirmationPlanProjectionV2(input: {
+  plan: string;
+  scope: "full" | "affected";
+  caseIds: string[];
+  refs: string[];
+}): string {
+  const source = normalizeDecisionMarkdown(input.plan);
+  const globalHeadings = new Set([
+    "基本信息",
+    "测试范围",
+    "环境、静态资产与数据安全边界",
+    "环境与数据预检",
+    "测试数据策略与残留台账"
+  ]);
+  const designHeadings = new Set([
+    "资料来源",
+    "需求索引",
+    "规则设计台账",
+    "用例包目录",
+    "变更影响分析",
+    "假设、缺口与风险",
+    "假设/缺口/风险",
+    "评审记录",
+    "多角色评审记录",
+    "用例集评审与演进"
+  ]);
+  const relevant = new Set([...input.caseIds, ...input.refs]);
+  const firstSection = source.search(/^##\s+/m);
+  const preamble = firstSection > 0 ? source.slice(0, firstSection).trimEnd() : "";
+  const sections = markdownSections(source).flatMap((section) => {
+    if (globalHeadings.has(section.heading)) return [section.body];
+    if (!designHeadings.has(section.heading)) return [];
+    if (input.scope === "full") return [section.body];
+    const affected = filterAffectedDesignSection(section.body, relevant);
+    return affected.split("\n").length > 1 ? [affected] : [];
+  });
+  return canonicalJson({
+    schemaVersion: CASE_CONFIRMATION_SUBJECT_SCHEMA_V2,
+    globalBoundary: planDecisionProjectionV2(source),
+    design: normalizeDecisionMarkdown([preamble, ...sections].filter(Boolean).join("\n\n"))
+  });
 }
 
 export function decisionTypeForActivity(activityId: string): string | undefined {

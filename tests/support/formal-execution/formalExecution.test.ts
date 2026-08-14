@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 import { FormalExecutionStore } from "../../../src/support/formal-execution/formalExecutionStore.js";
+import { caseResultDigest } from "../../../src/support/formal-execution/selectorRepair.js";
 import {
   defineFormalExecutionManifest,
   digestFormalExecutionManifest,
@@ -723,6 +725,99 @@ test("deterministic report separates deferred cases and keeps retry-aware redact
   const markdown = await readFile(resolve(directory, "execution-summary.md"), "utf8");
   assert.match(markdown, /CASE-002/);
   assert.match(markdown, /Configure the isolated test phone provider/);
+});
+
+test("selector repair carries only conclusive unaffected results into a fresh execution record", async (context) => {
+  const root = await mkdtemp(resolve(tmpdir(), "formal-selector-carry-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const definition = defineFormalExecutionManifest(writableManifest());
+  const artifactRoot = resolve(root, "artifacts");
+  const store = new FormalExecutionStore(resolve(root, "ledger"), artifactRoot);
+  const priorDigest = "3".repeat(64);
+  const nextDigest = "4".repeat(64);
+  const selectedCaseIds = ["CASE-001", "CASE-003"];
+  await store.initialize({
+    manifest: definition,
+    authorizationDigest: priorDigest,
+    targetBuildDigest: "5".repeat(64),
+    testDataRunId: "selector-repair-prior",
+    capabilities: evaluateCapabilities(definition.capabilities, {}),
+    caseIds: selectedCaseIds
+  });
+  const affectedAttempt = await store.beginCase(priorDigest, "CASE-001");
+  await store.finishCase(
+    priorDigest,
+    "CASE-001",
+    affectedAttempt,
+    "unknown",
+    "selector runtime drift",
+    [],
+    { runtimeFailure: true }
+  );
+  const carriedAttempt = await store.beginCase(priorDigest, "CASE-003");
+  await verifyCase(store, priorDigest, "CASE-003", carriedAttempt);
+  await store.finishCase(priorDigest, "CASE-003", carriedAttempt, "passed");
+  await store.recordDataEvidence(priorDigest, {
+    "CASE-001": { intents: [], resources: [] },
+    "CASE-003": { intents: [], resources: [] }
+  });
+  await store.recordCleanup(priorDigest, "passed", undefined, { dataHygieneStatus: "clean" });
+  const prior = await store.read(priorDigest);
+  assert.ok(prior);
+  const sourceResult = prior.cases["CASE-003"]!;
+  const sourceEvidence = await readFile(resolve(
+    artifactRoot,
+    priorDigest.slice(0, 12),
+    "case-evidence/CASE-003.json"
+  ));
+  const repairContext = {
+    schemaVersion: "selector-repair-context-v1" as const,
+    priorAuthorizationDigest: priorDigest,
+    incidentDigests: ["6".repeat(64)],
+    affectedCaseIds: ["CASE-001"],
+    retryCaseIds: ["CASE-001"],
+    carriedCases: [{
+      caseId: "CASE-003",
+      sourceAuthorizationDigest: priorDigest,
+      sourceCaseResultDigest: caseResultDigest(sourceResult),
+      sourceEvidenceBundleDigest: createHash("sha256").update(sourceEvidence).digest("hex")
+    }]
+  };
+  const next = await store.initialize({
+    manifest: definition,
+    authorizationDigest: nextDigest,
+    targetBuildDigest: "5".repeat(64),
+    testDataRunId: "selector-repair-next",
+    capabilities: evaluateCapabilities(definition.capabilities, {}),
+    caseIds: selectedCaseIds,
+    repairContext
+  });
+  assert.equal(next.cases["CASE-001"]?.status, "unknown");
+  assert.deepEqual(next.cases["CASE-001"]?.attempts, []);
+  assert.equal(next.cases["CASE-003"]?.status, "passed");
+  assert.equal(next.cases["CASE-003"]?.attempts.length, 1);
+  assert.equal(
+    next.cases["CASE-003"]?.carriedFrom?.sourceAuthorizationDigest,
+    priorDigest
+  );
+  assert.deepEqual(next.stageProgress?.["CASE-003"]?.completedStages, []);
+  assert.deepEqual(next.operationReservations?.["CASE-003"], {});
+  assert.equal(next.cleanup?.status, "unknown");
+
+  const drifted = structuredClone(repairContext);
+  drifted.carriedCases[0]!.sourceCaseResultDigest = "7".repeat(64);
+  await assert.rejects(
+    store.initialize({
+      manifest: definition,
+      authorizationDigest: "8".repeat(64),
+      targetBuildDigest: "5".repeat(64),
+      testDataRunId: "selector-repair-drifted",
+      capabilities: evaluateCapabilities(definition.capabilities, {}),
+      caseIds: selectedCaseIds,
+      repairContext: drifted
+    }),
+    /source result digest drifted/
+  );
 });
 
 test("teardown reconciliation closes only interrupted open attempts", async (context) => {
