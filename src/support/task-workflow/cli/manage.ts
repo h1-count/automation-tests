@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { basename, dirname, relative, resolve, sep } from "node:path";
 import {
   buildExecutionAuthorizationManifest,
   EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
@@ -63,6 +63,7 @@ import {
   workflowStatusText,
   type WorkflowGateView
 } from "../workflowManager.js";
+import { assertTestcaseReviewExportReady } from "../testcaseReviewGate.js";
 import type {
   StableTestSuiteManifest,
   StableTestSuiteProfile
@@ -72,8 +73,17 @@ import type {
   CallbackResolution,
   ReviewRole,
   TestOutcome,
-  WorkflowCapability
+  WorkflowCapability,
+  WorkflowDeliveryTarget
 } from "../types.js";
+import {
+  assertTestcaseReviewExportCurrent,
+  buildTestcaseReviewExport,
+  buildTestcaseReviewModel,
+  parseTestcaseReviewExport,
+  validateTestcaseReviewWorkbookReceipt,
+  type TestcaseReviewExport
+} from "../../testcase/testcaseReviewModel.js";
 
 function option(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -123,6 +133,18 @@ function parseCapabilities(values: string[]): WorkflowCapability[] | undefined {
   const invalid = parsed.find((value) => !supported.has(value as WorkflowCapability));
   if (invalid) throw new Error(`Unsupported workflow capability: ${invalid}`);
   return [...new Set(parsed)] as WorkflowCapability[];
+}
+
+function parseDeliveryTarget(value: string | undefined): WorkflowDeliveryTarget {
+  if (!value) {
+    throw new Error(
+      "Missing --delivery-target; ask the user before initialization and choose testcase_only, script_only, or full_run."
+    );
+  }
+  if (!["testcase_only", "script_only", "full_run"].includes(value)) {
+    throw new Error("--delivery-target must be testcase_only, script_only, or full_run.");
+  }
+  return value as WorkflowDeliveryTarget;
 }
 
 function parseCallbackResolution(value: string): CallbackResolution {
@@ -363,6 +385,81 @@ function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function pathInside(root: string, path: string): boolean {
+  const rel = relative(resolve(root), resolve(path));
+  return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== "..");
+}
+
+async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
+  const target = resolve(path);
+  await mkdir(dirname(target), { recursive: true });
+  const temporary = `${target}.${process.pid}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await rename(temporary, target);
+}
+
+async function currentTestcaseReviewExport(
+  manager: DurableWorkflowManager
+): Promise<TestcaseReviewExport> {
+  const view = await manager.gate();
+  const callbackSubjectDigest = await manager.callbackSubjectDigest("case-confirmation");
+  assertTestcaseReviewExportReady(view, callbackSubjectDigest);
+  const model = buildTestcaseReviewModel({
+    requestId: manager.requestId,
+    plan: await readFile(manager.planPath, "utf8"),
+    cases: await readFile(resolve(manager.requestRoot, "cases.md"), "utf8"),
+    callbackSubjectDigest
+  });
+  return buildTestcaseReviewExport(model);
+}
+
+async function publishTestcaseReviewWorkbook(input: {
+  manager: DurableWorkflowManager;
+  modelPath: string;
+  workbookPath: string;
+  receiptPath: string;
+  outputPath: string;
+}): Promise<{
+  outputPath: string;
+  workbookSha256: string;
+  modelDigest: string;
+  callbackSubjectDigest: string;
+}> {
+  const exported = parseTestcaseReviewExport(JSON.parse(await readFile(input.modelPath, "utf8")));
+  const current = await currentTestcaseReviewExport(input.manager);
+  assertTestcaseReviewExportCurrent(exported, current);
+  const workbook = await readFile(input.workbookPath);
+  const workbookSha256 = sha256(workbook);
+  const receipt = validateTestcaseReviewWorkbookReceipt({
+    receipt: JSON.parse(await readFile(input.receiptPath, "utf8")),
+    exported,
+    workbookSha256
+  });
+  for (const preview of receipt.previews) {
+    const previewPath = resolve(dirname(input.receiptPath), preview.path);
+    if (sha256(await readFile(previewPath)) !== preview.sha256) {
+      throw new Error(`Workbook preview digest does not match for ${preview.sheet}.`);
+    }
+  }
+  const outputPath = resolve(input.outputPath);
+  if (basename(outputPath) !== "cases-review.xlsx") {
+    throw new Error("Published testcase review workbook must be named cases-review.xlsx.");
+  }
+  if (pathInside(input.manager.workspaceRoot, outputPath)) {
+    throw new Error("Testcase review workbooks must be published outside the repository.");
+  }
+  await mkdir(dirname(outputPath), { recursive: true });
+  const temporary = `${outputPath}.${process.pid}.tmp`;
+  await copyFile(input.workbookPath, temporary);
+  await rename(temporary, outputPath);
+  return {
+    outputPath,
+    workbookSha256,
+    modelDigest: exported.modelDigest,
+    callbackSubjectDigest: exported.callbackSubjectDigest
+  };
+}
+
 function resolveActivityId(view: WorkflowGateView, value: string): string {
   if (!view.activities[value]) throw new Error(`Unknown workflow activity: ${value}`);
   return value;
@@ -530,8 +627,8 @@ async function main(): Promise<void> {
   if (!command || command === "--help" || args.includes("--help")) {
     process.stdout.write([
       "Usage: task:manage <command> --request <type/project/request> ...",
-      "Reuse: init --suite <type/project/feature> --reuse auto --environment <test|pre> [--profile <profile>], suite-promote --suite <type/project/feature>",
-      "Core: init, resume, activity-start, activity-renew, activity-succeed, artifact-publish-succeed, activity-fail",
+      "Reuse: init --delivery-target <testcase_only|script_only|full_run> --suite <type/project/feature> --reuse auto --environment <test|pre> [--profile <profile>], suite-promote --suite <type/project/feature>",
+      "Core: init, resume, activity-start, activity-renew, candidate-gate, activity-succeed, artifact-publish-succeed, activity-fail",
       "Waits: callback-request, callback-resolve, callback-reopen, block, resolve, reconcile, suspend",
       "  callback-resolve --callback <id> --resolution <accepted|rejected|revision_requested|cancelled> --plan-source <updated-plan.md>  # required for formal callbacks",
       "Review: review-batch-start, reviewer-dispatch/submit/fail, review-batch-invalidate",
@@ -539,6 +636,7 @@ async function main(): Promise<void> {
       "  reviewer-dispatch --batch <id> --activity <review-id> --agent-task <host-task-id>",
       "  reviewer-submit --batch <id> --activity <review-id> --agent-task <host-task-id> [--plan-evidence <plan.md>]",
       "  review-batch-invalidate --batch <id> --reason <text> [--activity <review-id> --revision-digest <sha256> --findings-digest <sha256>]",
+      "Testcase review: testcase-review-prepare --output <model.json>, testcase-review-publish --model <model.json> --workbook <staged.xlsx> --receipt <receipt.json> --output <cases-review.xlsx>",
       "Execution: script-review-assess, execution-readiness-publish, suite-readiness-publish, execution-authorization-publish/request/verify, execution-scope-reopen, execution-run-finalize, execution-report-finalize, execution-transition-park/resolve, external-operation-start/reconcile",
       "  script-review-assess --environment <name> --script <path> --case-id <id> [--case-risk <id:level>] --operation <kind> [--budget <type:max>] --data-write-policy <no_write|ephemeral_cleanup|reusable_fixture|tracked_residual>",
       "  execution-readiness-publish --claim <lease> --environment <name> [--target-build-digest <sha256>] --script <path> --case-id <id> [--case-risk <id:level>] --operation <kind> [--selector-evidence-digest <sha256>] [--review-evidence <runtime-json>] --verified <evidence>",
@@ -606,6 +704,7 @@ async function main(): Promise<void> {
       writesData: option(args, "--writes-data")
         ? parseBoolean(required(args, "--writes-data"), "--writes-data")
         : undefined,
+      deliveryTarget: parseDeliveryTarget(option(args, "--delivery-target")),
       casePackages: casePackages.length ? casePackages : undefined,
       reviewerRoles: reviewerRoles.length ? reviewerRoles : undefined,
       executionIsolation: isolationOptionsPresent
@@ -655,6 +754,38 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "testcase-review-prepare") {
+    const outputPath = resolve(required(args, "--output"));
+    if (
+      pathInside(manager.workspaceRoot, outputPath)
+      && !pathInside(resolve(manager.workspaceRoot, ".local"), outputPath)
+    ) {
+      throw new Error("Review model output inside the repository must be stored under .local/.");
+    }
+    const exported = await currentTestcaseReviewExport(manager);
+    await writeJsonAtomic(outputPath, exported);
+    output(args, {
+      outputPath,
+      modelDigest: exported.modelDigest,
+      callbackSubjectDigest: exported.callbackSubjectDigest,
+      semanticDigest: exported.semanticDigest,
+      statistics: exported.model.statistics
+    }, `用例评审模型已生成：${outputPath}`);
+    return;
+  }
+
+  if (command === "testcase-review-publish") {
+    const result = await publishTestcaseReviewWorkbook({
+      manager,
+      modelPath: required(args, "--model"),
+      workbookPath: required(args, "--workbook"),
+      receiptPath: required(args, "--receipt"),
+      outputPath: required(args, "--output")
+    });
+    output(args, result, `用例评审工作簿已发布：${result.outputPath}`);
+    return;
+  }
+
   if (command === "activity-start") {
     const activityId = resolveActivityId(await manager.gate(), required(args, "--activity"));
     const result = await manager.startActivity(
@@ -688,6 +819,16 @@ async function main(): Promise<void> {
       outcome: option(args, "--outcome")
     });
     output(args, view, `Activity ${activityId} 已提交；工作流状态：${view.workflowState}`);
+    return;
+  }
+
+  if (command === "candidate-gate") {
+    const result = await manager.succeedCandidateGate(required(args, "--claim"));
+    output(
+      args,
+      result,
+      `Candidate gate 已通过；profile=${result.report.profile}；review=${result.report.reviewMode}。`
+    );
     return;
   }
 
@@ -1183,7 +1324,7 @@ async function main(): Promise<void> {
       throw new Error(`Readiness must publish ${authorizationSchemaVersion}.`);
     }
     const targetPath = `testcases/${requestId}/execution-authorization.json`;
-    const view = await manager.publishArtifactsAndSucceed("readiness", {
+    const readinessView = await manager.publishArtifactsAndSucceed("readiness", {
       claimToken,
       publishId: option(args, "--publish")
         ?? `execution-readiness-${manifest.readinessDigest.slice(0, 12)}-${sha256(claimToken).slice(0, 12)}`,
@@ -1197,15 +1338,20 @@ async function main(): Promise<void> {
         content: `${JSON.stringify(manifest, null, 2)}\n`
       }]
     });
+    const authorization = await manager.autoFinalizePolicyNoWriteAuthorizationIfEligible();
+    const view = authorization.authorized ? authorization.workflow : readinessView;
     output(
       args,
       {
         readiness,
         manifest,
+        authorizationMode: authorization.authorized
+          ? "policy_auto_no_write_v2"
+          : "user_confirmed",
         targetBuildDigestSource: selectorBuildIdentity.sources,
         workflow: view
       },
-      `readiness 已从 ${selectorBuildIdentity.sources.join(", ")} 读取 targetBuildDigest=${targetBuildDigest}，发布 ${readiness.runnableCount} 个执行链用例（首波 ${readiness.initialRunnableCaseIds.length}，后续 ${readiness.scheduledCaseIds.length}，共 ${readiness.executionWaves.length} 波，graph=${readiness.dependencyPlan.graphDigest.slice(0, 12)}），${readiness.deferredCount} 个真实延期用例。`
+      `readiness 已从 ${selectorBuildIdentity.sources.join(", ")} 读取 targetBuildDigest=${targetBuildDigest}，发布 ${readiness.runnableCount} 个执行链用例（首波 ${readiness.initialRunnableCaseIds.length}，后续 ${readiness.scheduledCaseIds.length}，共 ${readiness.executionWaves.length} 波，graph=${readiness.dependencyPlan.graphDigest.slice(0, 12)}），${readiness.deferredCount} 个真实延期用例；${authorization.authorized ? "已按 policy_auto_no_write_v2 自动授权" : "执行清单等待用户确认"}。`
     );
     return;
   }

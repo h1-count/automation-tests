@@ -19,6 +19,10 @@ const resetScriptSource = readFileSync(
   resolve(repositoryRoot, "scripts/reset-full-test-state.ts"),
   "utf8"
 );
+const archiveNoncurrentScriptSource = readFileSync(
+  resolve(repositoryRoot, "scripts/archive-noncurrent-requests.ts"),
+  "utf8"
+);
 const tsxLoader = resolve(repositoryRoot, "node_modules/tsx/dist/loader.mjs");
 
 function createHarness() {
@@ -49,6 +53,193 @@ function createHarness() {
     }
   };
 }
+
+function createArchiveHarness() {
+  const root = mkdtempSync(resolve(tmpdir(), "archive-noncurrent-"));
+  mkdirSync(resolve(root, "scripts"), { recursive: true });
+  writeFileSync(
+    resolve(root, "scripts/archive-noncurrent-requests.ts"),
+    archiveNoncurrentScriptSource,
+    "utf8"
+  );
+  return {
+    root,
+    write(path: string, content = "") {
+      const absolute = resolve(root, path);
+      mkdirSync(resolve(absolute, ".."), { recursive: true });
+      writeFileSync(absolute, content, "utf8");
+    },
+    run(...args: string[]) {
+      return spawnSync(process.execPath, [
+        "--import",
+        tsxLoader,
+        "scripts/archive-noncurrent-requests.ts",
+        ...args
+      ], { cwd: root, encoding: "utf8" });
+    },
+    cleanup() {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+}
+
+function workflowStarted(requestId: string, definitionVersion: string): string {
+  return `${JSON.stringify({
+    type: "WorkflowStarted",
+    requestId,
+    definitionVersion
+  })}\n`;
+}
+
+function workflowEvent(type: string, requestId: string): string {
+  return `${JSON.stringify({ type, requestId })}\n`;
+}
+
+function runtimeState(leases: Record<string, unknown> = {}): string {
+  return `${JSON.stringify({
+    schemaVersion: "test-workflow-runtime-v2",
+    requestId: "web/demo/old",
+    revision: 1,
+    reviewerBindings: {},
+    leases,
+    inFlightOperations: {},
+    stagingRefs: {}
+  })}\n`;
+}
+
+test("noncurrent archive dry-run keeps current v7/v3/v6 and reports old requests", () => {
+  const harness = createArchiveHarness();
+  try {
+    harness.write(
+      "testcases/web/demo/current/plan.md",
+      "> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。"
+    );
+    harness.write(
+      "testcases/web/demo/current/workflow-history.ndjson",
+      workflowStarted("web/demo/current", "v7")
+    );
+    harness.write("testcases/web/demo/current/cases.md", "> 结构版本：testcase-v6-layered。\n");
+    harness.write("testcases/web/demo/old/plan.md", "> 结构版本：case-relation-projection-v1。\n");
+    harness.write(
+      "testcases/web/demo/old/workflow-history.ndjson",
+      workflowStarted("web/demo/old", "v5") + workflowEvent("WorkflowCancelled", "web/demo/old")
+    );
+
+    const result = harness.run("--dry-run");
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /保留当前版本请求：1 项/);
+    assert.match(result.stdout, /将归档非当前版本请求：1 项/);
+    assert.ok(existsSync(resolve(harness.root, "testcases/web/demo/current/plan.md")));
+    assert.ok(existsSync(resolve(harness.root, "testcases/web/demo/old/plan.md")));
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("noncurrent archive moves only old request assets and their request tests", () => {
+  const harness = createArchiveHarness();
+  try {
+    harness.write(
+      "testcases/web/demo/current/plan.md",
+      "> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。"
+    );
+    harness.write(
+      "testcases/web/demo/current/workflow-history.ndjson",
+      workflowStarted("web/demo/current", "v7")
+    );
+    harness.write("testcases/web/demo/current/cases.md", "> 结构版本：testcase-v6-layered。\n");
+    harness.write(
+      "testcases/web/demo/old/plan.md",
+      "> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。"
+    );
+    harness.write(
+      "testcases/web/demo/old/workflow-history.ndjson",
+      workflowStarted("web/demo/old", "v7")
+        + workflowEvent("WorkflowCompleted", "web/demo/old")
+    );
+    harness.write("testcases/web/demo/old/cases.md", "> 结构版本：testcase-v3。\n");
+    harness.write("tests/web/demo/old/old.spec.ts", "export {};\n");
+    harness.write(
+      ".local/test-task-runtime/web/demo/old/runtime.json",
+      runtimeState({
+        "candidate-generation": {
+          activityId: "candidate-generation",
+          owner: "host",
+          leaseId: "lease-1",
+          fencingToken: 1,
+          acquiredAt: "2024-01-01T00:00:00.000Z",
+          expiresAt: "2024-01-01T00:05:00.000Z"
+        }
+      })
+    );
+
+    const result = harness.run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(existsSync(resolve(harness.root, "testcases/web/demo/current/plan.md")));
+    assert.equal(existsSync(resolve(harness.root, "testcases/web/demo/old")), false);
+    const archive = findArchivedRequest(harness.root, "web/demo", "old");
+    assert.ok(existsSync(resolve(archive, "cases.md")));
+    assert.ok(existsSync(resolve(archive, "automation/tests/old.spec.ts")));
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("noncurrent archive refuses requests whose workflow has not reached a terminal event", () => {
+  const harness = createArchiveHarness();
+  try {
+    harness.write(
+      "testcases/web/demo/old/plan.md",
+      "> 结构版本：case-relation-projection-v1。"
+    );
+    harness.write(
+      "testcases/web/demo/old/workflow-history.ndjson",
+      workflowStarted("web/demo/old", "v5")
+    );
+
+    const result = harness.run("--dry-run");
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /工作流未到终态：web\/demo\/old/);
+    assert.ok(existsSync(resolve(harness.root, "testcases/web/demo/old/plan.md")));
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("noncurrent archive refuses requests holding an unexpired runtime lease", () => {
+  const harness = createArchiveHarness();
+  try {
+    harness.write(
+      "testcases/web/demo/old/plan.md",
+      "> 结构版本：case-relation-projection-v1。"
+    );
+    harness.write(
+      "testcases/web/demo/old/workflow-history.ndjson",
+      workflowStarted("web/demo/old", "v5")
+        + workflowEvent("WorkflowCancelled", "web/demo/old")
+    );
+    harness.write(
+      ".local/test-task-runtime/web/demo/old/runtime.json",
+      runtimeState({
+        "candidate-generation": {
+          activityId: "candidate-generation",
+          owner: "host",
+          leaseId: "lease-2",
+          fencingToken: 2,
+          acquiredAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString()
+        }
+      })
+    );
+
+    const result = harness.run();
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /在途 Activity 租约：web\/demo\/old/);
+    assert.ok(existsSync(resolve(harness.root, "testcases/web/demo/old/plan.md")));
+  } finally {
+    harness.cleanup();
+  }
+});
 
 function findArchivedRequest(root: string, projectPath: string, requestPrefix: string): string {
   const parent = resolve(root, "testcases/archive", projectPath);

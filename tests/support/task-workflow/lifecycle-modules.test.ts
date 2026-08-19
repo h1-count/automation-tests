@@ -15,8 +15,11 @@ import {
   reviewerBindingId
 } from "../../../src/support/task-workflow/reviewLifecycle.js";
 import {
-  planResumeRecovery
+  planResumeRecovery,
+  REVIEWER_IDLE_REBIND_THRESHOLD_MS,
+  reviewerIdleRebindAction
 } from "../../../src/support/task-workflow/resumeRecovery.js";
+import type { WorkflowRuntimeState } from "../../../src/support/task-workflow/runtimeLeaseStore.js";
 import type {
   WorkflowEvent,
   WorkflowProjection
@@ -257,13 +260,17 @@ test("review lifecycle derives controlled inputs and stable runtime binding iden
   const plan = [
     "[manifest](sources/manifest.yaml)",
     "`sources/indexes/demo.yaml`",
-    "[requirement](../../../../sources/requirements/demo/spec.md)"
+    "[requirement](../../../../sources/requirements/demo/spec.md)",
+    "[word](<../../../../sources/requirements/demo/V1.0 需求.docx>)",
+    "[encoded](../../../../sources/requirements/demo/V1.0%20需求.docx)"
   ].join("\n");
   const sources = referencedControlledSources(plan);
   assert.deepEqual(sources, [
     "sources/manifest.yaml",
     "sources/indexes/demo.yaml",
-    "../../../../sources/requirements/demo/spec.md"
+    "../../../../sources/requirements/demo/spec.md",
+    "../../../../sources/requirements/demo/V1.0 需求.docx",
+    "../../../../sources/requirements/demo/V1.0 需求.docx"
   ]);
   assert.deepEqual(
     requiredReviewInputs(
@@ -275,7 +282,7 @@ test("review lifecycle derives controlled inputs and stable runtime binding iden
     [
       "testcases/web/demo/request/plan.md",
       "testcases/web/demo/request/cases-main.md",
-      ...sources
+      ...sources.filter((source, index) => sources.indexOf(source) === index)
     ]
   );
   assert.equal(
@@ -375,4 +382,137 @@ test("resume recovery derives a host rebind action without inventing durable wor
       attempt: 1
     }]
   );
+});
+
+test("resume recovery suggests an idle rebind after a silent dispatch window", () => {
+  const projection = {
+    activities: {
+      "case-review-design": {
+        id: "case-review-design",
+        state: "RUNNING",
+        attempt: 1,
+        definition: {
+          id: "case-review-design",
+          kind: "review",
+          phase: "case_review",
+          dependencies: [],
+          required: true,
+          metadata: { role: "design" }
+        }
+      }
+    },
+    runningActivities: ["case-review-design"]
+  } as unknown as WorkflowProjection;
+  const now = Date.parse("2026-08-17T10:00:00.000Z");
+  const dispatchedAt = new Date(
+    now - REVIEWER_IDLE_REBIND_THRESHOLD_MS - 60_000
+  ).toISOString();
+  const events = [{
+    seq: 1,
+    type: "ReviewerDispatched",
+    occurredAt: dispatchedAt,
+    payload: {
+      activityId: "case-review-design",
+      batchId: "REV-01",
+      role: "design"
+    }
+  }] as unknown as WorkflowEvent[];
+  const bindingId = "REV-01:case-review-design:design";
+  const runtime = {
+    schemaVersion: "test-workflow-runtime-v2",
+    requestId: "web/demo/req",
+    revision: 1,
+    reviewerBindings: {
+      [bindingId]: {
+        bindingId,
+        activityId: "case-review-design",
+        batchId: "REV-01",
+        role: "design",
+        agentTaskId: "host-task-1",
+        status: "running",
+        startedAt: dispatchedAt,
+        updatedAt: dispatchedAt
+      }
+    },
+    leases: {},
+    inFlightOperations: {},
+    stagingRefs: {}
+  } as unknown as WorkflowRuntimeState;
+
+  const actions = planResumeRecovery({ projection, events, runtime, now });
+  assert.deepEqual(reviewerIdleRebindAction(actions), {
+    kind: "reviewer_idle_rebind",
+    activityId: "case-review-design",
+    batchId: "REV-01",
+    role: "design",
+    bindingId,
+    attempt: 1
+  });
+  assert.deepEqual(actions.filter((action) => action.kind === "clear_reviewer_binding"), [{
+    kind: "clear_reviewer_binding",
+    bindingId
+  }]);
+  assert.equal(reviewerIdleRebindAction(actions)?.kind, "reviewer_idle_rebind");
+  assert.ok(!actions.some((action) => action.kind === "reviewer_rebind_required"));
+});
+
+test("a recently refreshed reviewer binding does not trigger the idle rebind", () => {
+  const projection = {
+    activities: {
+      "case-review-design": {
+        id: "case-review-design",
+        state: "RUNNING",
+        attempt: 1,
+        definition: {
+          id: "case-review-design",
+          kind: "review",
+          phase: "case_review",
+          dependencies: [],
+          required: true,
+          metadata: { role: "design" }
+        }
+      }
+    },
+    runningActivities: ["case-review-design"]
+  } as unknown as WorkflowProjection;
+  const now = Date.parse("2026-08-17T10:00:00.000Z");
+  const staleDispatch = new Date(
+    now - REVIEWER_IDLE_REBIND_THRESHOLD_MS - 60_000
+  ).toISOString();
+  const freshBinding = new Date(now - 60_000).toISOString();
+  const events = [{
+    seq: 1,
+    type: "ReviewerDispatched",
+    occurredAt: staleDispatch,
+    payload: {
+      activityId: "case-review-design",
+      batchId: "REV-01",
+      role: "design"
+    }
+  }] as unknown as WorkflowEvent[];
+  const bindingId = "REV-01:case-review-design:design";
+  const runtime = {
+    schemaVersion: "test-workflow-runtime-v2",
+    requestId: "web/demo/req",
+    revision: 1,
+    reviewerBindings: {
+      [bindingId]: {
+        bindingId,
+        activityId: "case-review-design",
+        batchId: "REV-01",
+        role: "design",
+        agentTaskId: "host-task-1",
+        status: "running",
+        startedAt: staleDispatch,
+        updatedAt: freshBinding
+      }
+    },
+    leases: {},
+    inFlightOperations: {},
+    stagingRefs: {}
+  } as unknown as WorkflowRuntimeState;
+
+  const actions = planResumeRecovery({ projection, events, runtime, now });
+  assert.equal(reviewerIdleRebindAction(actions), undefined);
+  assert.ok(!actions.some((action) => action.kind === "clear_reviewer_binding"));
 });

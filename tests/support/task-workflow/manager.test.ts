@@ -27,6 +27,8 @@ import {
 } from "./formalDecisionFixture.js";
 
 const requestId = "web/demo/registration-1";
+const demoSource = "# Demo registration requirement\n";
+const demoSourceDigest = createHash("sha256").update(demoSource, "utf8").digest("hex");
 
 function compatibilityManager(root: string): DurableWorkflowManager {
   return new DurableWorkflowManager(requestId, root, {
@@ -135,93 +137,64 @@ function planMarkdown(
 ): string {
   return `# 测试计划
 
-结构版本：case-relation-projection-v1
-结构版本：rule-design-matrix-v1
+> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
+> 用例格式：testcase-v6-layered。
 
-## 基本信息
+## 请求默认值
 
 | 项目 | 内容 |
 | --- | --- |
 | 测试请求 | \`${requestId}\` |
 | 测试类型 | Web |
 | 状态 | ${status} |
-| 目标环境 | test（用户未指定环境，按本机长期偏好默认选择，待计划确认） |
+| 目标环境 | test |
+| 数据策略 | no_write |
 
 ## 测试范围
 
-### 包含
-
 - 注册字段与正常提交。
-
-### 不包含
-
 - 生产环境。
 
-## 输入资料
+## 请求内来源
 
-- manifest \`demo-product-requirement\`；sectionId \`registration\`。
+| 来源 ID | 可点击路径与精确定位 | 版本 / SHA-256 | 用途 |
+| --- | --- | --- | --- |
+| SRC-DEMO-001 | [需求](source.md)；注册章节 | ${demoSourceDigest} | 注册规则 |
 
-## 用例包目录
+## 需求索引
 
-| 用例包 | 覆盖模块或流程 | 计划覆盖范围 | 实际原子用例编号 | 特殊门禁 |
-| --- | --- | --- | --- | --- |
-| \`cases-registration.md\` | 注册 | 字段 | 手工值 | 无 |
+| REQ | sourceRef | 可验证需求 | 适用性 |
+| --- | --- | --- | --- |
+| REQ-DEMO-REG-001 | SRC-DEMO-001 | 注册字段与正常提交 | 适用 |
 
-## 覆盖矩阵
+## 规则设计台账
 
-| 覆盖域 | 适用性与依据 | 计划覆盖范围 | 结论 | 派生 caseId |
-| --- | --- | --- | --- | --- |
-| 业务功能与规则 | 注册资料已定义 | 注册字段与正常提交 | 已覆盖 | 手工值 |
-
-## 需求追溯矩阵
-
-| 追溯编号 | 需求来源与版本/章节 | 优先级 | 可验证业务规则 | 适用性 | 计划覆盖范围 | 派生 caseId | 覆盖状态 | 缺失信息或执行门禁 |
+| RULE | REQ | sourceRef | 条件 / 输入 | 可观察预期 | 设计方法 | caseIds | 风险 / 门禁 | 结论 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| REQ-DEMO-REG-001 | Demo PRD 1.0 | P0 | 注册字段与正常提交 | 适用 | 字段校验 | 手工值 | 已覆盖 | 无 |
+${caseIds.map((caseId) => `| RULE-${caseId} | REQ-DEMO-REG-001 | SRC-DEMO-001 | ${caseId} 合法注册输入 | 注册流程给出可观察结果 | 场景法 | ${caseId} | no_write | 已覆盖 |`).join("\n")}
 
-## 规则覆盖台账
+## 缺口与风险
 
-| 规则编号 | 需求追溯编号 | 来源定位 | 规则类型 | 触发条件/输入 | 可观察预期 | 设计证据 | 适用性 | 覆盖状态 | 关联 caseId | 依据、执行门禁或裁决 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-${caseIds.map((caseId) => `| RULE-${caseId} | REQ-DEMO-REG-001 | Demo PRD 1.0 | 业务规则 | ${caseId} 合法注册输入 | 注册流程给出可观察结果 | 场景法 | 适用 | 已覆盖 | ${caseId} | test 隔离环境，无写入 |`).join("\n")}
+- 无。
 
-## 规则设计矩阵
+## 评审与正式决定
 
-| 规则编号 | 字段或状态对象 | 必填/选填 | 有效、无效或边界输入 | 可观察预期 | 数据前置 | 执行门禁 | 关联 caseId | 结论 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-${caseIds.map((caseId) => `| RULE-${caseId} | 注册字段 | 必填 | ${caseId} 合法输入 | 页面显示资料定义的注册结果 | 已隔离测试账号 | 无写入 | ${caseId} | 已覆盖 |`).join("\n")}
+- 尚未评审。
 `;
 }
 
-function testcaseBody(caseId: string): string {
-  return `## 测试用例：${caseId}
-## 基本信息
-| 项目 | 内容 |
-| --- | --- |
-| 用例编号 | ${caseId} |
-| 需求追溯编号 | REQ-DEMO-REG-001 |
-| 规则覆盖编号 | RULE-${caseId} |
-| 数据策略 | no_write |
-| 风险等级 | 低 |
-## 来源
-- manifest \`demo-product-requirement\`；sectionId \`registration\`；SHA-256 \`${"a".repeat(64)}\`
-## 前置条件
-- ready
-## 操作步骤
-| 序号 | 操作 | 输入 | 预期 |
-| --- | --- | --- | --- |
-| 1 | 打开当前页 | 无 | 页面可见 |
-## 预期结果
-- result
-## 覆盖关联
-- relation
-## 合理推断
-- none
-## 待补充信息
-- none
-## 评审与演进回链
-- none
-`;
+function testcaseBody(caseId: string, action = "打开当前页", risk: "低" | "中" | "高" = "低", difference = ""): string {
+  return `<details open>
+<summary>${caseId}｜验证 ${caseId}｜P1｜${risk}风险</summary>
+
+> 规则：RULE-${caseId}
+> 前置条件：ready
+${difference ? `> 差异：${difference}\n` : ""}
+| 数据编号 | 步骤 | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- | --- |
+| — | 1 | ${action} | 无 | 页面可见 |
+
+</details>`;
 }
 
 function casesMarkdown(bodyCount: number): string {
@@ -230,21 +203,24 @@ function casesMarkdown(bodyCount: number): string {
 }
 
 function casesMarkdownFor(ids: string[], bodyCount: number): string {
-  return `# 用例包
+  const details = ids.slice(0, bodyCount);
+  return `> 结构版本：testcase-v6-layered。
 
-## 包信息
+# 用例集：注册
 
-| 项目 | 内容 |
-| --- | --- |
-| 用例包生成状态 | 草案完整 |
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：no_write
+> 本文档仅用于确认测试设计，不代表授权执行或业务写入。
+> 共 ${bodyCount} 条 ｜ P0 0 条 ｜ 高风险 0 条 ｜ 参数化 0 条
 
-## 用例目录
+## 快速索引
 
-| 用例编号 | 标题 |
-| --- | --- |
-${ids.map((id) => `| ${id} | ${id} |`).join("\n")}
+| 模块 | 用例编号 | 用例标题 | 优先级 | 风险 |
+| --- | --- | --- | --- | --- |
+${ids.map((id) => `| 注册 | ${id} | 验证 ${id} | P1 | 低 |`).join("\n")}
 
-${ids.slice(0, bodyCount).map(testcaseBody).join("\n")}
+## 模块：注册
+
+${details.map((id) => testcaseBody(id)).join("\n\n")}
 `;
 }
 
@@ -253,34 +229,28 @@ function mixedRiskCasesMarkdown(
   strictCaseIds: Set<string>,
   lightCaseIds: Set<string>
 ): string {
-  const bodies = ids.map((caseId) => {
-    const base = testcaseBody(caseId);
-    if (strictCaseIds.has(caseId)) {
-      return base
-        .replace("| 数据策略 | no_write |", "| 数据策略 | managed_cleanup |")
-        .replace("| 风险等级 | 低 |", "| 风险等级 | 高 |")
-        .replace("打开当前页", "发送一次 OTP 并提交受控合成申请");
-    }
-    if (lightCaseIds.has(caseId)) return base;
-    return base
-      .replace("| 风险等级 | 低 |", "| 风险等级 | 高 |")
-      .replace("打开当前页", "查询已注册企业的审核状态");
-  });
-  return `# 用例包
+  const bodies = ids.map((caseId) => strictCaseIds.has(caseId)
+    ? testcaseBody(caseId, "发送一次 OTP 并提交受控合成申请", "高", "数据策略=ephemeral_cleanup")
+    : lightCaseIds.has(caseId)
+      ? testcaseBody(caseId)
+      : testcaseBody(caseId, "查询已注册企业的审核状态", "高"));
+  return `> 结构版本：testcase-v6-layered。
 
-## 包信息
+# 用例集：注册
 
-| 项目 | 内容 |
-| --- | --- |
-| 用例包生成状态 | 草案完整 |
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：no_write
+> 本文档仅用于确认测试设计，不代表授权执行或业务写入。
+> 共 ${ids.length} 条 ｜ P0 0 条 ｜ 高风险 ${ids.length - lightCaseIds.size} 条 ｜ 参数化 0 条
 
-## 用例目录
+## 快速索引
 
-| 用例编号 | 标题 |
-| --- | --- |
-${ids.map((id) => `| ${id} | ${id} |`).join("\n")}
+| 模块 | 用例编号 | 用例标题 | 优先级 | 风险 |
+| --- | --- | --- | --- | --- |
+${ids.map((id) => `| 注册 | ${id} | 验证 ${id} | P1 | ${lightCaseIds.has(id) ? "低" : "高"} |`).join("\n")}
 
-${bodies.join("\n")}
+## 模块：注册
+
+${bodies.join("\n\n")}
 `;
 }
 
@@ -296,165 +266,47 @@ async function makeWorkspace(): Promise<string> {
   const requestRoot = resolve(root, "testcases/web/demo/registration-1");
   await mkdir(requestRoot, { recursive: true });
   const fixture = relationFixture(["DEMO-REG-001", "DEMO-REG-002", "DEMO-REG-003"], 3);
+  await writeFile(resolve(requestRoot, "source.md"), demoSource, "utf8");
   await writeFile(resolve(requestRoot, "plan.md"), fixture.plan, "utf8");
   await writeFile(resolve(requestRoot, "cases-registration.md"), fixture.cases, "utf8");
   return root;
 }
 
 function v7PlanMarkdown(): string {
-  return `# 测试设计索引：注册
-
-> 结构版本：test-design-index-v2 / rule-design-ledger-v2 / case-relation-projection-v2。
-
-## 基本信息
-
-| 项目 | 内容 |
-| --- | --- |
-| 测试请求 | ${requestId} |
-| 测试类型 | Web |
-| 目标环境 | test |
-
-## 测试范围
-
-### 包含
-
-- 注册。
-
-### 不包含
-
-- 无。
-
-## 资料来源
-
-| 来源 ID / sectionId | 可点击链接与精确定位 | 版本 / SHA-256 | 用途 |
-| --- | --- | --- | --- |
-| SRC-DEMO-001 | [需求](../../../../sources/demo.md)；注册章节 | ${"a".repeat(64)} | 范围和规则 |
-
-## 环境、静态资产与数据安全边界
-
-| 类别 | 已确定边界 | 未决项或门禁 |
-| --- | --- | --- |
-| 环境 | test | 无 |
-| 静态资产 | 不适用 | 无 |
-| 数据 | no_write | 无 |
-| 权限与安全 | 只读 | 无 |
-
-## 需求索引
-
-| 需求编号 | 来源定位 | 优先级 | 可验证需求 | 适用性与依据 |
-| --- | --- | --- | --- | --- |
-| REQ-DEMO-001 | SRC-DEMO-001；注册章节 | P0 | 有效输入可以完成注册 | 适用 |
-
-## 规则设计台账
-
-| 规则编号 | 需求编号 | 来源定位 | 覆盖域 | 触发条件 | 输入边界 | 可观察预期 | 设计技术 | 数据/执行门禁 | 关联 caseId | 结论 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| RULE-DEMO-001 | REQ-DEMO-001 | SRC-DEMO-001；注册章节 | 业务 | 提交 | 有效输入 | 显示注册成功页 | 场景法 | no_write | DEMO-REG-001 | 已覆盖 |
-
-## 用例包目录
-
-| 用例包 | 覆盖模块或流程 | 原子用例编号 | 特殊门禁 |
-| --- | --- | --- | --- |
-| \`cases-registration.md\` | 注册 | DEMO-REG-001 | 无 |
-
-## 变更影响分析
-
-| 变更编号 | 来源 | 受影响 REQ/RULE | 受影响 caseId | 影响结论 |
-| --- | --- | --- | --- | --- |
-| 无 | 无 | 无 | 无 | 无影响 |
-
-## 假设、缺口与风险
-
-### 假设
-
-- 无。
-
-### 缺口与待确认项
-
-- 无。
-
-### 风险
-
-- 无。
-
-## 评审记录
-
-| 字段 | 内容 |
-| --- | --- |
-| 评审批次与输入摘要 | deterministic_only |
-| 适用 reviewer 与依据 | 低风险 |
-| 最新结论 | 可提交确认 |
-| 发现与处置摘要 | 无 |
-
-## 正式用户决定
-
-| 决定类型 | subjectDigest | 正式决定 | 决定内容与适用范围 | 后续处理 |
-| --- | --- | --- | --- | --- |
-
-## 确认后的工程映射
-
-| caseId | 代码/图谱定位 | 自动化能力与脚本 | 定位及断言证据 | 数据/环境前置 | 风险或差异 |
-| --- | --- | --- | --- | --- | --- |
-`;
+  return planMarkdown(["DEMO-REG-001"]).replace(
+    "- 生产环境。",
+    "- 仅限 test 环境。"
+  );
 }
 
 function v7CasesMarkdown(): string {
-  return `> 结构版本：testcase-v2。
+  return `> 结构版本：testcase-v6-layered。
 
-# 用例包：注册
+# 用例集：注册
 
-## 用例目录
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：no_write
+> 本文档仅用于确认测试设计，不代表授权执行或业务写入。
+> 共 1 条 ｜ P0 1 条 ｜ 高风险 0 条 ｜ 参数化 0 条
 
-| 用例编号 | 标题 |
-| --- | --- |
-| DEMO-REG-001 | 注册成功 |
+## 快速索引
 
-## 测试用例：注册成功
+| 模块 | 用例编号 | 用例标题 | 优先级 | 风险 |
+| --- | --- | --- | --- | --- |
+| 注册 | DEMO-REG-001 | 验证注册成功 | P0 | 低 |
 
-## 基本信息
+## 模块：注册
 
-| 项目 | 内容 |
-| --- | --- |
-| 用例编号 | DEMO-REG-001 |
-| 需求编号 | REQ-DEMO-001 |
-| 规则编号 | RULE-DEMO-001 |
-| 模块 | 注册 |
-| 优先级 | P0 |
-| 测试类型 | Web |
-| 目标环境 | test |
-| 数据策略 | no_write |
-| 风险等级 | 低 |
+<details open>
+<summary>DEMO-REG-001｜验证注册成功｜P0｜低风险</summary>
 
-## 来源
+> 规则：RULE-DEMO-REG-001
+> 前置条件：注册页可用
 
-| manifest id / sectionId | 可点击链接与精确定位 | 来源 SHA-256 | 支持的步骤或预期 |
-| --- | --- | --- | --- |
-| SRC-DEMO-001 | [需求](../../../../sources/demo.md)；注册章节 | ${"a".repeat(64)} | 提交结果 |
+| 数据编号 | 步骤 | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- | --- |
+| — | 1 | 提交注册 | 有效非敏感输入 | 显示注册成功页 |
 
-## 前置条件
-
-- 注册页可用。
-- 数据预算与清理不适用。
-
-## 步骤
-
-| 序号 | 操作 | 输入 |
-| --- | --- | --- |
-| 1 | 提交注册 | 有效非敏感输入 |
-
-## 预期结果
-
-- 显示注册成功页。
-
-## 假设与待确认项
-
-### 假设
-
-- 无。
-
-### 待确认项
-
-- 无。
+</details>
 `;
 }
 
@@ -463,18 +315,89 @@ async function makeV7Workspace(): Promise<string> {
   const requestRoot = resolve(root, `testcases/${requestId}`);
   await mkdir(requestRoot, { recursive: true });
   await mkdir(resolve(root, "sources"), { recursive: true });
-  await writeFile(resolve(root, "sources/demo.md"), "# Demo registration requirement\n", "utf8");
+  await writeFile(resolve(root, "sources/demo.md"), demoSource, "utf8");
+  await writeFile(resolve(requestRoot, "source.md"), demoSource, "utf8");
   const projected = projectRelationProjection(v7PlanMarkdown(), {
-    "cases-registration.md": v7CasesMarkdown()
+    "cases.md": v7CasesMarkdown()
   });
   assert.deepEqual(projected.issues, []);
   await writeFile(resolve(requestRoot, "plan.md"), projected.plan, "utf8");
   await writeFile(
-    resolve(requestRoot, "cases-registration.md"),
-    projected.packages["cases-registration.md"]!,
+    resolve(requestRoot, "cases.md"),
+    projected.packages["cases.md"]!,
     "utf8"
   );
   return root;
+}
+
+async function advanceV7ToCaseConfirmation(
+  manager: DurableWorkflowManager,
+  batchId: string
+): Promise<string> {
+  const sourceSelection = await manager.startActivity("source-selection", "v7-delivery-worker");
+  await manager.succeedActivity("source-selection", {
+    claimToken: sourceSelection.claimToken,
+    verification: "source selection verified"
+  });
+  const generation = await manager.startActivity("candidate-generation", "v7-delivery-worker");
+  await manager.publishArtifactsAndSucceed("candidate-generation", {
+    claimToken: generation.claimToken,
+    publishId: `${batchId}-candidate-generation`,
+    verification: "candidate generated",
+    artifacts: [{
+      targetPath: `testcases/${requestId}/plan.md`,
+      content: await readFile(manager.planPath)
+    }, {
+      targetPath: `testcases/${requestId}/cases.md`,
+      content: await readFile(resolve(manager.requestRoot, "cases.md"))
+    }]
+  });
+  const candidateGate = await manager.startActivity("candidate-gate", "v7-delivery-worker");
+  await manager.succeedCandidateGate(candidateGate.claimToken);
+  const reviewActivities = Object.values((await manager.gate()).activities)
+    .filter((activity) => activity.definition.kind === "review" && activity.state === "READY");
+  if (reviewActivities.length) {
+    await manager.startReviewBatch({ batchId });
+    for (const activity of reviewActivities) {
+      const role = String(activity.definition.metadata?.role);
+      const agentTaskId = `${batchId}-${role}`;
+      await manager.dispatchReviewer({
+        activityId: activity.id,
+        batchId,
+        role,
+        agentTaskId
+      });
+      await manager.submitReviewer({
+        activityId: activity.id,
+        batchId,
+        role,
+        planEvidenceRef: manager.planPath,
+        agentTaskId
+      });
+    }
+  }
+  const resolution = await manager.startActivity(
+    "case-review-resolution",
+    "v7-delivery-review-worker"
+  );
+  await manager.publishArtifactsAndSucceed("case-review-resolution", {
+    claimToken: resolution.claimToken,
+    publishId: `${batchId}-resolution`,
+    verification: "deterministic review converged",
+    outcome: "converged",
+    artifacts: [{
+      targetPath: `testcases/${requestId}/plan.md`,
+      content: await readFile(manager.planPath)
+    }]
+  });
+  const subjectDigest = await manager.callbackSubjectDigest("case-confirmation");
+  await manager.requestCallback({
+    activityId: "case-confirmation",
+    callbackId: `${batchId}-case-confirmation`,
+    subjectDigest,
+    kind: "case_confirmation"
+  });
+  return subjectDigest;
 }
 
 async function appendWorkflowEvent(
@@ -528,6 +451,20 @@ async function advanceToReviewReady(manager: DurableWorkflowManager): Promise<vo
     await succeedManagerActivity(manager, activityId, claim.claimToken, `${activityId} verified`);
   }
 }
+
+test("task:initialize requires the delivery target selected before workflow creation", async () => {
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      "--import",
+      tsxLoaderPath,
+      manageCliPath,
+      "init",
+      "--request",
+      "web/demo/missing-delivery-target"
+    ]),
+    /Missing --delivery-target/
+  );
+});
 
 test("deleting disposable runtime preserves the exact event-derived business state", async () => {
   const root = await makeWorkspace();
@@ -1740,11 +1677,12 @@ test("a repository subject change while confirmation is waiting cannot be accept
       subjectDigest: requestedDigest,
       kind: "plan_confirmation"
     });
+    await recordFormalDecision(manager, "plan-confirmation", requestedDigest, "accepted");
     await writeFile(
       manager.planPath,
-      planMarkdown().replace(
-        "test（用户未指定环境",
-        "pre（用户未指定环境"
+      (await readFile(manager.planPath, "utf8")).replace(
+        "| 目标环境 | test |",
+        "| 目标环境 | pre |"
       ),
       "utf8"
     );
@@ -2037,7 +1975,7 @@ test("due retries stay dormant while the workflow is suspended or globally block
   }
 });
 
-test("manager completeness gate rejects a labelled 2-of-13 package without advancing review", async () => {
+test("manager relation gate rejects a labelled 2-of-13 package before completeness", async () => {
   const root = await makeWorkspace();
   try {
     const manager = compatibilityManager(root);
@@ -2045,10 +1983,10 @@ test("manager completeness gate rejects a labelled 2-of-13 package without advan
       { length: 13 },
       (_, index) => `DEMO-REG-${String(index + 1).padStart(3, "0")}`
     );
-    const fixture = relationFixture(ids, 2);
+    const fixture = relationFixture(ids, 13);
     await writeFile(
       resolve(manager.requestRoot, "cases-registration.md"),
-      fixture.cases,
+      casesMarkdownFor(ids, 2),
       "utf8"
     );
     await writeFile(
@@ -2080,37 +2018,32 @@ test("manager completeness gate rejects a labelled 2-of-13 package without advan
       subjectDigest,
       resolution: "accepted"
     });
-    for (const activityId of [
+    const generation = await manager.startActivity(
       "case-generation-cases-registration-md",
-      "relation-sync"
-    ]) {
-      const claim = await manager.startActivity(activityId, "worker-a");
-      await succeedManagerActivity(
-        manager,
-        activityId,
-        claim.claimToken,
-        `${activityId} verified`
-      );
-    }
-    const completeness = await manager.startActivity(
-      "completeness-validation",
       "worker-a"
     );
+    await succeedManagerActivity(
+      manager,
+      "case-generation-cases-registration-md",
+      generation.claimToken,
+      "case generation verified"
+    );
+    const relationSync = await manager.startActivity("relation-sync", "worker-a");
     const headBefore = (await manager.gate()).head;
 
     await assert.rejects(
       succeedManagerActivity(
         manager,
-        "completeness-validation",
-        completeness.claimToken,
-        "incorrect completeness claim"
+        "relation-sync",
+        relationSync.claimToken,
+        "incorrect relation claim"
       ),
-      /Expected 13 testcase bodies but found 2/
+      /Relationship synchronization is not current/
     );
 
     const after = await manager.gate();
     assert.deepEqual(after.head, headBefore);
-    assert.equal(after.activities["completeness-validation"]?.state, "RUNNING");
+    assert.equal(after.activities["relation-sync"]?.state, "RUNNING");
     assert.equal(after.activities["case-review-requirements"]?.state, "PENDING");
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -2138,6 +2071,7 @@ test("review batch freezes every plan-referenced controlled source and refuses a
       ? started.payload.inputRefs.map((value) => String((value as { path?: string }).path)).sort()
       : [];
     assert.deepEqual(paths, [
+      resolve(manager.requestRoot, "source.md"),
       `sources/requirements/demo/registration.md`,
       `testcases/${requestId}/cases-registration.md`,
       `testcases/${requestId}/plan.md`
@@ -2199,8 +2133,8 @@ test("manager persists v2 risk with combined and strict-only impact scope v3", a
     await writeFile(
       manager.planPath,
       projected.plan.replace(
-        "## 输入资料",
-        "## 安全与数据边界\n\n- 风险标记：实际发送短信验证码。\n\n## 输入资料"
+        "## 请求内来源",
+        "## 安全与数据边界\n\n- 风险标记：实际发送短信验证码。\n\n## 请求内来源"
       ),
       "utf8"
     );
@@ -2306,8 +2240,8 @@ test("manager persists v2 risk with combined and strict-only impact scope v3", a
     await writeFile(
       casePath,
       (await readFile(casePath, "utf8")).replace(
-        "| 数据策略 | managed_cleanup |",
-        "| 数据策略 | tracked_residual |"
+        "数据策略=ephemeral_cleanup",
+        "数据策略=tracked_residual"
       ),
       "utf8"
     );
@@ -2394,79 +2328,92 @@ test("light workflow reaches deterministic review resolution without reviewer ev
   }
 });
 
+test("testcase_only completes the v7 workflow when the complete case set is accepted", async () => {
+  const root = await makeV7Workspace();
+  try {
+    const manager = new DurableWorkflowManager(requestId, root);
+    await manager.initialize({
+      capabilities: ["web"],
+      casePackages: ["cases.md"],
+      deliveryTarget: "testcase_only"
+    });
+    const subjectDigest = await advanceV7ToCaseConfirmation(
+      manager,
+      "REV-V7-TESTCASE-ONLY"
+    );
+    await recordFormalDecision(manager, "case-confirmation", subjectDigest, "accepted");
+    const completed = await manager.resolveCallback({
+      activityId: "case-confirmation",
+      callbackId: "REV-V7-TESTCASE-ONLY-case-confirmation",
+      subjectDigest,
+      resolution: "accepted"
+    });
+
+    assert.equal(completed.deliveryTarget, "testcase_only");
+    assert.equal(completed.workflowState, "SUCCEEDED");
+    assert.equal(completed.reply.kind, "final");
+    assert.equal(completed.activities.build, undefined);
+    assert.ok((await manager.events()).some((event) =>
+      event.type === "WorkflowCompleted"
+      && event.payload.deliveryTarget === "testcase_only"
+    ));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("script_only completes after build without readiness or execution authorization", async () => {
+  const root = await makeV7Workspace();
+  try {
+    const manager = new DurableWorkflowManager(requestId, root);
+    await manager.initialize({
+      capabilities: ["web"],
+      casePackages: ["cases.md"],
+      deliveryTarget: "script_only"
+    });
+    const subjectDigest = await advanceV7ToCaseConfirmation(
+      manager,
+      "REV-V7-SCRIPT-ONLY"
+    );
+    await recordFormalDecision(manager, "case-confirmation", subjectDigest, "accepted");
+    let view = await manager.resolveCallback({
+      activityId: "case-confirmation",
+      callbackId: "REV-V7-SCRIPT-ONLY-case-confirmation",
+      subjectDigest,
+      resolution: "accepted"
+    });
+    assert.equal(view.activities.build?.state, "READY");
+    assert.equal(view.activities.readiness, undefined);
+
+    const build = await manager.startActivity("build", "v7-script-delivery-worker");
+    await succeedManagerActivity(
+      manager,
+      "build",
+      build.claimToken,
+      "candidate scripts and static gates verified"
+    );
+    view = await manager.gate();
+    assert.equal(view.deliveryTarget, "script_only");
+    assert.equal(view.workflowState, "SUCCEEDED");
+    assert.equal(view.activities["execution-authorization"], undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("v7 revision_requested invalidates design and resume repairs a crash before invalidation", async () => {
   const root = await makeV7Workspace();
   try {
     const manager = new DurableWorkflowManager(requestId, root);
     await manager.initialize({
       capabilities: ["web"],
-      casePackages: ["cases-registration.md"]
+      casePackages: ["cases.md"]
     });
-    for (const activityId of [
-      "source-selection",
-      "plan-validation",
-      "case-generation-cases-registration-md",
-      "relation-sync",
-      "completeness-validation"
-    ]) {
-      const claim = await manager.startActivity(activityId, "v7-design-worker");
-      await succeedManagerActivity(
-        manager,
-        activityId,
-        claim.claimToken,
-        `${activityId} verified`
-      );
-    }
-    const reviewActivities = Object.values((await manager.gate()).activities)
-      .filter((activity) => activity.definition.kind === "review");
-    if (reviewActivities.length) {
-      const batchId = "REV-V7-REVISION";
-      await manager.startReviewBatch({ batchId });
-      for (const activity of reviewActivities) {
-        const role = activity.definition.metadata?.role;
-        assert.equal(typeof role, "string");
-        const agentTaskId = `${batchId}-${String(role)}`;
-        await manager.dispatchReviewer({
-          activityId: activity.id,
-          batchId,
-          role: String(role),
-          agentTaskId
-        });
-        await manager.submitReviewer({
-          activityId: activity.id,
-          batchId,
-          role: String(role),
-          planEvidenceRef: manager.planPath,
-          agentTaskId
-        });
-      }
-    }
-    const reviewResolution = await manager.startActivity(
-      "case-review-resolution",
-      "v7-review-worker"
-    );
-    await manager.publishArtifactsAndSucceed("case-review-resolution", {
-      claimToken: reviewResolution.claimToken,
-      publishId: "v7-review-resolution",
-      verification: "deterministic review converged",
-      outcome: "converged",
-      artifacts: [{
-        targetPath: `testcases/${requestId}/plan.md`,
-        content: await readFile(manager.planPath)
-      }]
-    });
-
-    const subjectDigest = await manager.callbackSubjectDigest("case-confirmation");
-    await manager.requestCallback({
-      activityId: "case-confirmation",
-      callbackId: "v7-case-confirmation",
-      subjectDigest,
-      kind: "case_confirmation"
-    });
+    const subjectDigest = await advanceV7ToCaseConfirmation(manager, "REV-V7-REVISION");
     await assert.rejects(
       manager.resolveCallback({
         activityId: "case-confirmation",
-        callbackId: "v7-case-confirmation",
+        callbackId: "REV-V7-REVISION-case-confirmation",
         subjectDigest,
         resolution: "rejected"
       }),
@@ -2480,11 +2427,11 @@ test("v7 revision_requested invalidates design and resume repairs a crash before
     );
     const revised = await manager.resolveCallback({
       activityId: "case-confirmation",
-      callbackId: "v7-case-confirmation",
+      callbackId: "REV-V7-REVISION-case-confirmation",
       subjectDigest,
       resolution: "revision_requested"
     });
-    assert.equal(revised.activities["plan-validation"]?.state, "READY");
+    assert.equal(revised.activities["source-selection"]?.state, "READY");
     assert.notEqual(revised.activities.build?.state, "READY");
     assert.ok((await manager.events()).some((event) =>
       event.type === "ActivitiesInvalidated"
@@ -2503,32 +2450,65 @@ test("v7 revision_requested invalidates design and resume repairs a crash before
     assert.equal(beforeResume.activities["case-confirmation"]?.state, "BLOCKED");
     assert.notEqual(beforeResume.activities.build?.state, "READY");
     const recovered = await recoveredManager.resume("recover v7 revision invalidation");
-    assert.equal(recovered.activities["plan-validation"]?.state, "READY");
+    assert.equal(recovered.activities["source-selection"]?.state, "READY");
     assert.notEqual(recovered.activities.build?.state, "READY");
     assert.ok((await recoveredManager.events()).some((event) =>
       event.type === "ActivitiesInvalidated"
       && event.payload.reason === "case_confirmation_revision_requested"
     ));
 
-    const casePath = resolve(recoveredManager.requestRoot, "cases-registration.md");
+    const casePath = resolve(recoveredManager.requestRoot, "cases.md");
     await writeFile(
       casePath,
       (await readFile(casePath, "utf8")).replace("显示注册成功页", "显示注册完成页"),
       "utf8"
     );
-    for (const activityId of [
-      "plan-validation",
-      "case-generation-cases-registration-md",
-      "relation-sync",
-      "completeness-validation"
-    ]) {
-      const claim = await recoveredManager.startActivity(activityId, "v7-revision-worker");
-      await succeedManagerActivity(
-        recoveredManager,
-        activityId,
-        claim.claimToken,
-        `${activityId} rerun after revision`
-      );
+    const reselection = await recoveredManager.startActivity(
+      "source-selection",
+      "v7-revision-worker"
+    );
+    await recoveredManager.succeedActivity("source-selection", {
+      claimToken: reselection.claimToken,
+      verification: "source selection reverified"
+    });
+    const regenerated = await recoveredManager.startActivity(
+      "candidate-generation",
+      "v7-revision-worker"
+    );
+    await recoveredManager.publishArtifactsAndSucceed("candidate-generation", {
+      claimToken: regenerated.claimToken,
+      publishId: "v7-revised-candidate-generation",
+      verification: "revised candidate generated",
+      artifacts: [{
+        targetPath: `testcases/${requestId}/plan.md`,
+        content: await readFile(recoveredManager.planPath)
+      }, {
+        targetPath: `testcases/${requestId}/cases.md`,
+        content: await readFile(casePath)
+      }]
+    });
+    const revisedGate = await recoveredManager.startActivity(
+      "candidate-gate",
+      "v7-revision-worker"
+    );
+    await recoveredManager.succeedCandidateGate(revisedGate.claimToken);
+    const revisedReviewActivities = Object.values((await recoveredManager.gate()).activities)
+      .filter((activity) => activity.definition.kind === "review" && activity.state === "READY");
+    if (revisedReviewActivities.length) {
+      const batchId = "REV-V7-REVISION-2";
+      await recoveredManager.startReviewBatch({ batchId });
+      for (const activity of revisedReviewActivities) {
+        const role = String(activity.definition.metadata?.role);
+        const agentTaskId = `${batchId}-${role}`;
+        await recoveredManager.dispatchReviewer({ activityId: activity.id, batchId, role, agentTaskId });
+        await recoveredManager.submitReviewer({
+          activityId: activity.id,
+          batchId,
+          role,
+          planEvidenceRef: recoveredManager.planPath,
+          agentTaskId
+        });
+      }
     }
     const revisedReview = await recoveredManager.startActivity(
       "case-review-resolution",

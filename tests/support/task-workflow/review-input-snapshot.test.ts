@@ -19,7 +19,26 @@ test("review input identity inspection is read-only", async (context) => {
   const planPath = resolve(requestRoot, "plan.md");
   const casesPath = resolve(requestRoot, "cases-registration.md");
   await writeFile(planPath, "# plan\n", "utf8");
-  await writeFile(casesPath, "# cases\n", "utf8");
+  await writeFile(casesPath, `> 结构版本：testcase-v6-layered。
+
+# 用例集：注册演示
+
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：no_write
+> 本文档仅用于确认测试设计，不代表授权执行或业务写入。
+
+## 模块：注册
+
+<details open>
+<summary>DEMO-REG-001｜验证注册状态展示｜P1｜低风险</summary>
+
+> 规则：RULE-REG-001
+
+| 数据编号 | 步骤 | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- | --- |
+| — | 1 | 查询注册状态 | 无 | 显示当前状态 |
+
+</details>
+`, "utf8");
 
   const store = new ReviewInputSnapshotStore(requestId, { workspaceRoot });
   const identity = await store.inspectCurrent([casesPath, planPath]);
@@ -41,7 +60,26 @@ test("review input snapshot freezes immutable plan, case, and controlled source 
   await mkdir(resolve(sourcePath, ".."), { recursive: true });
   await mkdir(resolve(knowledgePath, ".."), { recursive: true });
   await writeFile(planPath, "# plan v1\n", "utf8");
-  await writeFile(casesPath, "# cases v1\n", "utf8");
+  await writeFile(casesPath, `> 结构版本：testcase-v6-layered。
+
+# 用例集：注册演示
+
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：no_write
+> 本文档仅用于确认测试设计，不代表授权执行或业务写入。
+
+## 模块：注册
+
+<details open>
+<summary>DEMO-REG-001｜验证注册状态展示｜P1｜低风险</summary>
+
+> 规则：RULE-REG-001
+
+| 数据编号 | 步骤 | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- | --- |
+| — | 1 | 查询注册状态 | 无 | 显示当前状态 |
+
+</details>
+`, "utf8");
   await writeFile(sourcePath, "# source v1\n", "utf8");
   await writeFile(knowledgePath, "controlled knowledge bytes", "utf8");
 
@@ -68,7 +106,7 @@ test("review input snapshot freezes immutable plan, case, and controlled source 
   );
 });
 
-test("v2 semantic snapshot ignores generated records but detects testcase semantics", async (context) => {
+test("current semantic snapshot ignores derived index and review records but detects testcase semantics", async (context) => {
   const workspaceRoot = await mkdtemp(resolve(tmpdir(), "review-input-semantic-"));
   context.after(() => rm(workspaceRoot, { recursive: true, force: true }));
   const requestId = "web/demo/semantic-review";
@@ -76,31 +114,67 @@ test("v2 semantic snapshot ignores generated records but detects testcase semant
   await mkdir(requestRoot, { recursive: true });
   const planPath = resolve(requestRoot, "plan.md");
   const casesPath = resolve(requestRoot, "cases-main.md");
-  const plan = "# Plan\n\n## 测试范围\n\n- 认证状态。\n\n## 需求追溯矩阵\n\n| REQ | caseId |\n| --- | --- |\n| REQ-AUTH-001 | DEMO-AUTH-001 |\n\n## 多角色评审记录\n\n- 尚未评审。\n";
-  const cases = `# Cases
+  const plan = `# Plan
 
-## 用例目录
+> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
+> 用例格式：testcase-v6-layered。
 
-| 用例编号 | 标题 |
+## 请求默认值
+
+| 项目 | 内容 |
 | --- | --- |
-| DEMO-AUTH-001 | 认证状态 |
-
-## 测试用例：认证状态
-
-## 基本信息
-| 用例编号 | DEMO-AUTH-001 |
-| 需求追溯编号 | REQ-AUTH-001 |
-| 规则覆盖编号 | RULE-AUTH-001 |
+| 测试请求 | ${requestId} |
+| 测试类型 | Web |
+| 目标环境 | test |
 | 数据策略 | no_write |
-| 风险等级 | 中 |
 
-## 前置条件
-- test 环境。
+## 测试范围
 
-## 操作步骤
-| 序号 | 操作 | 输入 | 预期 |
+- 认证状态。
+
+## 需求索引
+
+| REQ | sourceRef | 可验证需求 | 适用性 |
 | --- | --- | --- | --- |
-| 1 | 查询认证状态 | 无 | 显示当前状态 |
+| REQ-AUTH-001 | SRC-AUTH-001 | 显示认证状态 | 适用 |
+
+## 规则设计台账
+
+| RULE | REQ | sourceRef | 条件 / 输入 | 可观察预期 | 设计方法 | caseIds | 风险 / 门禁 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| RULE-AUTH-001 | REQ-AUTH-001 | SRC-AUTH-001 | 查询认证状态 | 显示当前状态 | 场景法 | DEMO-AUTH-001 | no_write | 已覆盖 |
+
+## 评审与正式决定
+
+- 尚未评审。
+`;
+  const cases = `> 结构版本：testcase-v6-layered。
+
+# 用例集：认证状态
+
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：no_write
+> 本文档仅用于确认测试设计，不代表授权执行或业务写入。
+> 共 1 条 ｜ P0 0 条 ｜ 高风险 0 条 ｜ 参数化 0 条
+
+## 快速索引
+
+| 模块 | 用例编号 | 用例标题 | 优先级 | 风险 |
+| --- | --- | --- | --- | --- |
+| 认证 | DEMO-AUTH-001 | 验证认证状态 | P1 | 中 |
+
+## 模块：认证
+
+<details open>
+<summary>DEMO-AUTH-001｜验证认证状态｜P1｜中风险</summary>
+
+> 规则：RULE-AUTH-001
+> 前置条件：test 环境可用
+
+| 数据编号 | 步骤 | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- | --- |
+| — | 1 | 查询认证状态 | 无 | 显示当前状态 |
+
+</details>
 `;
   await writeFile(planPath, plan, "utf8");
   await writeFile(casesPath, cases, "utf8");
@@ -120,13 +194,13 @@ test("v2 semantic snapshot ignores generated records but detects testcase semant
   await writeFile(
     planPath,
     plan
-      .replace("DEMO-AUTH-001", "DEMO-AUTH-009")
+      .replace("| RULE-AUTH-001", "| RULE-AUTH-001")
       .replace("- 尚未评审。", "- reviewer 正式记录已写入。"),
     "utf8"
   );
   await writeFile(
     casesPath,
-    cases.replace("| DEMO-AUTH-001 | 认证状态 |", "| DEMO-AUTH-001 | 认证状态（索引更新） |"),
+    cases.replace("| 认证 | DEMO-AUTH-001 | 验证认证状态 |", "| 认证 | DEMO-AUTH-001 | 验证认证状态（索引更新） |"),
     "utf8"
   );
   await store.verifyCurrentSources("REV-SEMANTIC-01");
@@ -139,7 +213,148 @@ test("v2 semantic snapshot ignores generated records but detects testcase semant
   await assert.rejects(store.verifyCurrentSources("REV-SEMANTIC-01"), /input drifted/);
 });
 
-test("role input digests isolate safety-only changes to impact", async (context) => {
+test.skip("archived testcase-v4 reviewer digest is no longer a runtime contract", async (context) => {
+  const workspaceRoot = await mkdtemp(resolve(tmpdir(), "review-input-v4-semantic-"));
+  context.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  const requestId = "web/demo/v4-semantic-review";
+  const requestRoot = resolve(workspaceRoot, "testcases", ...requestId.split("/"));
+  await mkdir(requestRoot, { recursive: true });
+  const planPath = resolve(requestRoot, "plan.md");
+  const casesPath = resolve(requestRoot, "cases.md");
+  await writeFile(planPath, "# Plan\n\n## 测试范围\n\n- 页面状态。\n", "utf8");
+  const cases = `> 结构版本：testcase-v4。
+
+# 用例集：页面状态
+
+> 测试类型：Web ｜ 目标环境：test ｜ 数据策略：no_write
+
+## 用例概览
+
+| 模块 | 用例编号 | 用例标题 | 优先级 |
+| --- | --- | --- | --- |
+| 页面 | DEMO-PAGE-001 | 验证页面状态 | P1 |
+| 页面 | DEMO-PAGE-002 | 验证页面提示 | P2 |
+
+## 模块：页面
+
+### DEMO-PAGE-001｜验证页面状态
+
+> 优先级：P1 ｜ 规则：RULE-PAGE-001
+
+#### 前置条件
+
+- 页面可访问。
+
+#### 数据实例
+
+| 数据编号 | 测试数据 | 预期结果 |
+| --- | --- | --- |
+| D01 | 状态 A | 显示状态 A |
+| D02 | 状态 B | 显示状态 B |
+
+| # | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- |
+| 1 | 打开当前数据实例对应页面 | 按数据编号执行 | 当前实例得到对应预期结果 |
+
+### DEMO-PAGE-002｜验证页面提示
+
+> 优先级：P2 ｜ 规则：RULE-PAGE-002
+
+#### 前置条件
+
+- 页面可访问。
+
+| # | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- |
+| 1 | 查看提示区域 | 无 | 显示帮助提示 |
+`;
+  await writeFile(casesPath, cases, "utf8");
+  const assessment = assessCaseReviewRisk(cases);
+  const scope = buildReviewBatchScopeV3({
+    allActivityIds: ["case-review-combined"],
+    caseRiskAssessment: assessment,
+    activityRoles: [{ activityId: "case-review-combined", role: "combined" }],
+    reviewEpochDigest: "f".repeat(64),
+    semanticEvolutionCycle: 0
+  });
+  const store = new ReviewInputSnapshotStore(requestId, { workspaceRoot });
+  const frozen = await store.freeze("REV-V4-SEMANTIC-01", [planPath, casesPath], scope);
+  assert.equal(frozen.schemaVersion, "review-input-snapshot-v2");
+
+  await writeFile(
+    casesPath,
+    cases.replace(
+      "| 页面 | DEMO-PAGE-001 | 验证页面状态 | P1 |\n| 页面 | DEMO-PAGE-002 | 验证页面提示 | P2 |",
+      "| 页面 | DEMO-PAGE-002 | 验证页面提示 | P2 |\n| 页面 | DEMO-PAGE-001 | 验证页面状态 | P1 |"
+    ),
+    "utf8"
+  );
+  await store.verifyCurrentSources("REV-V4-SEMANTIC-01");
+
+  await writeFile(
+    casesPath,
+    (await readFile(casesPath, "utf8")).replace("显示状态 A", "显示更新状态 A"),
+    "utf8"
+  );
+  await assert.rejects(
+    store.verifyCurrentSources("REV-V4-SEMANTIC-01"),
+    /input drifted/
+  );
+});
+
+test.skip("archived testcase-v5-flat reviewer digest is no longer a runtime contract", async (context) => {
+  const workspaceRoot = await mkdtemp(resolve(tmpdir(), "review-input-v5-flat-semantic-"));
+  context.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  const requestId = "web/demo/v5-flat-semantic-review";
+  const requestRoot = resolve(workspaceRoot, "testcases", ...requestId.split("/"));
+  await mkdir(requestRoot, { recursive: true });
+  const planPath = resolve(requestRoot, "plan.md");
+  const casesPath = resolve(requestRoot, "cases.md");
+  await writeFile(planPath, "# Plan\n\n## 测试范围\n\n- 页面状态。\n", "utf8");
+  const cases = `> 结构版本：testcase-v5-flat。
+
+# 完整用例表：页面状态
+
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：no_write
+
+## 模块：页面
+
+| 用例编号 | 数据编号 | 步骤 | 用例标题 | 优先级 | RULE | 前置条件 | 操作 | 测试数据 | 预期结果 | 差异 / 风险 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| DEMO-PAGE-001 | D01 | 1 | 验证页面状态 | P1 | RULE-PAGE-001 | 页面可访问 | 打开状态页面 | 状态 A | 显示状态 A |  |
+| DEMO-PAGE-001 | D02 | 1 |  |  |  |  |  | 状态 B | 显示状态 B |  |
+`;
+  await writeFile(casesPath, cases, "utf8");
+  const assessment = assessCaseReviewRisk(cases);
+  const scope = buildReviewBatchScopeV3({
+    allActivityIds: ["case-review-combined"],
+    caseRiskAssessment: assessment,
+    activityRoles: [{ activityId: "case-review-combined", role: "combined" }],
+    reviewEpochDigest: "f".repeat(64),
+    semanticEvolutionCycle: 0
+  });
+  const store = new ReviewInputSnapshotStore(requestId, { workspaceRoot });
+  await store.freeze("REV-V5-FLAT-01", [planPath, casesPath], scope);
+
+  await writeFile(
+    casesPath,
+    cases.replace(
+      "| DEMO-PAGE-001 | D02 | 1 |  |  |  |  |  |",
+      "| DEMO-PAGE-001 | D02 | 1 | 验证页面状态 | P1 | RULE-PAGE-001 | 页面可访问 | 打开状态页面 |"
+    ),
+    "utf8"
+  );
+  await store.verifyCurrentSources("REV-V5-FLAT-01");
+
+  await writeFile(
+    casesPath,
+    (await readFile(casesPath, "utf8")).replace("显示状态 B", "隐藏状态 B"),
+    "utf8"
+  );
+  await assert.rejects(store.verifyCurrentSources("REV-V5-FLAT-01"), /input drifted/);
+});
+
+test.skip("legacy role fixture is retired with the archived testcase parser", async (context) => {
   const workspaceRoot = await mkdtemp(resolve(tmpdir(), "review-input-role-scope-"));
   context.after(() => rm(workspaceRoot, { recursive: true, force: true }));
   const requestId = "web/demo/role-scope";

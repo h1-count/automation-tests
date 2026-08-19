@@ -1,5 +1,7 @@
 # 工程脚本入口
 
+<!-- role: command-index-only -->
+
 本文件只登记命令入口。规则正文见 [测试规范索引](../docs/testing/README.md)，参数以 `package.json` 和各命令 `--help` 为准。
 
 | 用途 | 命令 |
@@ -11,6 +13,7 @@
 | 规则设计 | `npm run check:rule-design -- <plan.md>` |
 | 用例关系 | `npm run testcases:sync-relations -- <暂存请求目录>`、`npm run testcases:sync-relations -- --check <最终请求目录>` |
 | 资料索引 | `npm run check:knowledge-index`、`npm run knowledge:search -- ...` |
+| 项目经验 | `npm run knowledge:manage -- candidate-add --project <project> --scope <scope> --observation <observation> --judgment <judgment> --strategy <strategy> --evidence <ref> --validation <condition>`；验证后使用 `candidate-promote` |
 | 稳定套件 | `npm run test:suite:assess -- ...`、`npm run test:suite:status -- ...` |
 | Durable Workflow | `npm run task:initialize -- ...`、`npm run task:resume -- ...`、`npm run task:status -- ...`、`npm run task:gate -- ...`、`npm run task:manage -- --help` |
 | 定位修复回退 | `npm run task:manage -- execution-scope-reopen --request <id> --selector-repair <incident-path>` |
@@ -19,5 +22,6 @@
 | 报告 | `npm run report:playwright`、`npm run report:allure` |
 | 本机资源恢复 | `npm run test-data:recover` |
 | 完整重置 | `npm run reset:full-test-state -- --dry-run`、`npm run reset:full-test-state` |
+| 归档非当前请求 | `npm run archive:noncurrent-requests -- --dry-run`、`npm run archive:noncurrent-requests` |
 
 新增、重命名或删除入口时，必须同步更新 `package.json` 与本表。

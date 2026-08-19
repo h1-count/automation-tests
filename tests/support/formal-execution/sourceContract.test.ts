@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 import { defineFormalExecutionManifest } from "../../../src/support/formal-execution/manifest.js";
+import { resolveFormalSourceContract } from "../../../src/support/formal-execution/sourceContract.js";
 import {
   assertFormalBuildAuthorizationCompatibility,
   resolveSelectorBuildIdentity,
@@ -102,7 +103,7 @@ documents:
 `);
 
   const planPath = resolve(root, `testcases/${requestId}/plan.md`);
-  await writeFile(planPath, plan(decisionType, decisionDigest));
+  await writeFile(planPath, plan(decisionType, decisionDigest, sourceDigest));
   await writeFile(
     resolve(root, `testcases/${requestId}/cases-source.md`),
     testcasePackage(authorityDigest)
@@ -258,6 +259,95 @@ test("v3 source authority verifies registry, rule design, testcase source and fr
   }
 });
 
+test("formal source authority refuses archived testcase-v4 packages", async () => {
+  const fixture = await createFixture();
+  try {
+    const sourceDigest = sha256(Buffer.from("reviewed business source", "utf8"));
+    await writeFile(fixture.planPath, v4Plan(sourceDigest), "utf8");
+    await rm(resolve(fixture.root, `testcases/${requestId}/cases-source.md`));
+    await writeFile(
+      resolve(fixture.root, `testcases/${requestId}/cases.md`),
+      v4TestcasePackage(),
+      "utf8"
+    );
+    await assert.rejects(
+      resolveSelectorBuildIdentity({ manifest: fixture.manifest, workspaceRoot: fixture.root }),
+      /不是当前 testcase-v6-layered/u
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("formal source authority refuses archived testcase-v5-flat packages", async () => {
+  const fixture = await createFixture();
+  try {
+    const sourceDigest = sha256(Buffer.from("reviewed business source", "utf8"));
+    await writeFile(fixture.planPath, v5Plan(sourceDigest), "utf8");
+    await rm(resolve(fixture.root, `testcases/${requestId}/cases-source.md`));
+    await writeFile(
+      resolve(fixture.root, `testcases/${requestId}/cases.md`),
+      v5ParameterizedTestcasePackage(),
+      "utf8"
+    );
+    await assert.rejects(
+      resolveSelectorBuildIdentity({ manifest: fixture.manifest, workspaceRoot: fixture.root }),
+      /不是当前 testcase-v6-layered/u
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("current testcase-v6 parameter rows require one canonical business Oracle per dataId", async () => {
+  const fixture = await createFixture();
+  try {
+    await writeFile(
+      resolve(fixture.root, `testcases/${requestId}/cases-source.md`),
+      v6ParameterizedTestcasePackage(),
+      "utf8"
+    );
+    await assert.rejects(
+      resolveSelectorBuildIdentity({ manifest: fixture.manifest, workspaceRoot: fixture.root }),
+      /missing instance-d01, instance-d02/u
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("archived parameterized testcase-v4 cannot re-enter formal execution", async () => {
+  const fixture = await createFixture();
+  try {
+    const sourceDigest = sha256(Buffer.from("reviewed business source", "utf8"));
+    await writeFile(fixture.planPath, v4Plan(sourceDigest), "utf8");
+    await rm(resolve(fixture.root, `testcases/${requestId}/cases-source.md`));
+    const parameterized = v4TestcasePackage().replace(
+      "- 合成只读数据可用。\n\n| # |",
+      `- 合成只读数据可用。
+
+#### 数据实例
+
+| 数据编号 | 测试数据 | 预期结果 |
+| --- | --- | --- |
+| D01 | 最小合法值 | 页面显示最小值结果 |
+| D02 | 最大合法值 | 页面显示最大值结果 |
+
+| # |`
+    ).replace(
+      "| 1 | 查看来源状态 | 无 | 页面显示已审核值且状态保持稳定 |",
+      "| 1 | 核对当前数据实例 | 按数据编号执行 | 当前实例得到对应预期结果 |"
+    );
+    await writeFile(resolve(fixture.root, `testcases/${requestId}/cases.md`), parameterized, "utf8");
+    await assert.rejects(
+      resolveSelectorBuildIdentity({ manifest: fixture.manifest, workspaceRoot: fixture.root }),
+      /不是当前 testcase-v6-layered/u
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("v3 formal execution rejects a legacy pre-readiness authorization", async () => {
   const fixture = await createFixture();
   try {
@@ -331,7 +421,7 @@ test("v3 source authority rejects registered-source, nested-file and plan/packag
   try {
     await assert.rejects(
       resolveSelectorBuildIdentity({ manifest: wrongAuthority.manifest, workspaceRoot: wrongAuthority.root }),
-      /digest differs from its oracle authority/u
+      /testcase source table does not match/u
     );
   } finally {
     await rm(wrongAuthority.root, { recursive: true, force: true });
@@ -519,55 +609,148 @@ test("postcondition oracle must bind a declared query capability contract", asyn
   }
 });
 
-function plan(decisionType: string, decisionDigest: string): string {
-  return `# Plan
-
+function plan(decisionType: string, decisionDigest: string, sourceDigest: string): string {
+  return `${v6Plan(sourceDigest)}
 ## 正式用户决定
 
 | 决定类型 | subjectDigest | 正式决定 | 决定内容与适用范围 | 后续处理 |
 | --- | --- | --- | --- | --- |
 | ${decisionType} | \`${decisionDigest}\` | accepted | source behavior | continue |
-
-## 需求追溯矩阵
-
-| REQ | 需求 |
-| --- | --- |
-| ${requirementId} | source behavior |
-
-## 规则覆盖台账
-
-| RULE | REQ | 规则 | 类型 | 来源 | 决策 | 边界 | 适用性 | 风险 | caseId |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| ${ruleRef} | ${requirementId} | source rule | 业务规则 | registered | yes | exact | 适用 | low | ${caseId} |
-
-## 规则设计矩阵
-
-结构版本：rule-design-matrix-v1
-
-| RULE | 字段/状态 | 必填性 | 输入 | 可观察预期 | 数据前置 | 执行门禁 | 关联 caseId | 结论 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| ${ruleRef} | source state | 必填 | reviewed value | 页面显示已审核值且状态保持稳定 | 合成只读数据 | test 环境 | ${caseId} | 已覆盖 |
 `;
 }
 
-function testcasePackage(sourceDigest: string): string {
-  return `# Cases
+function testcasePackage(_sourceDigest: string): string {
+  return v6TestcasePackage();
+}
 
-## 测试用例：source behavior
+function v6Plan(sourceDigest: string): string {
+  return v4Plan(sourceDigest).replace("testcase-v4", "testcase-v6-layered");
+}
 
-## 基本信息
+function v6TestcasePackage(): string {
+  return `> 结构版本：testcase-v6-layered。
+
+# 用例集：source behavior
+
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：no_write
+> 本文档仅用于确认测试设计，不代表授权执行或业务写入。
+> 共 1 条 ｜ P0 0 条 ｜ 高风险 0 条 ｜ 参数化 0 条
+
+## 快速索引
+
+| 模块 | 用例编号 | 用例标题 | 优先级 | 风险 |
+| --- | --- | --- | --- | --- |
+| 来源验证 | ${caseId} | 验证 source behavior | P1 | 低 |
+
+## 模块：来源验证
+
+<details open>
+<summary>${caseId}｜验证 source behavior｜P1｜低风险</summary>
+
+> 规则：${ruleRef}
+> 前置条件：合成只读数据可用
+
+| 数据编号 | 步骤 | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- | --- |
+| — | 1 | 查看来源状态 | 无 | 页面显示已审核值且状态保持稳定 |
+
+</details>
+`;
+}
+
+function v6ParameterizedTestcasePackage(): string {
+  return v6TestcasePackage()
+    .replace("参数化 0 条", "参数化 1 条")
+    .replace(
+      "| — | 1 | 查看来源状态 | 无 | 页面显示已审核值且状态保持稳定 |",
+      [
+        "| D01 | 1 | 查看来源状态 | 最小合法值 | 页面显示最小值结果 |",
+        "| D02 | 1 | 查看来源状态 | 最大合法值 | 页面显示最大值结果 |"
+      ].join("\n")
+    );
+}
+
+function v4Plan(sourceDigest: string): string {
+  return `# 测试设计索引：source behavior
+
+> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
+> 用例格式：testcase-v4。
+
+## 请求默认值
 
 | 项目 | 内容 |
 | --- | --- |
-| 用例编号 | ${caseId} |
-| 需求追溯编号 | ${requirementId} |
-| 规则覆盖编号 | ${ruleRef} |
+| 测试请求 | ${requestId} |
+| 测试类型 | Web |
+| 目标环境 | test |
+| 数据策略 | no_write |
 
-## 来源
+## 请求内来源
 
-| 资料类型 | 路径或链接 | 版本/说明 |
-| --- | --- | --- |
-| 需求文档 | source.txt | manifest \`${materialId}\`；sectionId \`${sectionId}\`；SHA-256 \`${sourceDigest}\` |
+| 来源 ID | 可点击路径与精确定位 | 版本 / SHA-256 | 用途 |
+| --- | --- | --- | --- |
+| SRC-SOURCE-001 | [需求](sources/requirements/source.txt)；materialId ${materialId}；sectionId ${sectionId} | ${sourceDigest} | source behavior |
+
+## 需求索引
+
+| REQ | sourceRef | 可验证需求 | 适用性 |
+| --- | --- | --- | --- |
+| ${requirementId} | SRC-SOURCE-001 | source behavior | 适用 |
+
+## 规则设计台账
+
+| RULE | REQ | sourceRef | 条件 / 输入 | 可观察预期 | 设计方法 | caseIds | 风险 / 门禁 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ${ruleRef} | ${requirementId} | SRC-SOURCE-001 | reviewed value | 页面显示已审核值且状态保持稳定 | 场景法 | ${caseId} | no_write | 已覆盖 |
+`;
+}
+
+function v4TestcasePackage(): string {
+  return `> 结构版本：testcase-v4。
+
+# 用例集：source behavior
+
+> 测试类型：Web ｜ 目标环境：test ｜ 数据策略：no_write
+
+## 用例概览
+
+| 模块 | 用例编号 | 用例标题 | 优先级 |
+| --- | --- | --- | --- |
+| 来源验证 | ${caseId} | 验证 source behavior | P1 |
+
+## 模块：来源验证
+
+### ${caseId}｜验证 source behavior
+
+> 优先级：P1 ｜ 规则：${ruleRef}
+
+#### 前置条件
+
+- 合成只读数据可用。
+
+| # | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- |
+| 1 | 查看来源状态 | 无 | 页面显示已审核值且状态保持稳定 |
+`;
+}
+
+function v5Plan(sourceDigest: string): string {
+  return v4Plan(sourceDigest).replace("testcase-v4", "testcase-v5-flat");
+}
+
+function v5ParameterizedTestcasePackage(): string {
+  return `> 结构版本：testcase-v5-flat。
+
+# 完整用例表：source behavior
+
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：no_write
+
+## 模块：来源验证
+
+| 用例编号 | 数据编号 | 步骤 | 用例标题 | 优先级 | RULE | 前置条件 | 操作 | 测试数据 | 预期结果 | 差异 / 风险 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ${caseId} | D01 | 1 | 验证 source behavior | P1 | ${ruleRef} | 合成只读数据可用 | 查看来源状态 | 最小合法值 | 页面显示最小值结果 |  |
+| ${caseId} | D02 | 1 |  |  |  |  |  | 最大合法值 | 页面显示最大值结果 |  |
 `;
 }
 

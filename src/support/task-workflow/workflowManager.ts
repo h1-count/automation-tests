@@ -53,6 +53,7 @@ import {
   latestReviewerSubmission,
   prepareReviewLifecycleEvent,
   referencedControlledSources,
+  referencedRequestLocalSources,
   requiredReviewInputs,
   reviewBatchActivityIds,
   reviewBatchCoveredActivityIds,
@@ -77,17 +78,22 @@ import {
 } from "./reviewBatchScope.js";
 import { assessCaseReviewRisk } from "./caseReviewRisk.js";
 import { evaluateReviewReadiness } from "./reviewReadiness.js";
+import {
+  evaluateCandidateGate,
+  type CandidateGateReport
+} from "./candidateGate.js";
 import { projectSimplifiedPhases, projectV7UserPhases } from "./simplifiedPhase.js";
 import {
   planResumeRecovery,
+  reviewerIdleRebindAction,
   reviewerRebindAction
 } from "./resumeRecovery.js";
 import {
-  CASE_RELATION_PROJECTION_MARKER,
-  CASE_RELATION_PROJECTION_MARKER_V2,
+  CASE_RELATION_PROJECTION_MARKER_V3,
   projectRelationProjection,
   validateRuleDesignMatrix
 } from "../testcase/relationProjection.js";
+import { CURRENT_RULE_LEDGER_MARKER } from "../testcase/relationContract.js";
 import {
   assertExecutionAuthorizationInputsCurrent
 } from "./executionAuthorizationSubject.js";
@@ -111,6 +117,7 @@ import type {
   TestOutcome,
   WorkflowActorType,
   WorkflowCapability,
+  WorkflowDeliveryTarget,
   WorkflowEvent,
   WorkflowEventType,
   WorkflowHistoryHead,
@@ -123,6 +130,63 @@ import {
   type StableTestSuiteProfile,
   type TestSuiteReuseAssessment
 } from "../test-suite/stableSuite.js";
+
+const policyAutoNoWriteOperations = new Set([
+  "authenticate_test_account",
+  "query_postcondition"
+]);
+
+export function isPolicyAutoNoWriteSubject(
+  raw: Record<string, unknown>,
+  adaptive: boolean
+): boolean {
+  if (!adaptive) {
+    return raw.schemaVersion === "execution-authorization-v5"
+      && raw.authorizationMode === "policy_auto_no_write"
+      && raw.dataWritePolicy === "no_write"
+      && Array.isArray(raw.caseScopes)
+      && raw.caseScopes.every((scope) =>
+        scope !== null
+        && typeof scope === "object"
+        && (scope as Record<string, unknown>).dataWritePolicy === "no_write"
+      );
+  }
+  if (raw.schemaVersion !== "execution-authorization-v4"
+    || !["test", "pre"].includes(String(raw.environment).toLowerCase())
+    || raw.dataWritePolicy !== "no_write"
+    || !Array.isArray(raw.allowedOperations)
+    || raw.allowedOperations.length === 0
+    || raw.allowedOperations.some((operation) =>
+      typeof operation !== "string" || !policyAutoNoWriteOperations.has(operation)
+    )
+    || !Array.isArray(raw.caseScopes)
+    || raw.caseScopes.length === 0
+    || !Array.isArray(raw.deferredCases)
+    || raw.deferredCases.length > 0
+    || !Array.isArray(raw.capabilityEvidence)
+    || raw.capabilityEvidence.some((item) =>
+      !item || typeof item !== "object" || (item as Record<string, unknown>).available !== true
+    )
+    || (Array.isArray(raw.externalTransitions) && raw.externalTransitions.length > 0)
+    || !Array.isArray(raw.resourceBudgets)
+    || raw.resourceBudgets.some((item) =>
+      !item || typeof item !== "object" || (item as Record<string, unknown>).maxCreates !== 0
+    )) {
+    return false;
+  }
+  return raw.caseScopes.every((scope) => {
+    if (!scope || typeof scope !== "object") return false;
+    const record = scope as Record<string, unknown>;
+    return record.dataWritePolicy === "no_write"
+      && record.permissionProfile === "read_only"
+      && Array.isArray(record.requiredOperations)
+      && record.requiredOperations.every((operation) =>
+        typeof operation === "string" && policyAutoNoWriteOperations.has(operation)
+      )
+      && Array.isArray(record.producesResources)
+      && record.producesResources.length === 0;
+  });
+}
 
 export interface WorkflowGateView extends WorkflowProjection {
   schemaVersion: "workflow-gate-v2";
@@ -172,6 +236,7 @@ export interface InitializeWorkflowInput {
   planPath?: string;
   capabilities?: WorkflowCapability[];
   writesData?: boolean;
+  deliveryTarget?: WorkflowDeliveryTarget;
   casePackages?: string[];
   reviewerRoles?: string[];
   executionIsolation?: {
@@ -322,6 +387,7 @@ function parseCapability(requestId: string): WorkflowCapability[] {
 }
 
 function parseCasePackages(plan: string): string[] {
+  if (plan.includes("rule-design-ledger-v3")) return ["cases.md"];
   const fromTable = [...plan.matchAll(/^\|\s*`(cases-[a-z0-9][a-z0-9-]*\.md)`\s*\|/gm)]
     .map((match) => match[1]!);
   return [...new Set(fromTable)];
@@ -364,6 +430,7 @@ function safeRelativePath(workspaceRoot: string, path: string): string {
 const reviewResolutionOwnedSections = new Set([
   "评审记录",
   "多角色评审记录",
+  "评审与正式决定",
   "用例集评审与演进"
 ]);
 
@@ -468,10 +535,15 @@ export class DurableWorkflowManager {
       writesData: input.writesData
         ?? (stableSuite
           ? stableSuite.dataWritePolicy !== "no_write"
-          : /\|\s*(?:managed_cleanup|tracked_residual|必须清理|受控残留)\s*\|/.test(plan)),
+          : /\|\s*(?:ephemeral_cleanup|reusable_fixture|tracked_residual|managed_cleanup|必须清理|受控残留)\s*\|/.test(plan)),
+      deliveryTarget: input.deliveryTarget ?? "full_run",
       casePackages: input.casePackages
         ?? (stableSuite
           ? stableSuite.casePackages.map((item) => basename(item.path))
+          : this.compatibilityDefinitionVersion === "v5"
+            ? (await readdir(this.requestRoot))
+                .filter((name) => name === "cases.md" || /^cases-[a-z0-9][a-z0-9-]*\.md$/u.test(name))
+                .sort()
           : parseCasePackages(plan)),
       reviewerRoles: input.reviewerRoles,
       executionIsolation: input.executionIsolation
@@ -596,7 +668,7 @@ export class DurableWorkflowManager {
     ) {
       const activity = projection.activities[activityId];
       const generatedPackages = Object.values(projection.activities)
-        .filter((activity) => activity.definition.kind === "case_generation")
+        .filter((activity) => ["case_generation", "candidate_generation"].includes(activity.definition.kind))
         .map((activity) => {
           const packageName = activity.definition.metadata?.package;
           if (typeof packageName !== "string") {
@@ -766,12 +838,14 @@ export class DurableWorkflowManager {
     }
     await this.applyCallbackSubjectDrift(projection);
     this.applyActiveFormalCallbackPublicationWait(projection, runtime, at);
-    const rebind = reviewerRebindAction(planResumeRecovery({
+    const recoveryActions = planResumeRecovery({
       projection,
       events,
       runtime,
       now: at
-    }));
+    });
+    const rebind = reviewerRebindAction(recoveryActions)
+      ?? reviewerIdleRebindAction(recoveryActions);
     if (
       rebind
       && !["SUSPENDED", "BLOCKED", "WAITING_HUMAN", "SUCCEEDED", "FAILED", "CANCELLED"]
@@ -783,7 +857,9 @@ export class DurableWorkflowManager {
         projection.continuation = {
           kind: "continue_now",
           referenceId: action,
-          reason: "reviewer_runtime_rebind_required"
+          reason: rebind.kind === "reviewer_idle_rebind"
+            ? "reviewer_idle_rebind_suggested"
+            : "reviewer_runtime_rebind_required"
         };
       }
       projection.reply = {
@@ -874,6 +950,33 @@ export class DurableWorkflowManager {
     return this.succeedActivityInternal(activityId, input, false);
   }
 
+  async succeedCandidateGate(claimToken: string): Promise<{
+    report: CandidateGateReport;
+    projection: WorkflowGateView;
+  }> {
+    const before = await this.gate();
+    const activity = before.activities["candidate-gate"];
+    if (!activity || activity.definition.kind !== "candidate_gate") {
+      throw new Error("The current workflow has no candidate-gate-v1 activity.");
+    }
+    if (activity.state !== "RUNNING") {
+      throw new Error("candidate-gate must be running before evaluation.");
+    }
+    const report = evaluateCandidateGate({
+      plan: await readFile(this.planPath, "utf8"),
+      cases: await readFile(resolve(this.requestRoot, "cases.md"), "utf8")
+    });
+    if (report.issues.length > 0) {
+      throw new Error(`Candidate gate failed:\n${report.issues.join("\n")}`);
+    }
+    const projection = await this.succeedActivityInternal("candidate-gate", {
+      claimToken,
+      verification: `${report.schemaVersion}:${report.digest}:${report.profile}`,
+      outcome: report.reviewMode
+    }, false);
+    return { report, projection };
+  }
+
   private async succeedActivityInternal(
     activityId: string,
     input: ActivitySucceedInput,
@@ -888,7 +991,11 @@ export class DurableWorkflowManager {
     if (activity.definition.kind === "policy_authorization" && !policyAuthorizationDigest) {
       throw new Error("policy_auto_no_write must use the dedicated deterministic authorization path.");
     }
-    if (activity.definition.kind !== "policy_authorization" && policyAuthorizationDigest) {
+    const adaptiveAuthorization = activity.definition.kind === "execution_authorization"
+      && activity.definition.metadata?.decisionMode === "risk_adaptive";
+    if (activity.definition.kind !== "policy_authorization"
+      && !adaptiveAuthorization
+      && policyAuthorizationDigest) {
       throw new Error(`Activity ${activityId} cannot attach a policy authorization digest.`);
     }
     const formalCompletionActivity = ["run", "report"].includes(activity.definition.kind);
@@ -1014,8 +1121,14 @@ export class DurableWorkflowManager {
       ], before.head);
     } else if (
       ["v5", "v6", "v7"].includes(before.definitionVersion)
-      && activity.definition.kind === "report"
       && activity.definition.metadata?.completesWorkflow === true
+      && (
+        activity.definition.kind === "report"
+        || (
+          before.definitionVersion === "v7"
+          && activity.definition.metadata.deliveryTarget !== undefined
+        )
+      )
     ) {
       await this.appendSequence([
         {
@@ -1028,9 +1141,10 @@ export class DurableWorkflowManager {
           type: "WorkflowCompleted",
           actorType: "system",
           payload: {
-            ...(input.testOutcome ? { testOutcome: input.testOutcome } : {})
+            ...(input.testOutcome ? { testOutcome: input.testOutcome } : {}),
+            ...(before.deliveryTarget ? { deliveryTarget: before.deliveryTarget } : {})
           },
-          idempotencyKey: `${before.runId}/workflow-completed/${input.testOutcome ?? "none"}`
+          idempotencyKey: `${before.runId}/workflow-completed/${before.deliveryTarget ?? input.testOutcome ?? "none"}`
         }
       ], before.head);
     } else {
@@ -1049,7 +1163,10 @@ export class DurableWorkflowManager {
   async finalizePolicyNoWriteAuthorization(): Promise<WorkflowGateView> {
     const before = await this.gate();
     const activity = before.activities["execution-authorization"];
-    if (!activity || activity.definition.kind !== "policy_authorization") {
+    const stablePolicy = activity?.definition.kind === "policy_authorization";
+    const adaptivePolicy = activity?.definition.kind === "execution_authorization"
+      && activity.definition.metadata?.decisionMode === "risk_adaptive";
+    if (!activity || (!stablePolicy && !adaptivePolicy)) {
       throw new Error("Workflow does not use policy_auto_no_write authorization.");
     }
     if (activity.state === "SUCCEEDED") return before;
@@ -1059,13 +1176,7 @@ export class DurableWorkflowManager {
     const subject = await this.executionAuthorizationSubject(before);
     const artifactPath = resolve(this.requestRoot, "execution-authorization.json");
     const raw = JSON.parse(await readFile(artifactPath, "utf8")) as Record<string, unknown>;
-    if (raw.schemaVersion !== "execution-authorization-v5"
-      || raw.authorizationMode !== "policy_auto_no_write"
-      || raw.dataWritePolicy !== "no_write"
-      || !Array.isArray(raw.caseScopes)
-      || raw.caseScopes.some((scope) =>
-        !scope || typeof scope !== "object" || (scope as Record<string, unknown>).dataWritePolicy !== "no_write"
-      )) {
+    if (!isPolicyAutoNoWriteSubject(raw, adaptivePolicy)) {
       throw new Error("policy_auto_no_write subject contains a write-capable scope.");
     }
     const started = await this.startActivity(
@@ -1076,7 +1187,7 @@ export class DurableWorkflowManager {
       "execution-authorization",
       {
         claimToken: started.claimToken,
-        verification: `policy_auto_no_write:${subject.digest}`,
+        verification: `${adaptivePolicy ? "policy_auto_no_write_v2" : "policy_auto_no_write"}:${subject.digest}`,
         outcome: "accepted"
       },
       false,
@@ -1084,6 +1195,29 @@ export class DurableWorkflowManager {
       undefined,
       subject.digest
     );
+  }
+
+  async autoFinalizePolicyNoWriteAuthorizationIfEligible(): Promise<{
+    authorized: boolean;
+    workflow: WorkflowGateView;
+  }> {
+    const before = await this.gate();
+    const activity = before.activities["execution-authorization"];
+    if (activity?.definition.kind !== "execution_authorization"
+      || activity.definition.metadata?.decisionMode !== "risk_adaptive"
+      || activity.state !== "READY") {
+      return { authorized: false, workflow: before };
+    }
+    const raw = JSON.parse(
+      await readFile(resolve(this.requestRoot, "execution-authorization.json"), "utf8")
+    ) as Record<string, unknown>;
+    if (!isPolicyAutoNoWriteSubject(raw, true)) {
+      return { authorized: false, workflow: before };
+    }
+    return {
+      authorized: true,
+      workflow: await this.finalizePolicyNoWriteAuthorization()
+    };
   }
 
   async completeFormalRun(input: FormalRunCompletionInput): Promise<FormalCompletionResult> {
@@ -1804,6 +1938,21 @@ export class DurableWorkflowManager {
           idempotencyKey: `${before.runId}/workflow-cancelled/callback/${input.callbackId}`
         }
       ], before.head);
+    } else if (
+      before.definitionVersion === "v7"
+      && input.resolution === "accepted"
+      && activity?.definition.metadata?.completesWorkflow === true
+      && activity.definition.metadata.deliveryTarget === "testcase_only"
+    ) {
+      await this.appendSequence([
+        callbackDraft,
+        {
+          type: "WorkflowCompleted",
+          actorType: "system",
+          payload: { deliveryTarget: "testcase_only" },
+          idempotencyKey: `${before.runId}/workflow-completed/testcase_only`
+        }
+      ], before.head);
     } else {
       await this.append(
         callbackDraft.type,
@@ -1840,6 +1989,8 @@ export class DurableWorkflowManager {
       ? ["impact-location"]
       : view.activities["plan-validation"]
         ? ["plan-validation"]
+        : view.activities["source-selection"]
+          ? ["source-selection"]
         : [];
     if (!roots.length) {
       throw new Error("Version-7 case revision has no design-generation root to invalidate.");
@@ -2786,6 +2937,7 @@ export class DurableWorkflowManager {
     let before = await this.gate();
     before = await this.recoverCallbackPlanPublications(before);
     before = await this.recoverV7CaseRevisionInvalidation(before);
+    before = await this.activateEvolvedReviewBatch(before);
     before = await this.tryCarryForwardLegacyPlanConfirmation(before);
     if (
       before.continuation.reason === "callback_subject_drift_reconcile"
@@ -3081,7 +3233,9 @@ export class DurableWorkflowManager {
     }
     const events = await this.events();
     const reviewActivities = Object.values(before.activities)
-      .filter((activity) => activity.definition.kind === "review")
+      .filter((activity) =>
+        activity.definition.kind === "review" && activity.state !== "CANCELLED"
+      )
       .sort((left, right) => left.id.localeCompare(right.id));
     const allActivityIds = reviewActivities.map((activity) => activity.id);
     const requiredActivityIds = input.activityIds?.length
@@ -3127,7 +3281,9 @@ export class DurableWorkflowManager {
     const packagePaths = this.reviewPackagePaths(before);
     const caseRiskAssessment = assessCaseReviewRisk(await Promise.all(
       packagePaths.map((path) => readFile(path, "utf8"))
-    ));
+    ), {
+      plan: await readFile(this.planPath, "utf8")
+    });
     const activityRoles = reviewActivities.map((activity) => {
       const role = activity.definition.metadata?.role;
       if (typeof role !== "string" || !role.trim()) {
@@ -3168,7 +3324,10 @@ export class DurableWorkflowManager {
         }
       }
     }
+    const usesSemanticReviewScope = before.reviewPolicy?.schemaVersion === "review-policy-v2"
+      || before.reviewPolicy?.schemaVersion === "review-policy-v3";
     const maxSemanticCycles = before.reviewPolicy?.schemaVersion === "review-policy-v2"
+      || before.reviewPolicy?.schemaVersion === "review-policy-v3"
       ? before.reviewPolicy.maxSemanticEvolutionCycles
       : Number.POSITIVE_INFINITY;
     if (semanticEvolutionCycle > maxSemanticCycles) {
@@ -3188,7 +3347,7 @@ export class DurableWorkflowManager {
       );
       return this.gate();
     }
-    const scope = before.reviewPolicy?.schemaVersion === "review-policy-v2"
+    const scope = usesSemanticReviewScope
       ? buildReviewBatchScopeV3({
           allActivityIds,
           requiredActivityIds,
@@ -3200,7 +3359,8 @@ export class DurableWorkflowManager {
           caseRiskAssessment,
           activityRoles,
           reviewEpochDigest,
-          semanticEvolutionCycle
+          semanticEvolutionCycle,
+          adaptiveSemanticReview: before.reviewPolicy?.schemaVersion === "review-policy-v3"
         })
       : buildReviewBatchScopeV2({
       allActivityIds,
@@ -3219,7 +3379,7 @@ export class DurableWorkflowManager {
       inputPaths,
       scope
     );
-    return this.appendValidatedReviewLifecycleEvent({
+    await this.appendValidatedReviewLifecycleEvent({
       type: "ReviewBatchStarted",
       batchId: input.batchId,
       inputDigest: snapshot.combinedDigest,
@@ -3237,6 +3397,101 @@ export class DurableWorkflowManager {
       roleInputDigests: snapshot.roleInputDigests,
       readinessDigest: readiness.digest,
       readinessWarnings: readiness.warnings
+    });
+    return this.activateEvolvedReviewBatch(await this.gate());
+  }
+
+  /**
+   * A reviewer-derived evolution can be published before its targeted next
+   * batch is frozen. If the process stops between those two durable facts, the
+   * old reviewer activities remain SUCCEEDED even though the new batch has
+   * valid, undispatched inputs. Reopen only the reviewers explicitly owned by
+   * that new batch; reused reviewer evidence and the predecessor batch stay
+   * immutable.
+   */
+  private async activateEvolvedReviewBatch(
+    view: WorkflowGateView
+  ): Promise<WorkflowGateView> {
+    if (
+      view.definitionVersion !== "v7"
+      || view.activities["case-review-resolution"]?.outcome !== "evolve"
+      || view.activities["case-review-evolution"]?.state !== "SUCCEEDED"
+    ) {
+      return view;
+    }
+    const events = await this.events();
+    const batch = [...events].reverse().find((event) => {
+      if (event.type !== "ReviewBatchStarted" || event.payload.scope === undefined) {
+        return false;
+      }
+      try {
+        const scope = parseReviewBatchScope(event.payload.scope);
+        return scope.schemaVersion === "review-batch-scope-v3"
+          && typeof scope.baseBatchId === "string";
+      } catch {
+        return false;
+      }
+    });
+    if (
+      !batch
+      || typeof batch.payload.batchId !== "string"
+      || typeof batch.payload.inputDigest !== "string"
+    ) {
+      return view;
+    }
+    const scope = parseReviewBatchScope(batch.payload.scope);
+    if (scope.schemaVersion !== "review-batch-scope-v3" || !scope.baseBatchId) {
+      return view;
+    }
+    const alreadyActivated = events.some((event) =>
+      event.seq > batch.seq
+      && (
+        (
+          ["ReviewerDispatched", "ReviewerSubmitted", "ReviewBatchInvalidated"]
+            .includes(event.type)
+          && event.payload.batchId === batch.payload.batchId
+        )
+        || (
+          event.type === "ActivitiesInvalidated"
+          && Array.isArray(event.payload.activityIds)
+          && scope.requiredActivityIds.some((activityId) =>
+            (event.payload.activityIds as SafeJsonValue[]).includes(activityId)
+          )
+        )
+      )
+    );
+    if (alreadyActivated) return view;
+
+    const baseBatch = reviewBatchStarted(events, scope.baseBatchId);
+    if (
+      !baseBatch
+      || typeof baseBatch.payload.inputDigest !== "string"
+      || baseBatch.payload.inputDigest === batch.payload.inputDigest
+    ) {
+      return view;
+    }
+    const succeededReviewers = scope.requiredActivityIds.filter((activityId) =>
+      view.activities[activityId]?.definition.kind === "review"
+      && view.activities[activityId]?.state === "SUCCEEDED"
+    );
+    if (!succeededReviewers.length) return view;
+    if (scope.requiredActivityIds.some((activityId) => {
+      const activity = view.activities[activityId];
+      return !activity
+        || activity.definition.kind !== "review"
+        || !["PENDING", "READY", "SUCCEEDED"].includes(activity.state);
+    })) {
+      return view;
+    }
+    const currentInputDigest = await this.verifyOrRepairReviewSnapshot(
+      batch.payload.batchId
+    );
+    if (currentInputDigest !== batch.payload.inputDigest) return view;
+
+    return this.invalidateActivities({
+      activityIds: succeededReviewers,
+      reason: "activate_evolved_review_batch",
+      subjectDigest: batch.payload.inputDigest
     });
   }
 
@@ -3554,12 +3809,20 @@ export class DurableWorkflowManager {
           reference
         );
       });
-    return requiredReviewInputs(this.planPath, packages, referencedSources, additional);
+    const requestLocalSources = referencedRequestLocalSources(plan).map((reference) =>
+      resolve(dirname(this.planPath), reference)
+    );
+    return requiredReviewInputs(
+      this.planPath,
+      packages,
+      [...referencedSources, ...requestLocalSources],
+      additional
+    );
   }
 
   private reviewPackagePaths(view: WorkflowProjection): string[] {
     return Object.values(view.activities)
-      .filter((activity) => activity.definition.kind === "case_generation")
+      .filter((activity) => ["case_generation", "candidate_generation"].includes(activity.definition.kind))
       .map((activity) => {
         const packageName = activity.definition.metadata?.package;
         if (typeof packageName !== "string") throw new Error(`Case activity ${activity.id} has no package binding.`);
@@ -3600,6 +3863,17 @@ export class DurableWorkflowManager {
     kind: WorkflowProjection["activities"][string]["definition"]["kind"],
     metadata: WorkflowProjection["activities"][string]["definition"]["metadata"]
   ): Promise<void> {
+    if (kind === "candidate_generation") {
+      const packageName = metadata?.package;
+      if (packageName !== "cases.md") {
+        throw new Error("Version-7 candidate generation must bind cases.md.");
+      }
+      this.assertV7DesignText(
+        await readFile(this.planPath, "utf8"),
+        { [packageName]: await readFile(resolve(this.requestRoot, packageName), "utf8") }
+      );
+      return;
+    }
     if (kind === "plan_validation") {
       this.assertV7DesignText(await readFile(this.planPath, "utf8"));
       return;
@@ -3619,19 +3893,19 @@ export class DurableWorkflowManager {
     packages: Record<string, string> = {}
   ): void {
     if (plan !== undefined) {
-      for (const marker of [
-        "test-design-index-v2",
-        "rule-design-ledger-v2",
-        "case-relation-projection-v2"
-      ]) {
+      for (const marker of ["test-design-index-v3", "rule-design-ledger-v3", "case-relation-projection-v3"]) {
         if (!plan.includes(marker)) {
           throw new Error(`Version-7 plan.md must use ${marker}.`);
         }
       }
     }
     for (const [name, content] of Object.entries(packages)) {
-      if (!/结构版本[：:]\s*testcase-v2\b/u.test(content)) {
-        throw new Error(`Version-7 case package ${name} must use testcase-v2.`);
+      const expectedVersion = "testcase-v6-layered";
+      if (plan !== undefined && !plan.includes(expectedVersion)) {
+        throw new Error(`Version-7 candidate-generation plan.md must declare ${expectedVersion}.`);
+      }
+      if (!new RegExp(`结构版本[：:]\\s*${expectedVersion}\\b`, "u").test(content)) {
+        throw new Error(`Version-7 case package ${name} must use ${expectedVersion}.`);
       }
     }
   }
@@ -3749,8 +4023,46 @@ export class DurableWorkflowManager {
     if (!activity || activity.definition.kind !== "review" || activity.state !== "RUNNING") {
       throw new Error(`Reviewer activity ${input.activityId} is not running.`);
     }
+    const events = await this.events();
+    const adaptiveProfile = [...events].reverse().find((event) =>
+      event.type === "ActivitySucceeded"
+      && event.payload.activityId === "candidate-gate"
+      && typeof event.payload.verification === "string"
+    )?.payload.verification;
+    const leanAdaptiveReview = before.reviewPolicy?.schemaVersion === "review-policy-v3"
+      && typeof adaptiveProfile === "string"
+      && adaptiveProfile.endsWith(":lean")
+      && activity.definition.metadata?.failurePolicy === "lean_warning_strict_block";
     const maxAttempts = before.reviewPolicy?.maxAttemptsPerRole ?? 3;
     const failedKey = `${before.runId}/review/${input.batchId}/${input.activityId}/attempt-${activity.attempt}/failed/${sha256(input.summary)}`;
+    if (leanAdaptiveReview) {
+      await this.appendSequence([
+        {
+          type: "ActivityFailed",
+          actorType: "reviewer",
+          payload: {
+            activityId: input.activityId,
+            batchId: input.batchId,
+            attempt: activity.attempt,
+            retryable: false,
+            summary: input.summary
+          },
+          idempotencyKey: failedKey
+        },
+        {
+          type: "ReviewerWaived",
+          actorType: "system",
+          payload: {
+            activityId: input.activityId,
+            batchId: input.batchId,
+            profile: "lean",
+            warning: input.summary
+          },
+          idempotencyKey: `${before.runId}/review/${input.batchId}/${input.activityId}/waived/${sha256(input.summary)}`
+        }
+      ], before.head);
+      return this.gate();
+    }
     if (activity.attempt < maxAttempts) {
       const retryAt = input.retryAt
         ?? new Date(Date.now() + Math.min(120_000, 2 ** activity.attempt * 1_000)).toISOString();
@@ -4877,7 +5189,7 @@ export class DurableWorkflowManager {
     projection: WorkflowProjection
   ): void {
     const packagePaths = Object.values(projection.activities)
-      .filter((activity) => activity.definition.kind === "case_generation")
+      .filter((activity) => ["case_generation", "candidate_generation"].includes(activity.definition.kind))
       .map((activity) => {
         const packageName = activity.definition.metadata?.package;
         if (typeof packageName !== "string") {
@@ -4891,6 +5203,15 @@ export class DurableWorkflowManager {
     let expected: string[] | undefined;
     if (kind === "plan_validation" || kind === "review_resolution") {
       expected = [safeRelativePath(this.workspaceRoot, this.planPath)];
+    } else if (kind === "candidate_generation") {
+      const packageName = metadata?.package;
+      if (packageName !== "cases.md") {
+        throw new Error("Candidate generation must publish the single cases.md artifact.");
+      }
+      expected = [
+        safeRelativePath(this.workspaceRoot, this.planPath),
+        safeRelativePath(this.workspaceRoot, resolve(this.requestRoot, packageName))
+      ];
     } else if (kind === "case_generation") {
       const packageName = metadata?.package;
       if (typeof packageName !== "string") {
@@ -5158,9 +5479,8 @@ export class DurableWorkflowManager {
   }
 
   private assertRelationProjection(plan: string, packages: Record<string, string>): void {
-    if (![CASE_RELATION_PROJECTION_MARKER, CASE_RELATION_PROJECTION_MARKER_V2]
-      .some((marker) => plan.includes(marker))) {
-      throw new Error("Relationship synchronization requires a supported case relation projection marker.");
+    if (!plan.includes(CASE_RELATION_PROJECTION_MARKER_V3)) {
+      throw new Error("Relationship synchronization requires case-relation-projection-v3.");
     }
     const projection = projectRelationProjection(plan, packages);
     const drifted = projection.plan !== plan
@@ -5474,8 +5794,16 @@ export function workflowStatusText(view: WorkflowGateView): string {
     script_repair: "脚本修复中",
     reauthorization_required: "等待新执行清单确认"
   } as const;
+  const deliveryTargetLabels = {
+    testcase_only: "用例交付",
+    script_only: "脚本交付",
+    full_run: "完整执行"
+  } as const;
   return [
     `请求：${view.requestId}`,
+    ...(view.deliveryTarget
+      ? [`交付目标：${deliveryTargetLabels[view.deliveryTarget]}`]
+      : []),
     `阶段：${phases.map((phase) =>
       `${labels[phase.id]}=${statuses[phase.status]}`
     ).join("、")}`,
@@ -5529,7 +5857,7 @@ function deriveSelectorRepairSubstate(
 
 export function defaultCaseGenerationActivity(view: WorkflowProjection): string | undefined {
   return Object.values(view.activities)
-    .find((activity) => activity.definition.kind === "case_generation")?.id;
+    .find((activity) => ["case_generation", "candidate_generation"].includes(activity.definition.kind))?.id;
 }
 
 export function packageActivityId(path: string): string {

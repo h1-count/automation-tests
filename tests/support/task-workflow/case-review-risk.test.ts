@@ -1,137 +1,96 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import test from "node:test";
-import {
-  assessCaseReviewRisk,
-  caseReviewRiskDigest
-} from "../../../src/support/task-workflow/caseReviewRisk.js";
+import { assessCaseReviewRisk } from "../../../src/support/task-workflow/caseReviewRisk.js";
 
-function testcase(input: {
-  caseId: string;
-  dataStrategy?: string;
-  risk?: string;
-  requirement?: string;
-  rule?: string;
-  precondition?: string;
-  operation: string;
-}): string {
-  return `## 测试用例：${input.caseId}
+function plan(caseId = "DEMO-CASE-001", ruleId = "RULE-DEMO-001"): string {
+  return `> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
 
-## 基本信息
-
-| 项目 | 内容 |
-| --- | --- |
-| 用例编号 | ${input.caseId} |
-| 需求追溯编号 | ${input.requirement ?? "REQ-FLOW-001"} |
-| 规则覆盖编号 | ${input.rule ?? "RULE-FLOW-001"} |
-| 数据策略 | ${input.dataStrategy ?? "no_write"} |
-| 风险等级 | ${input.risk ?? "中"} |
-
-## 来源
-
-- 此处可包含上传、OTP 和提交等高风险词，但不影响评级。
-
-## 前置条件
-
-- ${input.precondition ?? "打开 test 页面。"}
-
-## 操作步骤
-
-| 序号 | 操作 | 输入 | 预期 |
-| --- | --- | --- | --- |
-| 1 | ${input.operation} | 合成数据 | 可观察结果 |
-
-## 待补充信息（missingInfo）
-
-- 不得发送验证码、上传或提交。
+## 规则设计台账
+| RULE | REQ | sourceRef | 条件 / 输入 | 可观察预期 | 设计方法 | caseIds | 风险 / 门禁 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ${ruleId} | REQ-DEMO-001 | SRC-DEMO-001 | 执行操作 | 结果可见 | 场景法 | ${caseId} | no_write | 已覆盖 |
 `;
 }
 
-test("case risk reads executable sections instead of source or missingInfo keywords", () => {
-  const assessment = assessCaseReviewRisk(testcase({
-    caseId: "OPEN-REG-001",
-    operation: "填写企业名称并触发校验"
-  }));
-  assert.equal(assessment.cases[0]?.level, "light");
+function testcase(options: {
+  caseId?: string;
+  ruleId?: string;
+  action?: string;
+  data?: string;
+  expected?: string;
+  strategy?: string;
+  risk?: "低" | "中" | "高";
+  parameterized?: boolean;
+} = {}): string {
+  const caseId = options.caseId ?? "DEMO-CASE-001";
+  const ruleId = options.ruleId ?? "RULE-DEMO-001";
+  const risk = options.risk ?? "低";
+  const rows = options.parameterized
+    ? `| D01 | 1 | ${options.action ?? "检查页面"} | 普通输入 | ${options.expected ?? "结果可见"} |
+| D02 | 1 | ${options.action ?? "检查页面"} | OTP 安全挑战 | 不得自动处理 |`
+    : `| — | 1 | ${options.action ?? "检查页面"} | ${options.data ?? "无"} | ${options.expected ?? "结果可见"} |`;
+  return `> 结构版本：testcase-v6-layered。
+
+# 用例集：Demo
+
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：${options.strategy ?? "no_write"}
+> 本文档仅用于确认测试设计，不代表授权执行或业务写入。
+> 共 1 条 ｜ P0 0 条 ｜ 高风险 ${risk === "高" ? 1 : 0} 条 ｜ 参数化 ${options.parameterized ? 1 : 0} 条
+
+## 快速索引
+
+| 模块 | 用例编号 | 用例标题 | 优先级 | 风险 |
+| --- | --- | --- | --- | --- |
+| 页面 | ${caseId} | 验证页面行为 | P1 | ${risk} |
+
+## 模块：页面
+
+<details open>
+<summary>${caseId}｜验证页面行为｜P1｜${risk}风险</summary>
+
+> 规则：${ruleId}
+> 前置条件：页面可访问
+
+| 数据编号 | 步骤 | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- | --- |
+${rows}
+
+</details>
+`;
+}
+
+test("current v6 risk reads only executable actions, data and expectations", () => {
+  const assessment = assessCaseReviewRisk(testcase(), { plan: plan() });
   assert.equal(assessment.maxLevel, "light");
+  assert.deepEqual(assessment.cases[0]?.ruleRefs, ["RULE-DEMO-001"]);
+  assert.deepEqual(assessment.cases[0]?.requirementRefs, ["REQ-DEMO-001"]);
 });
 
-test("OTP entry inspection and ordinary upload are standard while actual OTP is strict", () => {
-  const assessment = assessCaseReviewRisk([
-    testcase({
-      caseId: "OPEN-REG-001",
-      risk: "高",
-      precondition: "不点击获取验证码，不触发外部操作。",
-      operation: "核对手机号验证入口，但不点击获取控件"
-    }),
-    testcase({
-      caseId: "OPEN-REG-002",
-      operation: "请求一次验证码并完成手机号验证"
-    }),
-    testcase({
-      caseId: "OPEN-REG-003",
-      dataStrategy: "managed_cleanup",
-      operation: "选择并上传合成资产"
-    })
-  ]);
-  assert.deepEqual(
-    Object.fromEntries(assessment.cases.map((item) => [item.caseId, item.level])),
-    {
-      "OPEN-REG-001": "standard",
-      "OPEN-REG-002": "strict",
-      "OPEN-REG-003": "standard"
-    }
-  );
+test("ordinary upload is standard while actual OTP or password submission is strict", () => {
+  assert.equal(assessCaseReviewRisk(testcase({ action: "上传合成附件" }), { plan: plan() }).maxLevel, "standard");
+  assert.equal(assessCaseReviewRisk(testcase({ action: "输入 OTP 并提交登录" }), { plan: plan() }).maxLevel, "strict");
+  assert.equal(assessCaseReviewRisk(testcase({ action: "输入密码并提交登录" }), { plan: plan() }).maxLevel, "strict");
 });
 
-test("a bounded authentication-attempt still classifies password submission as strict", () => {
-  const assessment = assessCaseReviewRisk(testcase({
-    caseId: "OPEN-LOGIN-001",
-    operation: "在独立 Context 填写受控手机号与密码，以冻结 authentication-attempt 最多提交一次"
-  }));
-  assert.equal(assessment.cases[0]?.level, "strict");
-  assert.deepEqual(assessment.cases[0]?.reasons, ["operation:sensitive_authentication"]);
-});
-
-test("case risk digest is deterministic across package order", () => {
-  const light = testcase({
-    caseId: "OPEN-REG-001",
-    risk: "低",
-    operation: "打开注册页"
-  });
-  const strict = testcase({
-    caseId: "OPEN-REG-002",
-    dataStrategy: "tracked_residual",
-    operation: "按反馈重新申请"
-  });
-  const first = assessCaseReviewRisk([light, strict]);
-  const second = assessCaseReviewRisk([strict, light]);
-  assert.equal(first.digest, second.digest);
-  assert.equal(caseReviewRiskDigest(first), first.digest);
-  assert.equal(first.distribution, "mixed");
-  assert.deepEqual(first.counts, { light: 1, standard: 1, strict: 0 });
-});
-
-test("current open-platform packages are a read-only regression sample for v2 risk", async () => {
-  const root = resolve(
-    process.cwd(),
-    "testcases/web/open-platform/account-access-20260803"
-  );
-  const assessment = assessCaseReviewRisk(await Promise.all([
-    readFile(resolve(root, "cases-account-login.md"), "utf8"),
-    readFile(resolve(root, "cases-account-registration.md"), "utf8")
-  ]));
-  assert.equal(assessment.distribution, "mixed");
+test("parameter data and expectations participate in risk classification", () => {
+  const assessment = assessCaseReviewRisk(testcase({ parameterized: true }), { plan: plan() });
   assert.equal(assessment.maxLevel, "strict");
-  assert.deepEqual(assessment.counts, { light: 5, standard: 20, strict: 4 });
-  assert.deepEqual(
-    assessment.cases.filter((item) => item.level === "strict").map((item) => item.caseId),
-    [
-      "OPEN-LOGIN-20260803-001",
-      "OPEN-REG-20260803-009",
-      "OPEN-REG-20260803-015",
-      "OPEN-REG-20260803-020"
-    ]
+});
+
+test("archived testcase formats are refused instead of silently parsed", () => {
+  assert.throws(
+    () => assessCaseReviewRisk(testcase().replace("testcase-v6-layered", "testcase-v4"), { plan: plan() }),
+    /only accepts testcase-v6-layered/u
   );
+});
+
+test("risk digest is deterministic across package order", () => {
+  const secondCase = "DEMO-CASE-002";
+  const secondRule = "RULE-DEMO-002";
+  const first = testcase();
+  const second = testcase({ caseId: secondCase, ruleId: secondRule, action: "上传合成附件" });
+  const fullPlan = `${plan()}\n${plan(secondCase, secondRule).split("## 规则设计台账\n")[1]}`;
+  const left = assessCaseReviewRisk([first, second], { plan: fullPlan });
+  const right = assessCaseReviewRisk([second, first], { plan: fullPlan });
+  assert.equal(left.digest, right.digest);
 });

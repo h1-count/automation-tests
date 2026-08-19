@@ -25,7 +25,15 @@ function harness() {
 test("task:manage rejects retired command aliases after a valid workflow exists", () => {
   const subject = harness();
   try {
-    const initialized = subject.run("init", "--request", requestId, "--capability", "web");
+    const initialized = subject.run(
+      "init",
+      "--request",
+      requestId,
+      "--delivery-target",
+      "full_run",
+      "--capability",
+      "web"
+    );
     assert.equal(initialized.status, 0, initialized.stderr);
     for (const command of [
       "reviewer-bind",

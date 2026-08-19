@@ -17,6 +17,7 @@ export const workflowEventTypes = [
   "ReviewBatchStarted",
   "ReviewerDispatched",
   "ReviewerSubmitted",
+  "ReviewerWaived",
   "ReviewBatchInvalidated",
   "ActivitiesInvalidated",
   "WorkflowSuspended",
@@ -74,6 +75,9 @@ export interface WorkflowHistoryHead {
 export const workflowCapabilities = ["web", "h5", "webview", "app", "api", "mqtt", "iot"] as const;
 export type WorkflowCapability = (typeof workflowCapabilities)[number];
 
+export const workflowDeliveryTargets = ["testcase_only", "script_only", "full_run"] as const;
+export type WorkflowDeliveryTarget = (typeof workflowDeliveryTargets)[number];
+
 export const workflowPhases = [
   "reuse_assessment",
   "planning",
@@ -100,6 +104,8 @@ export type ActivityKind =
   | "impact_location"
   | "policy_authorization"
   | "source_selection"
+  | "candidate_generation"
+  | "candidate_gate"
   | "plan_validation"
   | "callback"
   | "case_generation"
@@ -168,6 +174,11 @@ export interface WorkflowDefinition {
   capabilities: WorkflowCapability[];
   writesData: boolean;
   /**
+   * v7 runs pin the user-selected delivery endpoint before initialization.
+   * Historical definitions omit it and are interpreted by their stored graph.
+   */
+  deliveryTarget?: WorkflowDeliveryTarget;
+  /**
    * New v4+ runs pin their review policy with the graph. Older event histories
    * omit this field and remain replayable from their expanded activities.
    */
@@ -206,7 +217,17 @@ export interface TieredReviewPolicy extends ReviewPolicyBase {
   maxSemanticEvolutionCycles: 2;
 }
 
-export type ReviewPolicy = LegacyReviewPolicy | TieredReviewPolicy;
+export interface AdaptiveReviewPolicy extends ReviewPolicyBase {
+  schemaVersion: "review-policy-v3";
+  mode: "risk_adaptive";
+  requiredRoles: ["combined", "impact"];
+  maxConcurrentReviewers: 2;
+  maxAttemptsPerRole: 2;
+  maxUnchangedRevisionCycles: 1;
+  maxSemanticEvolutionCycles: 1;
+}
+
+export type ReviewPolicy = LegacyReviewPolicy | TieredReviewPolicy | AdaptiveReviewPolicy;
 
 export interface BuildWorkflowDefinitionInput {
   requestId: string;
@@ -219,6 +240,7 @@ export interface BuildWorkflowDefinitionInput {
   planText?: string;
   capabilities: WorkflowCapability[];
   writesData?: boolean;
+  deliveryTarget?: WorkflowDeliveryTarget;
   casePackages?: string[];
   reviewerRoles?: ReviewRole[];
   reviewPolicy?: {
@@ -335,6 +357,7 @@ export interface WorkflowProjection {
   definitionVersion: string;
   graphDigest: string;
   planDigest: string;
+  deliveryTarget?: WorkflowDeliveryTarget;
   reviewPolicy?: ReviewPolicy;
   head: WorkflowHistoryHead;
   workflowState: WorkflowState;

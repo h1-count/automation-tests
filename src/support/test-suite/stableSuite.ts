@@ -27,6 +27,10 @@ import { atomicWrite, atomicWriteText } from "../test-data/ledgerStore.js";
 import { canonicalJson, sha256Canonical } from "../task-workflow/canonicalJson.js";
 import type { SafeJsonValue } from "../task-workflow/types.js";
 import { DurableWorkflowManager } from "../task-workflow/workflowManager.js";
+import {
+  isStructuredTestcaseDocumentVersion,
+  parseTestcaseDocument
+} from "../testcase/testcaseDocument.js";
 
 export const STABLE_TEST_SUITE_SCHEMA_VERSION = "stable-test-suite-manifest-v1" as const;
 export const TEST_SUITE_REUSE_ASSESSMENT_SCHEMA_VERSION = "test-suite-reuse-assessment-v1" as const;
@@ -1668,10 +1672,12 @@ async function priorityCaseIds(
   const selected = new Set<string>();
   for (const path of casePackagePaths) {
     const content = await readFile(resolve(workspaceRoot, path), "utf8");
-    for (const block of content.split(/^##\s+测试用例：/gmu).slice(1)) {
-      const caseId = block.match(/^\|\s*用例编号\s*\|\s*([^|]+?)\s*\|\s*$/mu)?.[1]?.trim();
-      const casePriority = block.match(/^\|\s*优先级\s*\|\s*([^|]+?)\s*\|\s*$/mu)?.[1]?.trim();
-      if (caseId && casePriority === priority) selected.add(caseId);
+    const document = parseTestcaseDocument(content);
+    if (!isStructuredTestcaseDocumentVersion(document.version)) {
+      throw new Error(`Stable suite testcase package must use testcase-v6-layered: ${path}.`);
+    }
+    for (const testcase of document.cases) {
+      if (testcase.priority === priority) selected.add(testcase.caseId);
     }
   }
   return [...selected].sort();

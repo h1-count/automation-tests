@@ -221,7 +221,7 @@ Web 自动化每次运行必须选择且只能选择一种模式：
 
 #### 6.1.1 `PageSessionGroup` 与 Context 隔离
 
-新 Web/H5 `formal-execution-manifest-v2` 必须为每个正式 `caseId` 记录一个 `PageSessionGroup` 映射；该契约只描述会话与复位事实，不复制业务步骤或报告证据：
+新 Web/H5 请求级 `formal-execution-manifest-v3` 及其晋升后的稳定套件 `formal-execution-manifest-v4` 必须为每个正式 `caseId` 记录一个 `PageSessionGroup` 映射；该契约只描述会话与复位事实，不复制业务步骤或报告证据：
 
 ```text
 sessionGroupId
@@ -259,7 +259,7 @@ executionOrder
 - 资源类型预算之外，正式 manifest 还必须用 `operationBudgets` 冻结每个 case 的登录、OTP、上传、提交、查询等最大次数；参数化循环不得只依赖请求级总预算。
 - 没有删除接口不等于执行异常：已确认的限额残留记为 `retained`；归属、创建结果或风险未知时才记为 `manual_required` 或阻塞。
 - 稳定 suite 只复用已评审的数据策略、操作上限和资源池预算设计；每个 `runRequestId` 必须创建独立 run 台账、CreateIntent、lease/fencing、能力证据、cleanup 结论和 completion seal。旧 run 的数据、结果、授权或能力有效期不得复用。
-- `policy_auto_no_write` 仅适用于 `test/pre`、suite 范围完全匹配且每个 runnable case 均为 `read_only + no_write` 的本轮授权；生产、OTP、上传、提交、数据写入、设备动作或权限提升每轮都必须重新确认。
+- `policy_auto_no_write_v2` 在 readiness 后按实际 case 与脚本动态判定，不使用初始化时的空 plan 推断。它仅适用于 `test/pre`、全部 runnable case 均为 `read_only + no_write`、无 deferred、能力全部通过且脚本操作与 case 策略一致的本轮授权。允许预配专用测试账号、CI Secret 或已保存会话，但不得回显敏感值、发送 OTP 或创建新认证副作用。生产、OTP、上传、提交、数据写入、设备动作、权限提升或任一无法证明的条件都降级为用户确认执行清单。
 - 本机测试数据生命周期只管理 `.local/test-ledger/` 中 owner 为 `local-automation-test`，且 machineId、projectId、envId、runId、`caseId` 均明确的资源。台账外、其他机器、未知归属、生产或真实用户数据不得自动复用、修改或清理。
 - 资源池唯一键为 `projectId + environment + resourceType + baselineContractId`。复用只允许 `available`、未污染、未过期且经 validator 确认可用的同机资源；不得按名称、时间、数据库或设备列表模糊匹配。
 - 只读用例可取得 `shared_read` 租约，任何修改必须取得 `exclusive` 租约。浏览器 Context、Cookie、storage 和 page 仍按用例隔离，共享的只是已校验服务端 fixture。

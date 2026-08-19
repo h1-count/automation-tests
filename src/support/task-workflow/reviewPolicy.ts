@@ -318,8 +318,24 @@ export function buildReviewPolicy(input: BuildReviewPolicyInput): ReviewPolicy {
   return policy;
 }
 
+export function buildAdaptiveReviewPolicy(): ReviewPolicy {
+  const policy: ReviewPolicy = {
+    schemaVersion: "review-policy-v3",
+    mode: "risk_adaptive",
+    requiredRoles: ["combined", "impact"],
+    riskProfile: "light",
+    selectionReasons: ["candidate_gate_semantic_risk"],
+    maxConcurrentReviewers: 2,
+    maxAttemptsPerRole: 2,
+    maxUnchangedRevisionCycles: 1,
+    maxSemanticEvolutionCycles: 1
+  };
+  validateReviewPolicy(policy);
+  return policy;
+}
+
 export function validateReviewPolicy(policy: ReviewPolicy): void {
-  if (!["review-policy-v1", "review-policy-v2"].includes(policy.schemaVersion)) {
+  if (!["review-policy-v1", "review-policy-v2", "review-policy-v3"].includes(policy.schemaVersion)) {
     throw new Error("Unsupported review policy schema.");
   }
   if (policy.requiredRoles.some((role) => !role.trim())) {
@@ -368,6 +384,16 @@ export function validateReviewPolicy(policy: ReviewPolicy): void {
     if (policy.maxSemanticEvolutionCycles !== 2) {
       throw new Error("Tiered review policy maxSemanticEvolutionCycles must be 2.");
     }
+  }
+  if (policy.schemaVersion === "review-policy-v3" && (
+    policy.mode !== "risk_adaptive"
+    || policy.maxConcurrentReviewers !== 2
+    || policy.maxAttemptsPerRole !== 2
+    || policy.maxUnchangedRevisionCycles !== 1
+    || policy.maxSemanticEvolutionCycles !== 1
+    || policy.requiredRoles.join("|") !== "combined|impact"
+  )) {
+    throw new Error("Adaptive review policy must use the fixed one-revision risk-adaptive contract.");
   }
   if (!Number.isInteger(policy.maxAttemptsPerRole) || policy.maxAttemptsPerRole < 1) {
     throw new Error("Review policy maxAttemptsPerRole must be a positive integer.");

@@ -28,6 +28,14 @@ export type ResumeRecoveryAction =
       bindingId: string;
       attempt: number;
     }
+  | {
+      kind: "reviewer_idle_rebind";
+      activityId: string;
+      batchId: string;
+      role: string;
+      bindingId: string;
+      attempt: number;
+    }
   | { kind: "invalid_reviewer_dispatch"; activityId: string }
   | {
       kind: "mark_activity_reconciling";
@@ -35,6 +43,13 @@ export type ResumeRecoveryAction =
       attempt: number;
       detail: string;
     };
+
+/**
+ * Wall-clock silence after a reviewer dispatch never constitutes reviewer
+ * failure; it only suggests a runtime rebind. The window restarts whenever
+ * the runtime binding is refreshed (e.g. the host re-dispatches).
+ */
+export const REVIEWER_IDLE_REBIND_THRESHOLD_MS = 15 * 60_000;
 
 function durableCallbackClosed(
   events: readonly WorkflowEvent[],
@@ -134,6 +149,29 @@ export function planResumeRecovery(input: {
     const expectedBindingId = reviewerBindingId(activityId, role, batchId);
     const exact = runtime?.reviewerBindings[expectedBindingId];
     if (exact && bindingMatches(exact, activityId, batchId, role)) {
+      const livenessAt = Math.max(
+        Date.parse(exact.updatedAt),
+        Date.parse(dispatch.occurredAt)
+      );
+      if (
+        exact.status === "running"
+        && Number.isFinite(livenessAt)
+        && now - livenessAt > REVIEWER_IDLE_REBIND_THRESHOLD_MS
+      ) {
+        // Idle dispatch→submitted windows only suggest a rebind; they never
+        // append failure events or change semantic conclusions. The stale
+        // binding is intentionally not retained so resume can clear it and a
+        // replacement dispatch can bind a fresh reviewer task.
+        actions.push({
+          kind: "reviewer_idle_rebind",
+          activityId,
+          batchId,
+          role,
+          bindingId: exact.bindingId,
+          attempt: activity.attempt
+        });
+        continue;
+      }
       retainedBindingIds.add(exact.bindingId);
       if (exact.status !== "running") {
         actions.push({ kind: "repair_reviewer_binding", binding: exact });
@@ -183,5 +221,14 @@ export function reviewerRebindAction(
   return actions.find((action):
     action is Extract<ResumeRecoveryAction, { kind: "reviewer_rebind_required" }> =>
       action.kind === "reviewer_rebind_required"
+  );
+}
+
+export function reviewerIdleRebindAction(
+  actions: readonly ResumeRecoveryAction[]
+): Extract<ResumeRecoveryAction, { kind: "reviewer_idle_rebind" }> | undefined {
+  return actions.find((action):
+    action is Extract<ResumeRecoveryAction, { kind: "reviewer_idle_rebind" }> =>
+      action.kind === "reviewer_idle_rebind"
   );
 }

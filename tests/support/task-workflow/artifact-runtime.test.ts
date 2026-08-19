@@ -446,24 +446,10 @@ test("package completeness ignores labels and rejects 2 of 13 testcase bodies", 
     { length: 13 },
     (_, index) => `OP-REG-${String(index + 1).padStart(3, "0")}`
   );
-  const directory = expectedIds
-    .map((caseId) => `| ${caseId} | title | REQ-1 | scope | 草案 |`)
-    .join("\n");
-  const markdown = `# 用例包
-
-| 用例包生成状态 | 草案完整 |
-
-## 用例目录
-
-| 用例编号 | 标题 | 需求追溯编号 | 覆盖拆分项 | 状态 |
-| --- | --- | --- | --- | --- |
-${directory}
-
-${validCase(expectedIds[0]!)}
-
-${validCase(expectedIds[1]!)}
-`;
-  const completeness = evaluateTestcasePackage(markdown);
+  const completeness = evaluateTestcasePackage([
+    validCase(expectedIds[0]!),
+    validCase(expectedIds[1]!)
+  ], { expectedCount: 13, expectedCaseIds: expectedIds });
   assert.equal(completeness.complete, false);
   assert.equal(completeness.expectedCount, 13);
   assert.equal(completeness.actualBodyCount, 2);
@@ -473,29 +459,17 @@ ${validCase(expectedIds[1]!)}
 });
 
 test("package completeness requires unique caseIds and every required section", () => {
-  const duplicateAndIncomplete = `# 用例包
-
-## 用例目录
-
-| 用例编号 | 标题 |
-| --- | --- |
-| CASE-001 | one |
-| CASE-002 | two |
-
-${validCase("CASE-001")}
-
-## 测试用例：重复编号且缺少区块
-## 基本信息
-| 用例编号 | CASE-001 |
-`;
-  const invalid = evaluateTestcasePackage(duplicateAndIncomplete);
+  const invalid = evaluateTestcasePackage([
+    validCase("CASE-001"),
+    validCase("CASE-001").replace("| — | 1 | 打开页面 | 无 | 页面可见 |", "")
+  ], { expectedCount: 2, expectedCaseIds: ["CASE-001", "CASE-002"] });
   assert.equal(invalid.complete, false);
   assert.deepEqual(invalid.duplicateCaseIds, ["CASE-001"]);
   assert.deepEqual(invalid.missingCaseIds, ["CASE-002"]);
   assert.equal(invalid.casesWithMissingSections.length, 1);
 
   const complete = evaluateTestcasePackage(
-    `${validCase("CASE-001")}\n${validCase("CASE-002")}`,
+    [validCase("CASE-001"), validCase("CASE-002")],
     { expectedCount: 2, expectedCaseIds: ["CASE-001", "CASE-002"] }
   );
   assert.equal(complete.complete, true);
@@ -503,27 +477,33 @@ ${validCase("CASE-001")}
 });
 
 function validCase(caseId: string): string {
-  return `## 测试用例：${caseId} title
-## 基本信息
-| 用例编号 | ${caseId} |
-## 来源
-- requirement
-## 前置条件
-- ready
-## 操作步骤
-| 序号 | 操作 | 输入 | 预期 |
-| --- | --- | --- | --- |
-| 1 | act | value | visible |
-## 预期结果
-- visible
-## 覆盖关联
-- RULE-1
-## 合理推断（assumptions）
-- 无
-## 待补充信息（missingInfo）
-- 无
-## 评审与演进回链
-- 未评审`;
+  return `> 结构版本：testcase-v6-layered。
+
+# 用例集：${caseId}
+
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：no_write
+> 本文档仅用于确认测试设计，不代表授权执行或业务写入。
+> 共 1 条 ｜ P0 0 条 ｜ 高风险 0 条 ｜ 参数化 0 条
+
+## 快速索引
+
+| 模块 | 用例编号 | 用例标题 | 优先级 | 风险 |
+| --- | --- | --- | --- | --- |
+| 页面 | ${caseId} | 验证页面 | P1 | 低 |
+
+## 模块：页面
+
+<details open>
+<summary>${caseId}｜验证页面｜P1｜低风险</summary>
+
+> 规则：RULE-DEMO-001
+> 前置条件：页面可访问
+
+| 数据编号 | 步骤 | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- | --- |
+| — | 1 | 打开页面 | 无 | 页面可见 |
+
+</details>`;
 }
 
 function sha256(value: string): string {

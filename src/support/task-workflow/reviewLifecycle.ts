@@ -389,8 +389,43 @@ export function reviewBatchInvalidationInputDigest(input: {
 /** Purely extracts controlled source references from formal Markdown. IO and
  * allowlist enforcement remain with the facade/snapshot store. */
 export function referencedControlledSources(plan: string): string[] {
-  const pattern = /(?:\]\(|`|\b)((?:\.\.\/)*(?:sources\/(?:manifest\.yaml|indexes\/[a-z0-9][a-z0-9-]*\.ya?ml|(?:requirements|prototypes|knowledge-base)\/[^\s)`]+)))/g;
-  return [...plan.matchAll(pattern)].map((match) => match[1]!);
+  const sourceReference = "(?:\\.\\.\\/)*sources\\/(?:manifest\\.yaml|indexes\\/[a-z0-9][a-z0-9-]*\\.ya?ml|(?:requirements|prototypes|knowledge-base)\\/[^\\s)`]+)";
+  const linkReference = "(?:\\.\\.\\/)*sources\\/(?:manifest\\.yaml|indexes\\/[a-z0-9][a-z0-9-]*\\.ya?ml|(?:requirements|prototypes|knowledge-base)\\/[^)>]+?)";
+  const linkPattern = new RegExp("\\]\\(\\s*(?:<)?(" + linkReference + ")(?:>)?\\s*\\)", "g");
+  const plainPattern = new RegExp("(?:`|\\b)(" + sourceReference + ")", "g");
+  const linkMatches = [...plan.matchAll(linkPattern)];
+  const linkRanges = linkMatches.map((match) => ({
+    start: match.index ?? 0,
+    end: (match.index ?? 0) + match[0].length
+  }));
+  const references = [
+    ...linkMatches.map((match) => ({ index: match.index ?? 0, reference: match[1]! })),
+    ...[...plan.matchAll(plainPattern)]
+      .filter((match) => !linkRanges.some((range) => (match.index ?? 0) >= range.start && (match.index ?? 0) < range.end))
+      .map((match) => ({ index: match.index ?? 0, reference: match[1]! }))
+  ];
+  return references
+    .sort((left, right) => left.index - right.index)
+    .map((match) => decodeSourceReference(match.reference));
+}
+
+export function referencedRequestLocalSources(plan: string): string[] {
+  const heading = /^##\s+请求内来源\s*$/mu.exec(plan);
+  if (!heading) return [];
+  const start = heading.index + heading[0].length;
+  const next = /^##\s+/mu.exec(plan.slice(start));
+  const section = plan.slice(start, next ? start + next.index : undefined);
+  return [...section.matchAll(/\]\(\s*<?([^)>]+?)>?\s*\)/gu)]
+    .map((match) => decodeSourceReference(match[1]!.trim()))
+    .filter((path) => path.length > 0);
+}
+
+function decodeSourceReference(reference: string): string {
+  try {
+    return decodeURI(reference);
+  } catch {
+    return reference;
+  }
 }
 
 export function requiredReviewInputs(

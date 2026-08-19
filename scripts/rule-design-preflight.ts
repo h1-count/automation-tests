@@ -4,11 +4,11 @@ import { resolve } from "node:path";
 import {
   parseRuleCaseRecords,
   parseRuleDesignDetails,
-  RULE_DESIGN_MATRIX_MARKER,
+  RULE_DESIGN_LEDGER_MARKER_V3,
   validateRuleDesignMatrix as validateRuleDesignMatrixIssues
 } from "../src/support/testcase/relationProjection.ts";
 
-export { RULE_DESIGN_MATRIX_MARKER };
+export { RULE_DESIGN_LEDGER_MARKER_V3 };
 
 type RuleRecord = {
   ruleId: string;

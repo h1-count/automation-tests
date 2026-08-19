@@ -17,6 +17,11 @@ import {
   PUBLIC_TASK_COMMANDS
 } from "../../scripts/public-task-command-contract.js";
 import {
+  inspectContractRegistry,
+  inspectCurrentContractUsage
+} from "../../scripts/contract-registry-contract.js";
+import {
+  inspectRootRuleBoundary,
   inspectRuleResponsibilities,
   RULE_OWNER_PATHS,
   SUPPORTING_DOCUMENT_ROLES
@@ -30,6 +35,7 @@ const environmentGuideline = read("docs/testing/environment-guideline.md");
 const selectorGuideline = read("docs/testing/selector-guideline.md");
 const testcaseGuideline = read("docs/testing/testcase-guideline.md");
 const docsIndex = read("docs/testing/README.md");
+const contractRegistry = read("docs/testing/contract-registry.md");
 const skill = read("skills/iot-automation-testing/SKILL.md");
 const taskManage = read("src/support/task-workflow/cli/manage.ts");
 const workflowDefinition = read("src/support/task-workflow/definition.ts");
@@ -234,7 +240,7 @@ process.exitCode = ${options.gateExitCode ?? 0};
   };
 }
 
-test("workflow responsibility markers have exactly one owner", () => {
+test("rule responsibility markers have exactly one owner and delegated rules stay concise", () => {
   const documents = Object.values(RULE_OWNER_PATHS).map((path) => ({
     path,
     content: read(path)
@@ -249,6 +255,15 @@ test("workflow responsibility markers have exactly one owner", () => {
     delegationViolations: [],
     supportingViolations: []
   });
+  assert.deepEqual(inspectRootRuleBoundary(agents), []);
+  assert.ok(
+    inspectRootRuleBoundary(agents.replace("docs/testing/testcase-guideline.md", "missing.md"))
+      .some((violation) => violation.includes("must delegate automation.testcases"))
+  );
+  assert.ok(
+    inspectRootRuleBoundary(`${agents}\nsource-selection → candidate-generation → case-confirmation\n`)
+      .some((violation) => violation.includes("testcase design activity chain"))
+  );
 
   const duplicateOwner = inspectRuleResponsibilities([
     ...documents,
@@ -283,6 +298,39 @@ test("workflow responsibility markers have exactly one owner", () => {
     missingLink.delegationViolations.some((violation) =>
       violation.includes("automation.testcases")
       && violation.includes("must link")
+    )
+  );
+
+  const report = documents.find(
+    (document) => document.path === RULE_OWNER_PATHS["automation.reporting"]
+  )!;
+  const missingKnowledgeLink = inspectRuleResponsibilities(documents.map((document) =>
+    document === report
+      ? {
+          ...document,
+          content: mutateDelegation(
+            document.content,
+            "automation.project-knowledge",
+            (summary) => summary.replace(/\]\([^)]+\)/g, "]")
+          )
+        }
+      : document
+  ));
+  assert.ok(
+    missingKnowledgeLink.delegationViolations.some((violation) =>
+      violation.includes("automation.project-knowledge")
+      && violation.includes("must link")
+    )
+  );
+
+  const duplicatedKnowledgeRule = inspectRuleResponsibilities(documents.map((document) =>
+    document === report
+      ? { ...document, content: `${document.content}\n同一项目与适用范围的新经验必须原位覆盖旧经验。\n` }
+      : document
+  ));
+  assert.ok(
+    duplicatedKnowledgeRule.delegationViolations.some((violation) =>
+      violation.includes("duplicates delegated rule details for automation.project-knowledge")
     )
   );
 
@@ -333,6 +381,88 @@ test("workflow responsibility markers have exactly one owner", () => {
     )
   );
 
+  const missingSkillOwnerLink = inspectRuleResponsibilities(
+    documents,
+    supportingDocuments.map((document) =>
+      document.path === "skills/iot-automation-testing/SKILL.md"
+        ? {
+            ...document,
+            content: document.content.replaceAll(
+              "../../docs/testing/testcase-guideline.md",
+              "../../docs/testing/missing.md"
+            )
+          }
+        : document
+    )
+  );
+  assert.ok(
+    missingSkillOwnerLink.supportingViolations.some((violation) =>
+      violation.includes("must link delegated owner automation.testcases")
+    )
+  );
+
+  const duplicatedSkillFormatRule = inspectRuleResponsibilities(
+    documents,
+    supportingDocuments.map((document) =>
+      document.path === "skills/iot-automation-testing/SKILL.md"
+        ? {
+            ...document,
+            content: `${document.content}\n顶部五列快速索引和折叠详情使用五列执行表。\n`
+          }
+        : document
+    )
+  );
+  assert.ok(
+    duplicatedSkillFormatRule.supportingViolations.some((violation) =>
+      violation.includes("duplicates delegated testcase layered display contract")
+    )
+  );
+
+  const duplicatedRootCommandCatalog = inspectRuleResponsibilities(
+    documents,
+    supportingDocuments.map((document) =>
+      document.path === "README.md"
+        ? { ...document, content: `${document.content}\n## 常用操作\n\nnpm run task:status\n` }
+        : document
+    )
+  );
+  assert.ok(
+    duplicatedRootCommandCatalog.supportingViolations.some((violation) =>
+      violation.includes("project-entry-only forbids embedded command catalog")
+    )
+  );
+
+  const paraphrasedHistoryContract = inspectRuleResponsibilities(
+    documents,
+    supportingDocuments.map((document) =>
+      document.path === "testcases/README.md"
+        ? {
+            ...document,
+            content: `${document.content}\nworkflow-history.ndjson 保存等待、重试和恢复。\n`
+          }
+        : document
+    )
+  );
+  assert.ok(
+    paraphrasedHistoryContract.supportingViolations.some((violation) =>
+      violation.includes("directory-index-only forbids request workflow fact contract")
+    )
+  );
+
+  const paraphrasedPlanContract = inspectRuleResponsibilities(
+    documents,
+    supportingDocuments.map((document) =>
+      document.path === "testcases/README.md"
+        ? { ...document, content: `${document.content}\nplan.md 记录 RULE 和评审决定。\n` }
+        : document
+    )
+  );
+  assert.ok(
+    paraphrasedPlanContract.supportingViolations.some((violation) =>
+      violation.includes("directory-index-only forbids request plan fact contract")
+    )
+  );
+
   const duplicateTemplateSection = inspectRuleResponsibilities(
     documents,
     supportingDocuments.map((document) =>
@@ -346,6 +476,39 @@ test("workflow responsibility markers have exactly one owner", () => {
       violation.includes("forbidden duplicate section 规则设计矩阵")
     )
   );
+});
+
+test("proprietary contract identifiers have one version registry", () => {
+  const current = inspectContractRegistry(contractRegistry, [{
+    path: "sample.ts",
+    content: 'const schema = "candidate-gate-v1"; const authorization = "execution-authorization-v5";'
+  }]);
+  assert.deepEqual(current.violations, []);
+  assert.ok(current.activeIds.includes("testcase-review-export-v1"));
+  assert.ok(current.activeIds.includes("formal-execution-manifest-v3"));
+  assert.ok(current.activeIds.includes("formal-execution-manifest-v4"));
+  assert.ok(current.replayOnlyIds.includes("execution-authorization-v3"));
+  assert.ok(current.archivedIds.includes("testcase-v4"));
+
+  const unknown = inspectContractRegistry(contractRegistry, [{
+    path: "sample.ts",
+    content: 'const schema = "candidate-gate-v99";'
+  }]);
+  assert.ok(unknown.violations.some((violation) =>
+    violation.includes("unregistered contract identifier candidate-gate-v99")
+  ));
+  assert.deepEqual(inspectCurrentContractUsage(contractRegistry, [{
+    path: "template.ts",
+    content: 'const schema = "formal-execution-manifest-v3";'
+  }]), []);
+  assert.ok(inspectCurrentContractUsage(contractRegistry, [{
+    path: "template.ts",
+    content: 'const schema = "formal-execution-manifest-v2";'
+  }]).some((violation) => violation.includes("replay-only contract formal-execution-manifest-v2")));
+  assert.ok(inspectCurrentContractUsage(contractRegistry, [{
+    path: "template.ts",
+    content: 'const schema = "testcase-v4";'
+  }]).some((violation) => violation.includes("archived contract testcase-v4")));
 });
 
 test("public task commands are an exact allowlist", () => {
@@ -379,27 +542,16 @@ test("public task commands are an exact allowlist", () => {
   );
 });
 
-test("v7 lifecycle exposes one design confirmation and an independent execution authorization", () => {
+test("v7 lifecycle exposes one design confirmation and risk-adaptive execution authorization", () => {
   lineContainingAll(
     automationGuideline,
     [
-      "v7 只有",
-      "用例确认",
-      "执行清单确认",
-      "两个固定用户门禁"
+      "v7 固定只有一次用例确认",
+      "`policy_auto_no_write_v2`",
+      "自动授权",
+      "执行清单确认"
     ],
-    "fixed v7 confirmation lifecycle"
-  );
-  lineContainingAll(
-    agents,
-    [
-      "内部完成设计索引",
-      "只请求一次用例确认",
-      "`full_replan`",
-      "`affected_rebuild`",
-      "`direct_execute`"
-    ],
-    "AGENTS v7 confirmation boundary"
+    "risk-adaptive v7 confirmation lifecycle"
   );
   lineContainingAll(
     automationGuideline,
@@ -426,10 +578,8 @@ test("v7 lifecycle exposes one design confirmation and an independent execution 
   lineContainingAll(
     testcaseGuideline,
     [
-      "测试范围",
-      "只写",
-      "顶层业务流程",
-      "字段规则"
+      "顶层测试范围",
+      "用户明确排除项"
     ],
     "top-level test scope boundary"
   );
@@ -449,15 +599,22 @@ test("v7 lifecycle exposes one design confirmation and an independent execution 
   );
 });
 
-test("complete automation requests adapt to optional host lifecycle capabilities", () => {
-  const agentsPreflight = lineContainingAll(
-    agents,
-    ["完整自动化测试请求", "task:initialize", "task:resume", "宿主提供跨回合长期任务能力"],
-    "AGENTS host lifecycle preflight"
+test("v7 selects and pins one delivery endpoint before initialization", () => {
+  lineContainingAll(
+    automationGuideline,
+    [
+      "`task:initialize -- --delivery-target",
+      "definition",
+      "`graphDigest`",
+      "不在每一步后再询问"
+    ],
+    "delivery target lifecycle"
   );
-  assert.match(agentsPreflight, /创建或复用绑定同一 `requestId` 的宿主任务/);
-  assert.match(agentsPreflight, /宿主没有等价能力时仍以 workflow history 继续/);
+  assert.match(skill, /`testcase_only \/ script_only \/ full_run`/);
+  assert.match(skill, /--delivery-target <testcase_only\|script_only\|full_run>/);
+});
 
+test("complete automation requests adapt to optional host lifecycle capabilities", () => {
   const lifecyclePreflight = lineContainingAll(
     automationGuideline,
     ["稳定 `requestId`", "task:initialize", "task:resume", "宿主没有等价能力"],
@@ -469,11 +626,6 @@ test("complete automation requests adapt to optional host lifecycle capabilities
   assert.match(skill, /有同一 `runRequestId` history：运行 `task:resume`/);
   assert.match(skill, /生命周期和恢复：\[automation-guideline\.md\]/);
   lineContainingAll(
-    agents,
-    ["接管预检", "稳定 `requestId` 的最小解析", "最小必要信息"],
-    "AGENTS requestId preflight exception"
-  );
-  lineContainingAll(
     automationGuideline,
     ["稳定 `requestId` 的最小解析", "接管预检", "最小必要信息"],
     "lifecycle requestId preflight exception"
@@ -484,10 +636,7 @@ test("complete automation requests adapt to optional host lifecycle capabilities
     "Skill maintenance versus workflow recovery"
   );
 
-  for (const [name, document] of [
-    ["AGENTS", agents],
-    ["lifecycle", automationGuideline]
-  ] as const) {
+  for (const [name, document] of [["lifecycle", automationGuideline]] as const) {
     const shortTaskRule = lineContainingAll(
       document,
       ["状态查询", "只读诊断", "规则或代码维护", "清理", "重置", "归档", "恢复", "宿主长期任务"],
@@ -559,9 +708,9 @@ test("v7 build/readiness risk-grades script review without extra callbacks or ac
 
 test("v7 case review keeps its bounded policy in the lifecycle implementation", () => {
   lineContainingAll(
-    skill,
-    ["`deterministic_only`", "不创建 reviewer Activity", "伪造提交"],
-    "Skill deterministic light review"
+    automationGuideline,
+    ["`deterministic_only`", "不创建 reviewer 事件", "适用角色", "只由[用例规范]"],
+    "lifecycle deterministic light review"
   );
   assert.match(reviewPolicy, /schemaVersion: "review-policy-v2"/);
   assert.match(reviewPolicy, /maxConcurrentReviewers: 2/);
@@ -800,10 +949,6 @@ test("optional host lifecycle follows workflow gate without replacing it", () =>
 });
 
 test("host lifecycle remains external and unavailable capability degrades honestly", () => {
-  assert.match(
-    agents,
-    /宿主长期任务能力不可用或调用失败不改变仓库工作流事实[\s\S]*显式 `task:resume` 恢复[\s\S]*不具备后台续跑保证/
-  );
   assert.match(
     automationGuideline,
     /宿主长期任务能力缺失或调用失败时[\s\S]*不得声称能力已启用[\s\S]*显式 `task:resume` 推进/

@@ -108,6 +108,42 @@ test("business oracle completion derives only passed, product failed, or termina
   });
 });
 
+test("parameter-instance Oracles aggregate to the parent case result", () => {
+  const definitions = ["instance-d01", "instance-d02"].map((oracleId) => ({
+    ...oracle,
+    oracleId
+  }));
+  const result = (
+    oracleId: string,
+    outcome: FormalBusinessOracleResult["outcome"]
+  ): Pick<FormalBusinessOracleResult, "oracleId" | "outcome" | "evaluationBasis"> => ({
+    oracleId,
+    outcome,
+    evaluationBasis: outcome === "violated" ? "assertion_violation" : "normal_return"
+  });
+  assert.equal(resolveFormalOracleCompletion({
+    definitions,
+    oracleResults: [
+      result("instance-d01", "satisfied"),
+      result("instance-d02", "satisfied")
+    ],
+    errors: []
+  }).status, "passed");
+  assert.equal(resolveFormalOracleCompletion({
+    definitions,
+    oracleResults: [
+      result("instance-d01", "satisfied"),
+      result("instance-d02", "violated")
+    ],
+    errors: []
+  }).status, "failed");
+  assert.equal(resolveFormalOracleCompletion({
+    definitions,
+    oracleResults: [result("instance-d01", "satisfied")],
+    errors: []
+  }).status, "unknown");
+});
+
 test("v3 source gate rejects direct outcomes and empty evaluators while legacy inspection stays compatible", () => {
   const diagnosticOnly = inspectFormalSpecSource(
     'formalCase("APP-CASE-001", "one", async (_f, runtime) => { runtime.addAssertion("looks good"); });',

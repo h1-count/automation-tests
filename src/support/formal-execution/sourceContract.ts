@@ -14,6 +14,10 @@ import {
   parseRuleDesignDetails,
   validateRelationProjection
 } from "../testcase/relationProjection.js";
+import {
+  isCurrentTestcaseDocumentVersion,
+  parseTestcaseDocument
+} from "../testcase/testcaseDocument.js";
 
 export const FORMAL_SOURCE_CONTRACT_SCHEMA_VERSION = "source-contract-evidence-v3" as const;
 
@@ -198,8 +202,11 @@ async function validateBusinessTraceability(input: {
   );
   const planPath = await containedExistingPath(requestDirectory, "plan.md", "formal testcase plan");
   const plan = await readFile(planPath, "utf8");
+  if (!plan.includes("rule-design-ledger-v3") || !plan.includes("case-relation-projection-v3")) {
+    throw new Error("Formal source authority only accepts the current v3 testcase relation contracts.");
+  }
   const packageNames = (await readdir(requestDirectory, { withFileTypes: true }))
-    .filter((entry) => entry.isFile() && /^cases-.+\.md$/u.test(entry.name))
+    .filter((entry) => entry.isFile() && (entry.name === "cases.md" || /^cases-.+\.md$/u.test(entry.name)))
     .map((entry) => entry.name)
     .sort();
   if (packageNames.length === 0) {
@@ -218,12 +225,17 @@ async function validateBusinessTraceability(input: {
 
   const rules = parseRuleCaseRecords(plan);
   const designs = parseRuleDesignDetails(plan);
-  const v2 = plan.includes("rule-design-ledger-v2");
   const requirementIds = new Set(
-    markdownTableRows(markdownSection(plan, v2 ? "## 需求索引" : "## 需求追溯矩阵"))
+    markdownTableRows(markdownSection(plan, "## 需求索引"))
       .flatMap((row) => extractIds(row[0] ?? "", /\bREQ-[A-Z0-9]+(?:-[A-Z0-9]+)+\b/g))
   );
+  const planRuleRows = markdownTableRows(markdownSection(
+    plan,
+    "## 规则设计台账"
+  ));
+  const requestSourceRows = markdownTableRows(markdownSection(plan, "## 请求内来源"));
   const casePackages = packageCaseBlocks(packages);
+  assertDataInstanceOracleCoverage(casePackages, input.contracts);
   const facts: BusinessTraceabilityFact[] = [];
   for (const contract of input.contracts) {
     const matchingRules = rules.filter((rule) => rule.id === contract.ruleRef);
@@ -234,9 +246,7 @@ async function validateBusinessTraceability(input: {
     if (!rule.caseIds.includes(contract.caseId)) {
       throw new Error(`${contract.ruleRef} does not map to ${contract.caseId} in plan.md.`);
     }
-    if (!(v2
-      ? ["已覆盖", "受控执行"].includes(rule.applicability)
-      : ["适用", "受控执行"].includes(rule.applicability))) {
+    if (!["已覆盖", "受控执行"].includes(rule.applicability)) {
       throw new Error(`${contract.ruleRef} is not applicable for formal execution in plan.md.`);
     }
     if (rule.reqIds.length === 0 || rule.reqIds.some((reqId) => !requirementIds.has(reqId))) {
@@ -258,19 +268,23 @@ async function validateBusinessTraceability(input: {
       throw new Error(`${contract.caseId} is missing or duplicated across current testcase packages.`);
     }
     const packageMatch = packageMatches[0]!;
-    const declaredRuleRefs = extractMetadataRefs(
-      packageMatch.block,
-      v2 ? "规则编号" : "规则覆盖编号",
-      "RULE"
-    );
+    const declaredRuleRefs = packageMatch.ruleIds;
     if (!declaredRuleRefs.includes(contract.ruleRef)) {
       throw new Error(`${contract.caseId} testcase package does not declare ${contract.ruleRef}.`);
     }
+    const instanceExpectation = packageMatch.dataInstances.find((instance) =>
+      dataInstanceOracleId(instance.dataId) === contract.oracleId
+    )?.expected;
     const sourceSection = markdownSection(packageMatch.block, "## 来源");
     const sourceRows = markdownTableRows(sourceSection);
     for (const authority of contract.authorities) {
       if (authority.kind === "registered_source") {
-        const matchingSourceRow = sourceRows.some((row) => {
+        const ruleSourceCell = planRuleRows.find((row) => row[0]?.includes(contract.ruleRef))?.[2] ?? "";
+        const derivedSourceRows = requestSourceRows.filter((row) => {
+          const sourceId = row[0] ?? "";
+          return sourceId && ruleSourceCell.includes(sourceId);
+        });
+        const matchingSourceRow = [...sourceRows, ...derivedSourceRows].some((row) => {
           const serialized = row.join(" | ");
           return serialized.includes(authority.materialId)
             && serialized.includes(authority.sectionId)
@@ -290,7 +304,10 @@ async function validateBusinessTraceability(input: {
       oracleId: contract.oracleId,
       ruleRef: contract.ruleRef,
       requirementIds: [...rule.reqIds].sort(),
-      observableExpectationDigest: sha256(Buffer.from(design.observableExpectation.trim(), "utf8")),
+      observableExpectationDigest: sha256(Buffer.from(
+        (instanceExpectation ?? design.observableExpectation).trim(),
+        "utf8"
+      )),
       authorityDigest: sha256(Buffer.from(canonicalJson(
         contract.authorities.map(stripSourceFiles).sort((left, right) =>
           canonicalJson(left).localeCompare(canonicalJson(right))
@@ -308,16 +325,55 @@ function packageCaseBlocks(packages: Record<string, string>): Array<{
   name: string;
   caseId: string;
   block: string;
+  ruleIds: string[];
+  dataInstances: Array<{ dataId: string; data: string; expected: string }>;
+  version: ReturnType<typeof parseTestcaseDocument>["version"];
 }> {
-  return Object.entries(packages).flatMap(([name, content]) =>
-    content.split(/^## 测试用例[：:]/m).slice(1).flatMap((body) => {
-      const block = `## 测试用例：${body}`;
-      const caseId = parseCaseIds(
-        block.match(/^\|\s*用例编号\s*\|\s*(.*?)\s*\|\s*$/m)?.[1] ?? ""
-      )[0];
-      return caseId ? [{ name, caseId, block }] : [];
-    })
-  );
+  return Object.entries(packages).flatMap(([name, content]) => {
+    const document = parseTestcaseDocument(content);
+    if (!isCurrentTestcaseDocumentVersion(document.version)) {
+      throw new Error(`${name} must use testcase-v6-layered for formal source authority.`);
+    }
+    return document.cases.map((testcase) => ({
+        name,
+        caseId: testcase.caseId,
+        block: testcase.rawBody,
+        ruleIds: testcase.ruleIds,
+        dataInstances: testcase.dataInstances,
+        version: document.version
+      }));
+  });
+}
+
+function dataInstanceOracleId(dataId: string): string {
+  return `instance-${dataId.toLowerCase()}`;
+}
+
+function assertDataInstanceOracleCoverage(
+  packages: ReturnType<typeof packageCaseBlocks>,
+  contracts: SourceContractEntry[]
+): void {
+  for (const testcase of packages) {
+    if (!testcase.dataInstances.length) continue;
+    const expected = testcase.dataInstances.map((instance) =>
+      dataInstanceOracleId(instance.dataId)
+    );
+    const instanceOracles = contracts
+      .filter((contract) =>
+        contract.caseId === testcase.caseId
+        && /^instance-d\d{2}$/u.test(contract.oracleId)
+      )
+      .map((contract) => contract.oracleId);
+    const missing = expected.filter((oracleId) => !instanceOracles.includes(oracleId));
+    const unexpected = instanceOracles.filter((oracleId) => !expected.includes(oracleId));
+    if (missing.length || unexpected.length) {
+      throw new Error(
+        `${testcase.caseId} parameterized data instances require exact instance-* business oracles`
+        + `${missing.length ? `; missing ${missing.join(", ")}` : ""}`
+        + `${unexpected.length ? `; unexpected ${unexpected.join(", ")}` : ""}.`
+      );
+    }
+  }
 }
 
 function extractMetadataRefs(block: string, label: string, prefix: "RULE" | "REQ"): string[] {

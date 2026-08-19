@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { canonicalJson } from "./canonicalJson.js";
 import {
   workflowCapabilities,
+  workflowDeliveryTargets,
   workflowPhases,
   type BuildWorkflowDefinitionInput,
   type ReusableWorkflowDefinitionInput,
@@ -10,9 +11,14 @@ import {
   type SafeJsonValue,
   type WorkflowActivityDefinition,
   type WorkflowCapability,
+  type WorkflowDeliveryTarget,
   type WorkflowDefinition
 } from "./types.js";
-import { buildReviewPolicy, validateReviewPolicy } from "./reviewPolicy.js";
+import {
+  buildAdaptiveReviewPolicy,
+  buildReviewPolicy,
+  validateReviewPolicy
+} from "./reviewPolicy.js";
 
 function stableSegment(value: string): string {
   const ascii = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -36,6 +42,10 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition): void
   if (definition.reviewPolicy) validateReviewPolicy(definition.reviewPolicy);
   if (["v3", "v4", "v5", "v6", "v7"].includes(definition.definitionVersion) && !definition.reviewPolicy) {
     throw new Error("Workflow definition v3+ requires a pinned review policy.");
+  }
+  if (definition.deliveryTarget !== undefined
+    && !workflowDeliveryTargets.includes(definition.deliveryTarget)) {
+    throw new Error(`Unsupported workflow delivery target: ${definition.deliveryTarget}`);
   }
   const ids = new Set<string>();
   for (const activity of definition.activities) {
@@ -101,6 +111,7 @@ function graphValue(definition: Omit<WorkflowDefinition, "graphDigest">): SafeJs
     planDigest: definition.planDigest,
     capabilities: definition.capabilities,
     writesData: definition.writesData,
+    ...(definition.deliveryTarget ? { deliveryTarget: definition.deliveryTarget } : {}),
     ...(definition.reviewPolicy ? { reviewPolicy: definition.reviewPolicy } : {}),
     activities: definition.activities
   } as unknown as SafeJsonValue;
@@ -113,13 +124,13 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
     throw new Error("At least one supported workflow capability is required.");
   }
   const casePackages = unique(input.casePackages ?? []);
-  if (
-    !casePackages.length
-    || casePackages.some((name) => !/^cases-[a-z0-9][a-z0-9-]*\.md$/.test(name))
-  ) {
-    throw new Error("At least one cases-*.md package filename is required.");
+  if (!casePackages.length || casePackages.some((name) =>
+    name !== "cases.md" && !/^cases-[a-z0-9][a-z0-9-]*\.md$/.test(name)
+  )) {
+    throw new Error("At least one cases.md or cases-*.md package filename is required.");
   }
-  const reviewPolicy = buildReviewPolicy({
+  const optimizedV3 = input.planText?.includes("rule-design-ledger-v3") === true;
+  const reviewPolicy = optimizedV3 ? buildAdaptiveReviewPolicy() : buildReviewPolicy({
     reviewerRoles: input.reviewerRoles,
     writesData: input.writesData ?? false,
     ...(input.planText !== undefined
@@ -133,12 +144,15 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
     maxUnchangedRevisionCycles: input.reviewPolicy?.maxUnchangedRevisionCycles,
     maxSemanticEvolutionCycles: input.reviewPolicy?.maxSemanticEvolutionCycles
   });
+  const deliveryTarget = input.deliveryTarget ?? "full_run";
   const activities = buildV7FullActivities(
     capabilities,
     input.writesData ?? false,
     casePackages,
     reviewPolicy,
-    input.executionIsolation
+    deliveryTarget,
+    input.executionIsolation,
+    optimizedV3
   );
   const base: Omit<WorkflowDefinition, "graphDigest"> = {
     schemaVersion: "test-workflow-definition-v1",
@@ -148,6 +162,7 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
     planDigest: input.planDigest,
     capabilities,
     writesData: input.writesData ?? false,
+    deliveryTarget,
     reviewPolicy,
     activities
   };
@@ -164,18 +179,37 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
 export function buildLegacyV5WorkflowDefinition(
   input: BuildWorkflowDefinitionInput
 ): WorkflowDefinition {
-  const current = buildWorkflowDefinition(input);
+  // The compatibility graph is used only to replay and verify archived event
+  // semantics. Do not let the current document marker switch its reviewer
+  // topology to the v7 risk-adaptive design.
+  const current = buildWorkflowDefinition({ ...input, planText: undefined });
+  const reviewPolicy = buildReviewPolicy({
+    reviewerRoles: input.reviewerRoles,
+    writesData: input.writesData ?? false,
+    ...(input.planText !== undefined
+      ? {
+          planText: input.planText,
+          capabilities: current.capabilities,
+          casePackages: unique(input.casePackages ?? [])
+        }
+      : {})
+  });
   const activities = buildV5Activities(
     current.capabilities,
     current.writesData,
     unique(input.casePackages ?? []),
-    current.reviewPolicy!,
+    reviewPolicy,
     input.executionIsolation
   );
-  const { graphDigest: _currentGraphDigest, ...currentUnsigned } = current;
+  const {
+    graphDigest: _currentGraphDigest,
+    deliveryTarget: _currentDeliveryTarget,
+    ...currentUnsigned
+  } = current;
   const base: Omit<WorkflowDefinition, "graphDigest"> = {
     ...currentUnsigned,
     definitionVersion: "v5",
+    reviewPolicy,
     activities
   };
   const definition = {
@@ -199,10 +233,13 @@ export function buildReusableWorkflowDefinition(
     throw new Error("At least one supported workflow capability is required.");
   }
   const casePackages = unique(input.casePackages ?? []);
-  if (!casePackages.length || casePackages.some((name) => !/^cases-[a-z0-9][a-z0-9-]*\.md$/.test(name))) {
-    throw new Error("At least one cases-*.md package filename is required.");
+  if (!casePackages.length || casePackages.some((name) =>
+    name !== "cases.md" && !/^cases-[a-z0-9][a-z0-9-]*\.md$/.test(name)
+  )) {
+    throw new Error("At least one cases.md or cases-*.md package filename is required.");
   }
-  const reviewPolicy = buildReviewPolicy({
+  const optimizedV3 = input.planText?.includes("rule-design-ledger-v3") === true;
+  const reviewPolicy = optimizedV3 ? buildAdaptiveReviewPolicy() : buildReviewPolicy({
     reviewerRoles: input.reviewerRoles,
     writesData: input.writesData ?? false,
     ...(input.planText !== undefined
@@ -212,13 +249,16 @@ export function buildReusableWorkflowDefinition(
     maxUnchangedRevisionCycles: input.reviewPolicy?.maxUnchangedRevisionCycles,
     maxSemanticEvolutionCycles: input.reviewPolicy?.maxSemanticEvolutionCycles
   });
+  const deliveryTarget = input.deliveryTarget ?? "full_run";
   const activities = buildV7ReusableActivities(
     capabilities,
     input.writesData ?? false,
     casePackages,
     reviewPolicy,
     input.reuseAssessment,
-    input.executionIsolation
+    deliveryTarget,
+    input.executionIsolation,
+    optimizedV3
   );
   const base: Omit<WorkflowDefinition, "graphDigest"> = {
     schemaVersion: "test-workflow-definition-v1",
@@ -228,6 +268,7 @@ export function buildReusableWorkflowDefinition(
     planDigest: input.planDigest,
     capabilities,
     writesData: input.writesData ?? false,
+    deliveryTarget,
     reviewPolicy,
     activities
   };
@@ -296,7 +337,8 @@ function appendBuildReadinessAndExecution(
   capabilities: WorkflowCapability[],
   writesData: boolean,
   caseConfirmationId: string,
-  executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"]
+  executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"],
+  adaptiveAuthorization = false
 ): void {
   const capabilityContracts = Object.fromEntries(capabilities.map((capability) => [
     capability,
@@ -371,6 +413,10 @@ function appendBuildReadinessAndExecution(
       dependencies: ["readiness"],
       required: true,
       metadata: {
+        decisionMode: adaptiveAuthorization ? "risk_adaptive" : "user_confirmed",
+        ...(adaptiveAuthorization
+          ? { policyVersion: "policy_auto_no_write_v2" }
+          : {}),
         callbackSubjectArtifact: "execution-authorization.json",
         callbackSubjectFormat: "canonical_json_digest_v1",
         callbackSubjectSchemaVersion: "execution-authorization-v4",
@@ -789,17 +835,155 @@ function buildV7FullActivities(
   writesData: boolean,
   casePackages: string[],
   reviewPolicy: ReviewPolicy,
-  executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"]
+  deliveryTarget: WorkflowDeliveryTarget,
+  executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"],
+  optimizedV3 = false
 ): WorkflowActivityDefinition[] {
-  const activities = v7DesignActivities(casePackages, reviewPolicy);
+  const activities = optimizedV3
+    ? v7OptimizedDesignActivities()
+    : v7DesignActivities(casePackages, reviewPolicy);
+  if (deliveryTarget === "testcase_only") {
+    markDeliveryTerminal(activities, "case-confirmation", deliveryTarget);
+    return activities;
+  }
   appendBuildReadinessAndExecution(
     activities,
     capabilities,
     writesData,
     "case-confirmation",
-    executionIsolation
+    executionIsolation,
+    optimizedV3
   );
+  if (deliveryTarget === "script_only") {
+    const buildIndex = activities.findIndex((activity) => activity.id === "build");
+    activities.splice(buildIndex + 1);
+    markDeliveryTerminal(activities, "build", deliveryTarget);
+  }
   return activities;
+}
+
+function v7OptimizedDesignActivities(): WorkflowActivityDefinition[] {
+  return [
+    {
+      id: "source-selection",
+      kind: "source_selection",
+      phase: "planning",
+      dependencies: [],
+      required: true,
+      metadata: { sourcePolicyVersion: "request-local-source-v1" }
+    },
+    {
+      id: "candidate-generation",
+      kind: "candidate_generation",
+      phase: "case_generation",
+      dependencies: ["source-selection"],
+      required: true,
+      publishesArtifacts: true,
+      metadata: {
+        package: "cases.md",
+        generationPolicyVersion: "candidate-generation-policy-v1"
+      }
+    },
+    {
+      id: "candidate-gate",
+      kind: "candidate_gate",
+      phase: "case_validation",
+      dependencies: ["candidate-generation"],
+      required: true,
+      metadata: { gateSchemaVersion: "candidate-gate-v1" }
+    },
+    {
+      id: "case-review-combined",
+      kind: "review",
+      phase: "case_review",
+      dependencies: ["candidate-gate"],
+      required: true,
+      concurrencyGroup: "reviewer",
+      concurrencyLimit: 2,
+      activation: {
+        activityId: "candidate-gate",
+        outcomes: ["combined", "combined_with_impact"]
+      },
+      metadata: {
+        subflow: "case-review",
+        role: "combined",
+        failurePolicy: "lean_warning_strict_block"
+      }
+    },
+    {
+      id: "case-review-impact",
+      kind: "review",
+      phase: "case_review",
+      dependencies: ["candidate-gate"],
+      required: true,
+      concurrencyGroup: "reviewer",
+      concurrencyLimit: 2,
+      activation: {
+        activityId: "candidate-gate",
+        outcomes: ["combined_with_impact"]
+      },
+      metadata: {
+        subflow: "case-review",
+        role: "impact",
+        failurePolicy: "lean_warning_strict_block"
+      }
+    },
+    {
+      id: "case-review-resolution",
+      kind: "review_resolution",
+      phase: "case_review",
+      dependencies: ["candidate-gate", "case-review-combined", "case-review-impact"],
+      optionalDependencies: ["case-review-combined", "case-review-impact"],
+      required: true,
+      publishesArtifacts: true,
+      metadata: {
+        subflow: "case-review",
+        riskAdaptive: true,
+        maxSemanticEvolutionCycles: 1
+      }
+    },
+    {
+      id: "case-review-evolution",
+      kind: "automatic_evolution",
+      phase: "case_review",
+      dependencies: ["case-review-resolution"],
+      required: true,
+      publishesArtifacts: true,
+      activation: { activityId: "case-review-resolution", outcomes: ["evolve"] },
+      metadata: { subflow: "case-review", repeatable: true, maxCycles: 1 }
+    },
+    {
+      id: "case-confirmation",
+      kind: "callback",
+      phase: "case_confirmation",
+      dependencies: ["case-review-resolution", "case-review-evolution"],
+      optionalDependencies: ["case-review-evolution"],
+      required: true,
+      activation: {
+        activityId: "case-review-resolution",
+        outcomes: ["converged", "human_conflict", "plan_revision_required"]
+      },
+      metadata: {
+        subjectSchemaVersion: "case-confirmation-subject-v2",
+        scope: "full",
+        casePackages: ["cases.md"]
+      }
+    }
+  ];
+}
+
+function markDeliveryTerminal(
+  activities: WorkflowActivityDefinition[],
+  activityId: string,
+  deliveryTarget: Exclude<WorkflowDeliveryTarget, "full_run">
+): void {
+  const activity = activities.find((candidate) => candidate.id === activityId);
+  if (!activity) throw new Error(`Delivery target ${deliveryTarget} has no terminal activity ${activityId}.`);
+  activity.metadata = {
+    ...activity.metadata,
+    completesWorkflow: true,
+    deliveryTarget
+  };
 }
 
 function buildV7ReusableActivities(
@@ -808,7 +992,9 @@ function buildV7ReusableActivities(
   casePackages: string[],
   reviewPolicy: ReviewPolicy,
   reuseAssessment: ReusableWorkflowDefinitionInput["reuseAssessment"],
-  executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"]
+  deliveryTarget: WorkflowDeliveryTarget,
+  executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"],
+  optimizedV3 = false
 ): WorkflowActivityDefinition[] {
   const suiteMetadata = {
     suiteId: reuseAssessment.suiteId,
@@ -888,10 +1074,12 @@ function buildV7ReusableActivities(
         scope: "affected",
         casePackages
       }
-    },
-    affectedBuild
+    }
   ];
-  const fullActivities = v7DesignActivities(casePackages, reviewPolicy)
+  if (deliveryTarget !== "testcase_only") affectedActivities.push(affectedBuild);
+  const fullActivities = (optimizedV3
+    ? v7OptimizedDesignActivities()
+    : v7DesignActivities(casePackages, reviewPolicy))
     .filter((activity) => !["readiness", "execution-authorization", "run", "report"].includes(activity.id));
   fullActivities.find((activity) => activity.id === "source-selection")!.dependencies = ["reuse-assessment"];
   const fullBuildChain: WorkflowActivityDefinition[] = [];
@@ -902,12 +1090,23 @@ function buildV7ReusableActivities(
     "case-confirmation",
     executionIsolation
   );
-  fullActivities.push(fullBuildChain.find((activity) => activity.id === "build")!);
+  if (deliveryTarget !== "testcase_only") {
+    fullActivities.push(fullBuildChain.find((activity) => activity.id === "build")!);
+  }
   const branchActivities = reuseAssessment.decision === "direct_execute"
     ? directActivities
     : reuseAssessment.decision === "affected_rebuild"
       ? affectedActivities
       : fullActivities;
+  if (deliveryTarget !== "full_run") {
+    const branchTail = reuseAssessment.decision === "direct_execute"
+      ? "suite-validation"
+      : deliveryTarget === "testcase_only"
+        ? "case-confirmation"
+        : "build";
+    markDeliveryTerminal(branchActivities, branchTail, deliveryTarget);
+    return [assessmentActivity, ...branchActivities];
+  }
   const branchTail = reuseAssessment.decision === "direct_execute" ? "suite-validation" : "build";
   const usesStableSuiteAuthorization = reuseAssessment.decision === "direct_execute";
   const authorizationSchemaVersion = usesStableSuiteAuthorization
@@ -916,6 +1115,7 @@ function buildV7ReusableActivities(
   const authorizationKind = usesStableSuiteAuthorization && !writesData
     ? "policy_authorization"
     : "execution_authorization";
+  const adaptiveAuthorization = optimizedV3 && !usesStableSuiteAuthorization;
   return [
     assessmentActivity,
     ...branchActivities,
@@ -944,7 +1144,12 @@ function buildV7ReusableActivities(
         ...suiteMetadata,
         decisionMode: authorizationKind === "policy_authorization"
           ? "policy_auto_no_write"
-          : "user_confirmed",
+          : adaptiveAuthorization
+            ? "risk_adaptive"
+            : "user_confirmed",
+        ...(adaptiveAuthorization
+          ? { policyVersion: "policy_auto_no_write_v2" }
+          : {}),
         callbackSubjectArtifact: "execution-authorization.json",
         callbackSubjectFormat: "canonical_json_digest_v1",
         callbackSubjectSchemaVersion: authorizationSchemaVersion,
@@ -1001,6 +1206,7 @@ export function workflowStartedPayload(definition: WorkflowDefinition): SafeEven
   return {
     planDigest: definition.planDigest,
     graphDigest: definition.graphDigest,
+    ...(definition.deliveryTarget ? { deliveryTarget: definition.deliveryTarget } : {}),
     ...(reuse ? { reuseAssessment: reuse as unknown as SafeJsonValue } : {})
   };
 }
@@ -1011,6 +1217,7 @@ export function activitiesExpandedPayload(definition: WorkflowDefinition): SafeE
     graphDigest: definition.graphDigest,
     capabilities: definition.capabilities,
     writesData: definition.writesData,
+    ...(definition.deliveryTarget ? { deliveryTarget: definition.deliveryTarget } : {}),
     ...(definition.reviewPolicy
       ? { reviewPolicy: definition.reviewPolicy as unknown as SafeJsonValue }
       : {}),

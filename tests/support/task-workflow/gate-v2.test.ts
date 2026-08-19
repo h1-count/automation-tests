@@ -27,7 +27,8 @@ async function workspace(): Promise<string> {
   await writeFile(resolve(requestRoot, "plan.md"), [
     "# Gate v2 plan",
     "",
-    "> 结构版本：test-design-index-v2 / rule-design-ledger-v2 / case-relation-projection-v2。",
+    "> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。",
+    "> 用例格式：testcase-v6-layered。",
     "",
     "## 基本信息",
     "",
@@ -152,18 +153,17 @@ test("Gate v2 exposes continuation without legacy scheduling fields", async (con
   assert.equal("wake" in view, false);
 });
 
-test("v7 plan validation immediately exposes case generation without a plan callback", async (context) => {
+test("v7 source selection immediately exposes candidate generation without a plan callback", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
   const manager = new DurableWorkflowManager(requestId, root);
   await manager.initialize({ capabilities: ["web"], casePackages: ["cases-registration.md"] });
   await succeed(manager, "source-selection");
-  await succeed(manager, "plan-validation");
   const accepted = await manager.gate();
 
   assert.equal(accepted.continuation.kind, "continue_now");
   assert.equal(accepted.reply.kind, "none");
-  assert.deepEqual(accepted.readyActivities, ["case-generation-cases-registration-md"]);
+  assert.deepEqual(accepted.readyActivities, ["candidate-generation"]);
   assert.equal(accepted.activities["plan-confirmation"], undefined);
   assert.equal((await manager.events()).some((event) =>
     event.type === "CallbackRequested"
@@ -271,7 +271,6 @@ test("Stop Hook emits one continuation, prevents recursion, and allows safe user
   assert.match(String(recursive.stopReason), /保持只读/);
 
   await succeed(manager, "source-selection");
-  await succeed(manager, "plan-validation");
   const afterValidation = await hook(root, false);
   assert.equal(afterValidation.decision, "block");
   assert.match(String(afterValidation.reason), /不得宣称工作流完成/);

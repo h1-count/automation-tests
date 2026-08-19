@@ -1,5 +1,9 @@
-export const RULE_COVERAGE_MARKER = "结构版本：rule-coverage-v1";
-export const RULE_DESIGN_LEDGER_MARKER_V2 = "rule-design-ledger-v2";
+import {
+  CURRENT_RULE_LEDGER_MARKER,
+  ruleLedgerContractIssues
+} from "../src/support/testcase/relationContract.ts";
+
+export const RULE_DESIGN_LEDGER_MARKER_V3 = CURRENT_RULE_LEDGER_MARKER;
 
 type CaseRecord = { caseId: string; ruleIds: string[]; source: string };
 export type RuleRecord = {
@@ -19,25 +23,28 @@ function cells(line: string): string[] {
 }
 
 export function parseRuleRecords(plan: string): RuleRecord[] {
-  const v2 = plan.includes(RULE_DESIGN_LEDGER_MARKER_V2);
-  const section = plan.split(v2 ? "## 规则设计台账" : "## 规则覆盖台账")[1]?.split("## ")[0] ?? "";
-  return section
-    .split("\n")
-    .filter((line) => /^\|\s*RULE-/.test(line))
+  if (ruleLedgerContractIssues(plan).length > 0) return [];
+  const section = plan.split("## 规则设计台账")[1]?.split("## ")[0] ?? "";
+  return section.split("\n")
+    .filter((line) => /^\|\s*RULE-/u.test(line))
     .map((line) => {
       const row = cells(line);
-      const conclusion = row[v2 ? 10 : 8] ?? "";
+      const conclusion = row[8] ?? "";
       return {
         ruleId: row[0] ?? "",
         requirementId: row[1] ?? "",
-        type: row[3] ?? "",
-        designEvidence: row[v2 ? 7 : 6] ?? "",
-        applicability: v2
-          ? conclusion === "不适用" ? "不适用" : conclusion === "待确认" ? "待补充" : conclusion === "受控执行" ? "受控执行" : "适用"
-          : row[7] ?? "",
+        type: row[5] ?? "",
+        designEvidence: row[5] ?? "",
+        applicability: conclusion === "已覆盖"
+          ? "适用"
+          : conclusion === "待确认"
+            ? "待补充"
+            : conclusion === "受控执行"
+              ? "受控执行"
+              : "不适用",
         coverageStatus: conclusion,
-        caseIds: (row[9] ?? "").match(/\b[A-Z][A-Z0-9]+(?:-[A-Z0-9]+){2,}\b/g) ?? [],
-        basis: v2 ? `${row[2] ?? ""}；${row[8] ?? ""}` : row[10] ?? ""
+        caseIds: (row[6] ?? "").match(/\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b/g) ?? [],
+        basis: `${row[2] ?? ""}；${row[7] ?? ""}`
       };
     });
 }
@@ -45,13 +52,20 @@ export function parseRuleRecords(plan: string): RuleRecord[] {
 export function summarizeRuleCoverage(plan: string): string {
   const rules = parseRuleRecords(plan);
   const applicable = rules.filter((rule) => ["适用", "受控执行"].includes(rule.applicability));
-  const covered = applicable.filter((rule) => rule.caseIds.length > 0 && ["已覆盖", "受控执行"].includes(rule.coverageStatus));
+  const covered = applicable.filter((rule) =>
+    rule.caseIds.length > 0 && ["已覆盖", "受控执行"].includes(rule.coverageStatus)
+  );
   return `适用规则 ${applicable.length}；已覆盖 ${covered.length}；规则总数 ${rules.length}。`;
 }
 
-export function validateRuleCoverage(plan: string, cases: CaseRecord[], options: { requireCaseLinks?: boolean } = {}): RuleCoverageIssue[] {
-  if (!plan.includes(RULE_COVERAGE_MARKER) && !plan.includes(RULE_DESIGN_LEDGER_MARKER_V2)) {
-    return [{ name: "规则覆盖台账", detail: "历史请求未标记 rule-coverage-v1，保持兼容警告。" }];
+export function validateRuleCoverage(
+  plan: string,
+  cases: CaseRecord[],
+  options: { requireCaseLinks?: boolean } = {}
+): RuleCoverageIssue[] {
+  const contractIssues = ruleLedgerContractIssues(plan);
+  if (contractIssues.length > 0) {
+    return contractIssues.map((detail) => ({ name: "规则台账契约", detail }));
   }
   const rules = parseRuleRecords(plan);
   const requireCaseLinks = options.requireCaseLinks ?? true;
@@ -59,11 +73,13 @@ export function validateRuleCoverage(plan: string, cases: CaseRecord[], options:
   const caseRuleIds = new Map(cases.map((item) => [item.caseId, new Set(item.ruleIds)]));
   for (const rule of rules) {
     const needsCase = ["适用", "受控执行"].includes(rule.applicability);
-    if (requireCaseLinks && needsCase && rule.caseIds.length === 0) issues.push({ name: "适用规则关联", detail: `${rule.ruleId} 缺少关联 caseId。` });
-    if (["不适用", "待补充", "待用户裁决", "受控执行"].includes(rule.applicability) && !rule.basis.trim().match(/[^无]/)) {
+    if (requireCaseLinks && needsCase && rule.caseIds.length === 0) {
+      issues.push({ name: "适用规则关联", detail: `${rule.ruleId} 缺少关联 caseId。` });
+    }
+    if (["不适用", "待补充", "受控执行"].includes(rule.applicability) && !rule.basis.trim().match(/[^无]/u)) {
       issues.push({ name: "规则适用性依据", detail: `${rule.ruleId} 缺少适用性或执行门禁依据。` });
     }
-    if (rule.type === "输入边界" && !/等价类|边界/.test(rule.designEvidence)) {
+    if (rule.type === "输入边界" && !/等价类|边界/u.test(rule.designEvidence)) {
       issues.push({ name: "规则设计证据", detail: `${rule.ruleId} 的输入边界缺少等价类或边界证据。` });
     }
     for (const caseId of requireCaseLinks ? rule.caseIds : []) {

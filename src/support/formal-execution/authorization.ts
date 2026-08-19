@@ -611,6 +611,24 @@ async function loadV3ConfirmedAuthorization(
       confirmedAt: succeeded.occurredAt
     };
   }
+  if (manifest.schemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+    && activity.definition.kind === "execution_authorization"
+    && activity.definition.metadata?.decisionMode === "risk_adaptive") {
+    const succeeded = [...events].reverse().find((event) =>
+      event.type === "ActivitySucceeded"
+      && event.payload.activityId === "execution-authorization"
+      && event.payload.executionSubjectDigest === manifest.digest
+    );
+    if (activity.state === "SUCCEEDED" && succeeded) {
+      const { callbackId, ...snapshot } = manifest;
+      return {
+        ...snapshot,
+        confirmationId: callbackId,
+        status: "confirmed",
+        confirmedAt: succeeded.occurredAt
+      };
+    }
+  }
   const callback = acceptedAuthorizationCallback(events);
   if (
     activity.state !== "SUCCEEDED"

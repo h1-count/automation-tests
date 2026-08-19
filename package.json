@@ -50,7 +50,7 @@
     "test:rule-design": "tsx --test tests/support/rule-design-preflight.test.ts",
     "test:testcase-quality": "tsx --test tests/support/testcase-quality-gate.test.ts tests/support/knowledge-decision.test.ts tests/support/markdown-format.test.ts tests/support/stage-run-envelope-rules.test.ts",
     "test:project-knowledge": "tsx --test tests/support/project-knowledge-candidates.test.ts",
-    "test:testcase-relations": "tsx --test tests/support/testcase-relation-projections.test.ts",
+    "test:testcase-relations": "tsx --test tests/support/testcase-relation-projections.test.ts tests/support/testcase-document-v6-layered.test.ts tests/support/testcase-review-workbook.test.ts",
     "testcases:sync-relations": "tsx scripts/sync-testcase-relations.ts",
     "task:status": "tsx src/support/task-workflow/cli/status.ts",
     "task:initialize": "tsx src/support/task-workflow/cli/manage.ts init",
@@ -58,6 +58,7 @@
     "task:gate": "tsx src/support/task-workflow/cli/gate.ts",
     "task:manage": "tsx src/support/task-workflow/cli/manage.ts",
     "reset:full-test-state": "tsx scripts/reset-full-test-state.ts",
+    "archive:noncurrent-requests": "tsx scripts/archive-noncurrent-requests.ts",
     "report:playwright": "playwright show-report artifacts/playwright-report",
     "report:allure": "allure generate artifacts/allure-results --clean -o artifacts/allure-report",
     "report": "npm run report:playwright"

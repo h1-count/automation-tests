@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { canonicalJson } from "./canonicalJson.js";
 import type { SafeJsonValue } from "./types.js";
+import { markdownSection, markdownTableRows, parseRuleCaseRecords } from "../testcase/relationProjection.js";
+import {
+  isStructuredTestcaseDocumentVersion,
+  parseTestcaseDocument
+} from "../testcase/testcaseDocument.js";
 
 export const LEGACY_CASE_REVIEW_RISK_SCHEMA_VERSION = "case-review-risk-v1" as const;
 export const CASE_REVIEW_RISK_SCHEMA_VERSION = "case-review-risk-v2" as const;
@@ -28,6 +33,7 @@ interface ParsedCase {
   metadata: Map<string, string>;
   preconditions: string;
   operations: string[];
+  semanticInputs: string[];
 }
 
 const levelRank: Record<CaseReviewRiskLevel, number> = {
@@ -89,23 +95,48 @@ function parseOperations(value: string): string[] {
   return operations;
 }
 
-function parseCases(markdownSources: string[]): ParsedCase[] {
+function requestDefaultDataStrategy(plan?: string): string | undefined {
+  if (!plan) return undefined;
+  const row = markdownTableRows(markdownSection(plan, "## 请求默认值"))
+    .find((cells) => cells[0] === "数据策略");
+  return row?.[1]?.replace(/`/gu, "").trim();
+}
+
+function parseCases(markdownSources: string[], plan?: string): ParsedCase[] {
+  const inheritedDataStrategy = requestDefaultDataStrategy(plan);
   return markdownSources.flatMap((source) => {
-    const starts = [...source.matchAll(/^##\s+测试用例[：:]\s*(.+?)\s*$/gmu)];
-    return starts.map((start, index) => {
-      const bodyStart = start.index ?? 0;
-      const bodyEnd = starts[index + 1]?.index ?? source.length;
-      const body = source.slice(bodyStart, bodyEnd);
-      return {
-        metadata: parseMetadata(section(body, "基本信息")),
-        preconditions: section(body, "前置条件"),
-        operations: parseOperations(section(body, "操作步骤"))
-      };
-    });
+    const document = parseTestcaseDocument(source);
+    if (!isStructuredTestcaseDocumentVersion(document.version)) {
+      throw new Error("Case review risk only accepts testcase-v6-layered.");
+    }
+    return document.cases.map((testcase) => {
+        const metadata = new Map<string, string>([
+          ["用例编号", testcase.caseId],
+          ["规则编号", testcase.ruleIds.join("、")],
+          ["优先级", testcase.priority],
+          ["数据策略", testcase.overrides.dataStrategy
+            ?? inheritedDataStrategy
+            ?? document.defaults.dataStrategy
+            ?? ""]
+        ]);
+        if (testcase.overrides.risk) metadata.set("风险等级", testcase.overrides.risk);
+        return {
+          metadata,
+          preconditions: testcase.preconditions,
+          operations: testcase.executionRows.map((row) => row.action),
+          semanticInputs: testcase.executionRows.flatMap((row) => [
+            row.data,
+            row.expected
+          ])
+        };
+      });
   });
 }
 
-function classify(testcase: ParsedCase): CaseReviewRiskCase {
+function classify(
+  testcase: ParsedCase,
+  requirementRefsByRule: Map<string, string[]>
+): CaseReviewRiskCase {
   const caseId = testcase.metadata.get("用例编号")?.trim() ?? "";
   if (!/^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$/u.test(caseId)) {
     throw new Error("Case review risk requires every testcase body to have a valid caseId.");
@@ -114,11 +145,23 @@ function classify(testcase: ParsedCase): CaseReviewRiskCase {
   if (!dataStrategy) {
     throw new Error(`Case review risk requires ${caseId} to declare a data strategy.`);
   }
-  const requirementRefs = extractRefs(testcase.metadata.get("需求追溯编号") ?? "", "REQ");
-  const ruleRefs = extractRefs(testcase.metadata.get("规则覆盖编号") ?? "", "RULE");
+  const explicitRequirementRefs = extractRefs(
+    testcase.metadata.get("需求编号") ?? testcase.metadata.get("需求追溯编号") ?? "",
+    "REQ"
+  );
+  const ruleRefs = extractRefs(
+    testcase.metadata.get("规则编号") ?? testcase.metadata.get("规则覆盖编号") ?? "",
+    "RULE"
+  );
+  const requirementRefs = uniqueSorted([
+    ...explicitRequirementRefs,
+    ...ruleRefs.flatMap((ruleRef) => requirementRefsByRule.get(ruleRef) ?? [])
+  ]);
   const operations = testcase.operations.join("\n");
+  const semanticInputs = testcase.semanticInputs.join("\n");
+  const riskText = `${operations}\n${semanticInputs}`;
 
-  if (strictSecurityOperation.test(operations)) {
+  if (strictSecurityOperation.test(riskText)) {
     return {
       caseId,
       level: "strict",
@@ -127,7 +170,7 @@ function classify(testcase: ParsedCase): CaseReviewRiskCase {
       ruleRefs
     };
   }
-  if (sensitiveAuthenticationOperation.test(operations)) {
+  if (sensitiveAuthenticationOperation.test(riskText)) {
     return {
       caseId,
       level: "strict",
@@ -138,28 +181,27 @@ function classify(testcase: ParsedCase): CaseReviewRiskCase {
   }
 
   const declaredRisk = testcase.metadata.get("风险等级")?.trim() ?? "";
-  const reviewText = `${testcase.preconditions}\n${operations}`;
+  const reviewText = `${testcase.preconditions}\n${riskText}`;
   const lowDeclaredRisk = declaredRisk === "低" || /^low$/iu.test(declaredRisk);
   const simpleField = simpleFieldOperation.test(operations) && !standardContext.test(reviewText);
   const simpleNavigation = readOnlyNavigationOperation.test(operations)
     && !standardContext.test(reviewText);
-  if (dataStrategy === "no_write" && (lowDeclaredRisk || simpleField || simpleNavigation)) {
+  if (dataStrategy !== "no_write" || businessWriteOperation.test(riskText)) {
     return {
       caseId,
-      level: "light",
-      reasons: [simpleNavigation ? "bounded_read_only_navigation" : "bounded_read_only_field"],
+      level: "standard",
+      reasons: [businessWriteOperation.test(riskText)
+        ? "operation:ordinary_test_write"
+        : `data_strategy:${dataStrategy}`],
       requirementRefs,
       ruleRefs
     };
   }
-
-  if (dataStrategy !== "no_write" || businessWriteOperation.test(operations)) {
+  if (lowDeclaredRisk || simpleField || simpleNavigation) {
     return {
       caseId,
-      level: "standard",
-      reasons: [businessWriteOperation.test(operations)
-        ? "operation:ordinary_test_write"
-        : `data_strategy:${dataStrategy}`],
+      level: "light",
+      reasons: [simpleNavigation ? "bounded_read_only_navigation" : "bounded_read_only_field"],
       requirementRefs,
       ruleRefs
     };
@@ -214,10 +256,16 @@ export function caseReviewRiskDigest(
  * deliberately outside the risk input so descriptive text cannot escalate a case.
  */
 export function assessCaseReviewRisk(
-  markdownSources: string | string[]
+  markdownSources: string | string[],
+  options: { plan?: string } = {}
 ): CaseReviewRiskAssessment {
   const sources = Array.isArray(markdownSources) ? markdownSources : [markdownSources];
-  const cases = parseCases(sources).map(classify)
+  const requirementRefsByRule = new Map(
+    (options.plan ? parseRuleCaseRecords(options.plan) : [])
+      .map((rule) => [rule.id, rule.reqIds] as const)
+  );
+  const cases = parseCases(sources, options.plan)
+    .map((testcase) => classify(testcase, requirementRefsByRule))
     .sort((left, right) => left.caseId.localeCompare(right.caseId));
   if (!cases.length) throw new Error("Case review risk requires at least one testcase body.");
   const duplicates = cases.filter((item, index) =>

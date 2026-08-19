@@ -10,6 +10,10 @@
 
 项目强制规则以 [AGENTS.md](../../AGENTS.md) 为准。本文是生命周期、事件状态机、阶段编排和工程层进入条件的唯一正文来源；测试设计与评审标准见 [testcase-guideline.md](./testcase-guideline.md)，环境与数据生命周期见 [environment-guideline.md](./environment-guideline.md)，运行结果见 [report-guideline.md](./report-guideline.md)。
 
+<!-- delegates: automation.contracts -->
+本文使用的专有契约标识、当前版本和仅回放版本统一登记在[契约注册表](./contract-registry.md)；本文只解释生命周期契约的业务语义，不另建版本清单。
+<!-- end-delegates -->
+
 ## 2. 角色与职责
 
 | 角色 | 职责 |
@@ -24,27 +28,38 @@
 
 ## 3. 总体流程
 
+新测试请求必须在任何资料正文读取、受控探索和 `task:initialize` 之前完成一次交付目标选择。用户已明确“只生成用例”“交付脚本”或“完整执行”时直接映射，否则只询问一次：
+
+- `testcase_only`：完整用例集经门禁、reviewer 和用例确认后结束；不读取被测代码仓库，不生成脚本。
+- `script_only`：用例确认后继续 `build`，完成候选脚本、selector/接口契约证据和静态门禁后结束；不创建 readiness、执行清单或正式运行。
+- `full_run`：执行完整的用例、脚本、readiness、执行授权、run 和 report 闭环。
+
+目标使用 `task:initialize -- --delivery-target <testcase_only|script_only|full_run>` 固定到 definition 与 `graphDigest`。内部 Activity 按选定目标自动连续，不在每一步后再询问“是否继续”。同 `requestId` 已有 history 时必须恢复原图，不得重选目标或改写历史。
+
 ```text
-测试请求
+测试请求 → 启动前选择 deliveryTarget
   ↓
 同 run history 恢复；无 history 时确定性 suite 复用评估 → direct_execute / affected_rebuild / full_replan
   ↓
 affected/full 分支上下文加载：读取用户偏好 → 按测试需求确认被测项目 → 读取项目测试经验库 → manifest 与章节索引筛选 → 读取命中原始资料
   ↓
-用例设计：资料输入 → 内部测试设计索引 → 完整用例 → 确定性校验 → 风险分级评审与演进 → 一次用例确认
+用例设计：读取命中资料 → 自动生成完整候选用例集（REQ、RULE、用例、来源追溯、风险与待确认项） → 自动门禁与评审演进 → 一次用例确认
+  ↓ testcase_only：WorkflowCompleted
   ↓
 工程层：定位代码仓库 → 检查 Graphify 图谱 → 自动化可行性与脚本设计
   ↓
 Web/H5：可选的只读真实页面候选探索 → 源码契约补齐 → 自动无头 selector 验证 → 必要时可见 Inspector 兜底
   ↓
-正式脚本 diff → 静态检查与脚本评审 → readiness
-  ↓ 一次确认不可变执行清单
+正式脚本 diff → 静态检查与脚本评审
+  ↓ script_only：build 完成后 WorkflowCompleted
+  ↓ full_run：readiness
+  ↓ 风险自适应授权：可证明零写入时自动，其他一次确认不可变执行清单
 setup → 正式测试 → teardown → 报告
   ↓
 范围完成判定、失败分析与 WorkflowCompleted
 ```
 
-报告后的资产修改、缺陷修复或重新执行必须由用户另行提出，或进入相应的条件性决定流程。v7 只有“用例确认”和“执行清单确认”两个固定用户门禁；前者不授权后者的业务写入、设备动作或生产执行。
+报告后的资产修改、缺陷修复或重新执行必须由用户另行提出，或进入相应的条件性决定流程。v7 固定只有一次用例确认；执行阶段在完全符合 `policy_auto_no_write_v2` 时自动授权，否则保留一次执行清单确认。用例确认不授权业务写入、设备动作或生产执行。
 
 ### 3.1 测试上下文加载
 
@@ -53,23 +68,27 @@ setup → 正式测试 → teardown → 报告
 1. 无条件读取 `.local/testing-memory.md`（如存在），加载当前用户的长期协作与行为偏好。
 2. 根据用户测试需求、目标 URL、资料来源、活跃设计索引或已关联资产确认被测项目；此时不得扫描业务源码来替代需求理解。匹配的活跃 `plan.md` 不存在时，为当前请求创建内部测试设计索引；不得单独请求计划确认。
 3. 被测项目已识别时，只读取对应项目测试经验库 `docs/testing/knowledge/<project>-testing-knowledge.md`（如存在）；不得读取或套用其他项目的测试经验。
-4. 在读取 `sources/` 的正文前，先扫描目录结构并读取 `sources/manifest.yaml` 的元数据（`id`、路径、类型、版本、适用项目、`reference_scopes`、状态）；存在当前项目的 `knowledge_indexes` 登记时，再读取受控章节索引（资料 `id`、`sectionId`、主题、关键词、定位和 SHA-256）。不得以全量打开资料库代替选择。
-5. 仅读取以下原始资料：用户直接指定的资料；`status: active` 且 `applicable_projects`、章节主题、关键词、`reference_scopes` 或已有计划追溯与当前测试需求匹配的资料；以及为解释已确认需求所必需的上级资料。**索引命中只表示候选，不表示已读取或已引用。**每份实际读取且用于测试范围、业务规则、推断或结论的资料，必须在当前 `plan.md` 的“输入资料”中记录 manifest `id`、`sectionId`、路径、页码或标题定位、版本和 SHA-256，以及本次用途。资料位于仓库时，记录可点击的仓库相对 Markdown 链接；原型使用精确页面链接，PDF/Word 保留页码或标题定位。命中含图片、流程图或扫描页时，才按需视觉/OCR读取；该读取结果仍须由原始资料复核。
-6. 在资料筛选后读取 `test-assets/manifest.yaml`，按项目、类型、平台和范围选择 `active` 静态资产。唯一候选或唯一默认候选可直接作为计划候选；多个同等候选或无候选只记录“待选择”，不得根据文件名、修改时间或目录名称猜测。静态资产不是业务需求依据，不写入“输入资料”表，也不登记到 `sources/manifest.yaml`。
-7. `sources/` 内出现但未登记的资料、登记路径不存在、版本/适用范围无法确认或存在多个同等候选资料时，先补登或记录为 `missingInfo` 并向用户确认；不得把文件名、目录名或历史经验当作业务事实。`unknown` 只表示待确认元数据，不是可忽略或默认适用。
-8. 被测项目尚未能唯一确认时，记录为 `missingInfo` 并向用户确认；在确认前不得猜测项目专属流程、环境约束、配网方式或恢复策略。
-9. 每次输出用例确认视图、评审结论或范围调整时，面向用户列出“本轮实际引用资料”：直接资料和原始知识资料分别列出**可点击资料链接**、`manifest id / sectionId`（如有）、页码/标题/原型页面定位与用途；没有引用知识库时明确写“本轮未引用知识库资料”。仓库资料使用 Markdown 链接；对话附件未落盘或链接不可复现时，明确标注“仅对话附件，暂无持久链接”，并在需要长期追溯前补登到 `sources/`。不得把仅扫描到、仅索引命中或未打开的资料列为依据。
+4. 用户直接指定的 Word、PDF、原型或附件直接作为本请求来源：读取后在 `plan.md` 的“请求内来源”记录稳定 SRC、可点击路径、章节/页码/字段、用途和一次 SHA-256，不要求预先登记 `sources/manifest.yaml`。只有确需跨请求复用时才晋升全局 manifest。
+5. 需要从仓库补充资料时，在读取 `sources/` 正文前先读取 `sources/manifest.yaml` 和相关受控章节索引；不得以全量打开资料库代替选择。
+6. 仅读取用户直接指定的资料、与当前请求命中的 active 仓库资料，以及解释已确认需求所必需的上级资料。**索引命中只表示候选，不表示已读取或已引用。**实际引用资料统一记录到“请求内来源”；manifest `id/sectionId` 只在该来源本已受全局索引管理时补充。
+7. 在资料筛选后读取 `test-assets/manifest.yaml`，按项目、类型、平台和范围选择 `active` 静态资产。静态资产不是业务需求依据，不记入请求内来源。
+8. 仓库 `sources/` 内的资料未登记、路径不存在、适用范围无法确认或存在多个同等候选时，记录最小 `missingInfo`；该要求不适用于用户已直接指定的外部附件。
+9. 被测项目尚未能唯一确认时，记录为 `missingInfo` 并向用户确认；在确认前不得猜测项目专属流程、环境约束、配网方式或恢复策略。
+10. 每次输出用例确认视图、评审结论或范围调整时，面向用户列出“本轮实际引用资料”：可点击链接、页码/标题/原型页面定位与用途；`manifest id / sectionId` 只在已登记时列出。不得把仅扫描到、仅索引命中或未打开的资料列为依据。
 
-用户偏好适用于本次测试的全部阶段；项目测试经验仅适用于匹配的被测项目。流程中形成可复用的项目测试策略时，必须立即写入 Git 管理的项目经验库并标注证据状态；不得因尚未完成整轮执行而只留在本地候选队列。同一“项目 + 适用范围”出现新观察或策略冲突时，使用最新可审查记录原位覆盖当前条目，旧版由 Git 历史保留；验证完成后只更新证据状态和引用。`sources/knowledge-base/` 原始知识资料库才是协议、接口和产品规则的可追溯输入；不得在经验库复制原始需求或契约。两类资料冲突、原始资料版本变化或证据不足时，以当前 `plan.md` 中已登记的原始资料和正式用户决定为准。项目经验只作为决策输入，不能覆盖当前用户指令、已确认测试用例或实际执行证据。
+<!-- delegates: automation.project-knowledge -->
+项目经验的适用范围、即时登记、候选状态、冲突覆盖、条目格式和事实优先级统一由[项目测试经验规范](./knowledge/README.md)定义；生命周期层只负责在确认被测项目后读取匹配经验，并在流程形成或验证经验时调用登记命令，不复制其规则正文。
+<!-- end-delegates -->
 
 ### 3.1.1 本机维护命令发现与执行
 
-“清理”“重置”“归档”“恢复”属于工程维护请求，不进入测试设计、用例或执行阶段。每个新对话处理此类请求时，必须先读取 `package.json` 的 scripts 与 `scripts/README.md`，按已登记命令的用途和边界选择操作；不得根据目录名、历史经验或扫描结果自行推断要删除的文件。
+“清理”“重置”“归档”“恢复”属于工程维护请求，不进入测试设计、用例或执行阶段。每个新对话处理此类请求时，必须先读取 `package.json` 的 scripts 与 `scripts/README.md`，按已登记命令的用途和边界选择操作；不得根据目录名、历史经验或扫描结果自行推断要删除的文件。每次发布新的 workflow definition version 后，可在独立的维护回合向用户提议一次非当前版本请求归档预演；仅在用户确认范围后执行，不得在测试工作流回合内自动触发。
 
 | 用户意图 | 必须先做 | 允许的后续动作 |
 | --- | --- | --- |
 | “清理本地测试数据”等范围不完整表述 | 定位匹配命令并运行 `--dry-run` | 输出将清理/归档的类别，等待用户确认完整范围；不得手工删除目录。 |
 | “完整重置”“清除所有测试数据”“从头测试” | 确认 `reset:full-test-state` 已登记 | 执行 `npm run reset:full-test-state`；它清理本地运行状态并归档活跃测试资产，不删除远端业务数据。 |
+| “归档所有非当前版本请求” | 确认 `archive:noncurrent-requests` 已登记并运行 `--dry-run` | 只归档不满足当前 workflow、plan 与 testcase 契约组合、workflow 已到终态（最后事件为 `WorkflowCompleted/WorkflowCancelled`）且无在途 Activity 租约或运行中 reviewer 绑定的请求及其请求专属测试实现；冲突请求以冲突清单列出，先收口到终态、取消，或确认为无在途回合后删除其可丢弃 runtime 再重试预演。不处理当前请求、运行产物、认证或台账。 |
 | 恢复已登记的本机资源 | 确认资源台账与恢复命令 | 使用 `npm run test-data:recover`；它不是清理命令。 |
 | 用户要求的范围没有对应命令 | 比对命令边界与用户范围 | 报告没有安全匹配命令及最小补充指示；不得用目录扫描或 `rm` 模拟。 |
 
@@ -136,17 +155,17 @@ v7 分支固定为：
 
 直接分支只引用 suite manifest，不复制或重新生成设计；定向分支只处理 `impactMap` 证明的受影响引用。全局范围、环境、数据写入或安全边界变化，以及映射不完整，必须回退 `full_replan`。
 
-`npm run test:suite:assess -- --suite <type/project/feature> --environment <test|pre> [--profile <profile>]` 只读输出评估；`task:initialize -- --request <new-run> --suite <suiteId> --reuse auto --environment <test|pre>` 会重算同一评估，不接受外部摘要或结论。直接分支启动 readiness 后使用 `task:manage suite-readiness-publish --request <new-run> --claim <lease> --environment <test|pre>`；`no_write + test/pre + 完全匹配` 由 `policy_auto_no_write` 为本轮生成 `execution-authorization-v5`，其他写入、OTP、上传、提交、设备动作或提权仍须本轮新确认。设计复用不复用旧授权、正式记录、能力有效期、数据台账、cleanup 结论或报告。
+`npm run test:suite:assess -- --suite <type/project/feature> --environment <test|pre> [--profile <profile>]` 只读输出评估；`task:initialize -- --request <new-run> --delivery-target <target> --suite <suiteId> --reuse auto --environment <test|pre>` 会重算同一评估，不接受外部摘要或结论。直接分支只执行到选定终点；`full_run` 直接分支启动 readiness 后使用 `task:manage suite-readiness-publish --request <new-run> --claim <lease> --environment <test|pre>`。`no_write + test/pre + 完全匹配` 由 `policy_auto_no_write` 为本轮生成 `execution-authorization-v5`，其他写入、OTP、上传、提交、设备动作或提权仍须本轮新确认。设计复用不复用旧授权、正式记录、能力有效期、数据台账、cleanup 结论或报告。
 
 `affected_rebuild` 初始化时把完整稳定设计确定性物化为本轮隔离工作副本，并将 suite-scoped v4 manifest 降为绑定本轮 `runRequestId` 的候选 v3；这只是复制，不重新生成未受影响资产。模型和 reviewer 只接收评估命中的 case/引用，readiness 必须精确使用同一 case 集。工作副本不得直接覆盖稳定目录；只有本轮正式执行、cleanup、seal 与报告收口后，`suite-promote` 才能合并已评审入口并保留未受影响资产。case 集或评估范围外 manifest 发生变化时拒绝局部晋升并要求 `full_replan`。
 
 #### 完整设计分支、Activity 命令与恢复
 
-v7 `full_replan` 固定为：`source-selection → plan-validation → case-generation-* → relation-sync → completeness-validation → reviewer/自动演进 → case-confirmation → build → readiness → execution-authorization → run → report`。不存在 `plan-confirmation` 或 `case-review-conflict-decision`。`build` 合并工程分析、脚本生成、selector 证据和差异化脚本评审；`run` 与 `report` 的执行及封印契约保持不变。
+v7 `full_replan` 的用户可见设计交互固定为：“读取资料 → 自动生成完整候选用例集 → 自动门禁与评审 → 一次用例确认”。新 v3 内部使用 `source-selection → candidate-generation → candidate-gate → 可选 reviewer/一次自动演进 → case-confirmation`；旧 v2 history 仍按原图回放。`case-confirmation` 前不得创建其他 callback、请求用户发送“继续”或分批确认 REQ、RULE、计划或用例包。
 
 `build` 的产物是完整、可审查的候选脚本，不是环境可执行性证明。部署版本、运行时 selector、OTP、fixture/provider、资源预算和实际 cleanup 能力只由 `readiness` 决定 runnable/deferred，不得反向删除有源码依据的候选实现。
 
-v7 `full_replan` 保留 `graphDigest` 与 `planDigest` 约束。首稿完整度通过后，manager 从用例数据策略、前置条件和步骤生成 `case-review-risk-v2`，按 `caseId` 选择 `light`、`standard` 或 `strict`。`review-policy-v2` 的角色选择、并发和收敛限制保持不变；历史 run 按其原策略回放。
+v7 `full_replan` 保留 `graphDigest` 与 `planDigest` 约束。新 v3 从请求默认值和 RULE 派生 case 的数据策略、REQ 与来源，`candidate-gate-v1` 生成 lean/strict 与语义 reviewer 选择；不因 REQ/case/模块数量升级。`review-policy-v3` 最多自动演进一轮，lean reviewer 失败告警放行，strict 允许一次重试。历史 run 按原策略回放。
 
 用例阶段与脚本阶段分别评级为 `light`、`standard` 或 `strict`；脚本从 `formalCase(caseId)` 继承该用例的最低档，再按实际脚本操作只升级不降级。风险分级只调整自动评审强度，不增加用户 callback；v7 只分别确认用例和不可变执行清单。
 
@@ -227,7 +246,7 @@ v7 用例确认只允许 `accepted`、`revision_requested` 和 `cancelled`。修
 | --- | --- |
 | 新请求或恢复请求通过接管预检 | 宿主支持时创建或复用同一 `requestId` 的长期任务，再执行 `task:initialize` 或 `task:resume`；不支持时直接进入仓库 workflow。 |
 | `continue_now`，或存在可自动执行的 reconcile、reviewer 派发/重试、草案演进与复审 | 宿主任务保持活动并立即继续，不请求用户发送“继续”；无宿主任务时同样在当前可用回合继续。 |
-| `await_event` 或 `wait_until` | 使用宿主支持的等待/恢复机制取得已登记 reviewer、工具或外部事件；单次等待窗口或墙钟时长本身不构成 reviewer 失败，不得据此中断 reviewer、追加失败事件或发送最终回复。 |
+| `await_event` 或 `wait_until` | 使用宿主支持的等待/恢复机制取得已登记 reviewer、工具或外部事件；单次等待窗口或墙钟时长本身不构成 reviewer 失败，不得据此中断 reviewer、追加失败事件或发送最终回复。对派发后超过空闲阈值（默认 15 分钟，自 reviewer 绑定或派发事件的最近更新起算）仍无提交的 reviewer，gate 输出 `reviewer-rebind:<batch>:<activity>:<role>` 动作并以 `reviewer_idle_rebind_suggested` 把 `await_event` 提升为 `continue_now`；Agent 先 `task:resume`（清理过期绑定）再以新宿主任务 `reviewer-dispatch` 重派，原派发与输入快照不变，不追加失败事件，重派只重置空闲窗口。 |
 | `WAITING_HUMAN` / callback 对应的 `wait_user + action_required` | 只暂停宿主长期任务，不把暂停写成 workflow 事件；callback 解析后恢复同一请求。 |
 | workflow `BLOCKED` / blocker 对应的 `wait_user + action_required` | 暂停同一宿主任务并请求最小解除条件；只有真实条件满足并通过 `task:manage blocker-resolve` 后才恢复，不把 workflow blocker 等同于宿主任务终态。 |
 | `SUCCEEDED` 且 `task:gate --assert-safe-reply` 通过 | 宿主支持时将长期任务标记为完成。产品测试结果为 `failed`、`mixed` 或 `inconclusive` 不改变该判断，只要执行、清理/残留登记和报告均已闭环。 |
@@ -283,12 +302,12 @@ Web/H5 在 `build` Activity 内按“资格满足时的只读真实页面候选�
 
 资料应放入 `sources/` 对应目录，或在对话中明确提供文件路径、URL、版本和适用环境。
 
-`sources/` 的读取顺序为“扫描目录与 manifest 元数据 → 读取当前项目受控章节索引 → 按本次需求筛选命中文档与章节 → 按需读取原始资料和视觉内容 → 在设计索引中回链”。原始资料变更导致索引 SHA-256 不一致时，索引视为过期，不得继续用于确认需求；重新索引后按变更影响规则复核。新增或直接提供的资料在用于正式设计、用例或评审前必须登记到 `sources/manifest.yaml`；仅浏览目录、manifest 或章节索引不等于已读取资料正文。
+`sources/` 的读取顺序为“扫描目录与 manifest 元数据 → 读取当前项目受控章节索引 → 按本次需求筛选命中文档与章节 → 按需读取原始资料和视觉内容 → 在设计索引中回链”。原始资料变更导致索引 SHA-256 不一致时，索引视为过期，不得继续用于确认需求；重新索引后按变更影响规则复核。新增或直接提供的资料可先登记为带 SHA-256 的请求内来源；只有需要跨请求复用时才登记到 `sources/manifest.yaml`。仅浏览目录、manifest 或章节索引不等于已读取资料正文。
 
 ### 4.2 Agent 输出测试设计索引
 
 <!-- delegates: automation.testcases -->
-设计索引、追溯和正式决定字段只按[用例规范](./testcase-guideline.md)生成，并保存为请求目录中唯一的 `plan.md`。`plan-validation` 成功后直接展开用例生成；流程层不得创建计划确认。
+设计索引、追溯和正式决定字段只按[用例规范](./testcase-guideline.md)生成，并保存为请求目录中唯一的 `plan.md`。新请求的 `candidate-generation` 一次产出 v3 `plan.md` 与 `testcase-v6-layered` `cases.md`，流程层不得创建计划确认或在 REQ/RULE/case 之间等待用户。Excel 只在 reviewer 收敛后由宿主按需生成，不属于候选事实或工作流历史。
 <!-- end-delegates -->
 
 ### 4.3 环境处理
@@ -299,23 +318,23 @@ Web/H5 在 `build` Activity 内按“资格满足时的只读真实页面候选�
 
 ### 4.4 阶段审核门槛
 
-`plan-validation` 后自动完成生成、关系同步、完整度校验、评审、演进与复审。只有收敛后的 `case-confirmation` 可以请求用户决定；用户不需要发送“继续”。
+`candidate-generation` 后由 `candidate-gate-v1` 一次完成结构、关系、完整度、敏感值与数据词汇检查。确定性门禁失败时回到生成分支自动修订，不把格式、字段、来源摘要或关系缺口交给 reviewer 或用户。只有收敛后的 `case-confirmation` 可以请求用户决定。
 
 ## 5. 阶段二：测试用例
 
-按[用例规范](./testcase-guideline.md)的用例包、原子用例和 `REQ ↔ RULE ↔ caseId` 标准生成完整草案。用例确认前不得进入工程层；评审质量、缺口处置和变更影响只由用例规范定义。
+按[用例规范](./testcase-guideline.md)的单一 `cases.md`、原子用例和 `REQ ↔ RULE ↔ caseId` 标准，一次生成覆盖当前请求全范围的候选用例集。对用户的确认视图必须同时包含全部用例编号与标题、实际来源、范围和数据/安全边界、待确认项及最新评审结论。用例确认前不得进入工程层；评审质量、缺口处置和变更影响只由用例规范定义。
 
 ### 5.1 多角色隔离评审
 
-流程层在首稿完整度校验成功后冻结 `case-review-risk-v2` 与 `review-policy-v2`。`deterministic_only` 不创建 reviewer 事件；其他模式按角色 scope 展开 review Activity。确定性门禁一次检查设计索引、全部用例包、规则台账、关系投影和来源身份；硬缺口在 reviewer 派发前一次性返回。适用角色、发现项和可提交标准只由[用例规范](./testcase-guideline.md)定义。
+新精简流程冻结 `candidate-gate-v1` 和 `review-policy-v3`。`deterministic_only` 不创建 reviewer 事件；`combined/impact` 只由语义风险触发。硬缺口在 reviewer 派发前一次性返回。适用角色、发现项和可提交标准只由[用例规范](./testcase-guideline.md)定义。
 
-批次输入由 manager 从 `plan.md`、定义声明的用例包和计划实际引用的受控资料读取并计算，调用方不得注入摘要。`review-input-snapshot-v2` 同时冻结完整资产摘要、语义输入摘要和角色输入摘要；`review-batch-scope-v3` 冻结 epoch、语义演进轮次和角色 scope。reviewer 记录、生成式统计、workflow、工程和报告区块不进入语义输入；索引、摘要、排序、格式和关系投影变化不失效 reviewer 证据。`combined` 只读 standard/strict，`impact` 只读 strict 及安全邻域；完整 PDF/Word 仅作审计回退，默认只注入引用 section/page 和直接规则邻域。
+批次输入由 manager 从 `plan.md`、定义声明的用例集和计划实际引用的受控/请求内来源读取并计算，调用方不得注入摘要。`review-input-snapshot-v2` 同时冻结完整资产摘要、语义输入摘要和角色输入摘要；`review-batch-scope-v3` 冻结 epoch、语义演进轮次和角色 scope。reviewer 记录、workflow、工程和报告区块不进入语义输入。新 v3 的 `combined` 读取语义触发的相关 case，包括因冲突或待确认而触发的 light case；`impact` 读取写入/strict case 及安全邻域。旧 v2 批次保留原风险筛选规则。
 
 每次 `reviewer-dispatch` 和 `reviewer-submit` 都必须携带宿主创建真实只读子 Agent 后返回的 `agentTaskId`。该标识必须与主 session/thread 不同，只写 runtime；提交前 manager 必须验证同一 `batchId + activityId + role` 的 running binding。新 `ReviewerSubmitted` 只持久化不含标识的隔离证明版本。缺少绑定、runtime 丢失或绑定不一致时不写提交事件，gate 输出 rebind；durable 派发已成功但 runtime 写入失败时仍只保留一次派发。旧 history 继续回放，但缺少新隔离证明的旧批次不能冒充修复后的真实隔离证据。
 
 初审批次默认覆盖当前草案的完整适用范围；自动演进后的批次优先使用定向复审。每个定向 scope 必须绑定 `affectedRefs`、`baseBatchId`、复审原因、明确排除引用，以及所有未重审角色的可复用 `ReviewerSubmitted` 证据；缺少任一未重审角色证据时安全失败，不能把“未派发”视为沿用通过。只有变更跨业务域、触及共享规则邻域、数据/执行边界或安全影响，或者无法证明局部影响时，才扩大受影响引用或回到完整适用评审。
 
-`case-review-resolution` 只登记 reviewer 正式结论和发现项，不得修改测试范围、`REQ/RULE`、规则台账关系、用例包或工程内容；越权候选必须在原子发布前拒绝。需要修订时，`case-review-evolution` 只在当前设计范围内自动修订；步骤、前置、预期、`REQ/RULE` 或业务语义变化只失效 `combined`，操作、权限、数据策略、OTP、cleanup、reconciliation 或未知结果变化只失效 `impact`，同时改变场景语义时才两者失效。同一 epoch 最多两轮语义演进；第三轮登记 `review_convergence_failed` 并停止派发。工具失败重试和确定性修正不消耗轮次；新正式决定或受控来源证据建立新 epoch。资料冲突或验收未定义并入同一次用例确认，不创建独立 callback。
+`case-review-resolution` 只登记 reviewer 正式结论和发现项，不得修改测试范围、`REQ/RULE`、规则台账关系、用例正文或工程内容；越权候选必须在原子发布前拒绝。resolution 汇总发现项时按[用例规范](./testcase-guideline.md#5-候选门禁与评审)把处置分为结构修复、语义演进和需用户裁决：结构/确定性发现走确定性修正并重跑门禁校验，不消耗语义演进轮次，也不扩大批次作废范围；只有语义发现驱动演进与定向作废。需要修订时，`case-review-evolution` 只在当前设计范围内自动修订；步骤、前置、预期、`REQ/RULE` 或业务语义变化只失效 `combined`，操作、权限、数据策略、OTP、cleanup、reconciliation 或未知结果变化只失效 `impact`，同时改变场景语义时才两者失效。新 v3 同一 epoch 最多一轮自动语义演进；lean reviewer 一次失败后登记告警并进入同一次用例确认，strict reviewer 可重试一次，仍失败则阻止执行。旧 v2 history 仍按其原有最多两轮策略回放。工具失败重试和确定性修正不消耗语义演进轮次；新正式决定或来源证据建立新 epoch。资料冲突或验收未定义并入同一次用例确认，不创建独立 callback。评审批次在途时不得变更其输入快照覆盖的 `plan.md`/`cases.md` 产物（包括派生索引重建与决定行追加）；确需变更时先显式作废当前批次并立即重派，不得等待在途 reviewer 被输入漂移作废形成空窗。
 
 ## 6. 阶段三：自动化可行性、脚本设计与代码定位
 
@@ -344,17 +363,17 @@ Web/H5 在 `build` Activity 内按“资格满足时的只读真实页面候选�
 
 用例已确认，且已确认版本的源码、组件状态或接口契约足以推导业务步骤时，即可登记完整的正式候选脚本。零写入无法穿越保存、注册、提交等边界时，允许生成 `runtime_validation_pending` 脚本：正文必须包含边界前完整步骤和边界后明确候选实现，manifest 必须登记 `reachableBoundary` 和 `pendingCapabilityIds`。目标环境部署、运行时 selector、OTP/fixture、已实现 provider、资源预算和实际 cleanup 能力当前不可用时，应在 `readiness` 将受影响 case 标记为 `deferred`；引用未实现 provider 则是 `invalid` 并返回 build 修复。两者都不得将候选脚本改成固定阻断占位。只有缺少真正生成依据，例如无法确定 UI 主路径、业务动作或可观察预期时，才保持 `build` blocker。
 
-`build` 的确定性门禁包括项目感知的 TypeScript 编译、完整且唯一的 `caseId` 映射、敏感字面量扫描、每个 case 的 `requiredOperations`/`operationBudgets`/`dataWritePolicy`/`implementation` 声明及正式 source gate。新生成的请求级候选只接受 `formal-execution-manifest-v3`；受控晋升会将其物化为带 `suiteId` 和不可变来源请求的 `formal-execution-manifest-v4`，稳定套件直跑只接受该 v4。两者的每个 runnable case 都必须声明与已登记资料或正式用户决定绑定的业务 Oracle，并以 `verifyBusinessOracle()` 产生结构化结果。source gate 必须拒绝空 callback、纯 guard、固定 `blockForMissingContracts`、仅 capability 检查、action-only、`addAssertion()`-only、人工构造 Oracle 结果或无条件结束的实现。每个外部操作的数量上限必须按 case 冻结，Runner 在真实操作前以脱敏幂等 key 原子预留；同 key 恢复不得重放，超出上限必须停止。条件性运行时保护可以保留，但不能代替可审查的业务正文。真实写入与下游验证仍只能进入执行清单确认后的正式 `run`。
+`build` 的确定性门禁包括项目感知的 TypeScript 编译、完整且唯一的 `caseId` 映射、敏感字面量扫描、每个 case 的 `requiredOperations`/`operationBudgets`/`dataWritePolicy`/`implementation` 声明及正式 source gate。新生成的请求级候选只接受 `formal-execution-manifest-v3`；受控晋升会将其物化为带 `suiteId` 和不可变来源请求的 `formal-execution-manifest-v4`，稳定套件直跑只接受该 v4。两者的每个 runnable case 都必须声明与已登记资料或正式用户决定绑定的业务 Oracle，并以 `verifyBusinessOracle()` 产生结构化结果。参数化用例必须为每个 `dataId` 冻结一个 `instance-dNN` Oracle，source contract 绑定该数据行的独立预期；父 `caseId` 仍是唯一 runnable 与统计单位。source gate 必须拒绝空 callback、纯 guard、固定 `blockForMissingContracts`、仅 capability 检查、action-only、`addAssertion()`-only、人工构造 Oracle 结果或无条件结束的实现。每个外部操作的数量上限必须按 case 冻结，Runner 在真实操作前以脱敏幂等 key 原子预留；同 key 恢复不得重放，超出上限必须停止。条件性运行时保护可以保留，但不能代替可审查的业务正文。真实写入与下游验证仍只能进入执行清单确认后的正式 `run`。
 
 正式脚本身份必须使用同一候选依赖闭包解析器贯穿脚本评审、授权发布、Runner 和 completion finalize：入口 manifest 与全部 `*.formal.spec.ts`、同请求 helper 以及递归导入的 `actions/clients/env/web/test-assets` 等本地运行依赖都进入 reviewer 输入和 `scriptDigests`；`import type` 不属于运行闭包。直接导入的 `src/support/formal-execution/` Runner 模块按 runtime leaf 冻结其文件字节但不递归展开基础设施全图，避免把共享治理实现重复计入每次业务评审。候选闭包中的未解析依赖、非字面量动态导入、路径或 realpath 越界，以及授权后新增、删除、遗漏或摘要漂移的 formal spec/helper/runtime leaf 都是 invalid input；finalize 必须在动态加载 manifest 前完成同一精确闭包校验。
 
 ### 6.1 统一执行清单与范围重开
 
-`direct_execute` 的 readiness 使用 `suite-readiness-publish` 重新检查真实能力和资源池，并从 suite manifest 派生 `execution-authorization-v5`；它不运行生成模型或 reviewer。`affected_rebuild/full_replan` 的 `build` 完成后可使用只读 `script-review-assess` 预览等级，运行中的 readiness 再使用 `execution-readiness-publish` 执行项目编译、source gate、敏感信息、reviewer 证据和真实运行依赖检查。`invalid` 返回对应工程分支修复；`runnableCount = 0` 登记 blocker，不发布清单、不请求执行确认。重建分支在当前请求中发布 `execution-authorization-v4`，完成后才能通过晋升入口形成新 suite 版本。两种授权都必须绑定目标构建、readiness 摘要、每 case 权限/操作/数据策略/资源依赖、可执行/延期范围、脚本闭包与能力证据。Runner 只发现清单中的 runnable case；deferred case 由报告单列。
+`direct_execute` 的 readiness 使用 `suite-readiness-publish` 重新检查真实能力和资源池，并从 suite manifest 派生 `execution-authorization-v5`。`affected_rebuild/full_replan` 使用 `execution-readiness-publish` 执行项目编译、source gate、敏感信息、reviewer 证据和真实运行依赖检查，并发布 `execution-authorization-v4`。新 v3 重建分支只在环境为 test/pre、全部 runnable case 均为 `read_only + no_write`、无 deferred、无上传/提交/OTP/安全挑战/权限/设备动作、脚本操作与 case 策略一致且能力全部通过时，由 `policy_auto_no_write_v2` 自动授权。预配专用测试账号、CI Secret 或已保存会话可用，但不得回显敏感值、发送 OTP 或创建新认证副作用。任一条件无法证明时自动降级为用户确认清单；生产和业务写入永不自动授权。两种授权都必须绑定目标构建、readiness 摘要、每 case 权限/操作/数据策略/资源依赖、脚本闭包与能力证据。
 
 `readiness` 只复核真实运行条件：账号、OTP 通道、远端 fixture/动态测试数据、外部观察器、Runner adapter、资源池租约与已授权替代预算。ARIA、selector、浏览器响应解析、源码契约，以及已纳入 Git 的静态测试资产与本地确定性生成器都属于冻结 `buildEvidence`，不是 Capability Provider。新 manifest 使用 `requiredTestAssetIds` 关联资产，并用 `test_asset` 证据冻结 `assetId`、路径和实际 SHA-256；资产缺失、非 active、项目/平台/范围不匹配或摘要漂移直接作为 `invalid build` 返回，不能降级为 capability unavailable。资源池暂时为空但清单已授权惰性创建时可 runnable；既无合格资源又无创建预算时才 deferred。这些状态不得将已有实现的 case 改为空脚本或固定 blocker。
 
-请求级 v3 build identity 同时冻结 Oracle 契约、来源索引与全部 build evidence 内容摘要。稳定 v4 仍冻结相同业务语义，但对 JSON build evidence 使用去除 `targetBuildDigest`、采集时间等易变构建字段后的语义摘要，使目标 build 更新而契约未漂移时可以复用；静态测试资产始终使用原始文件摘要。evidence `kind` 必须与 JSON schema 一致，其顶层路径与嵌套 `sourceFiles[]` 都必须在 `realpath` 后仍位于当前工作区，且 `sourceFiles[].sha256` 必须与真实文件一致。`formal-execution-manifest-v3` 只能与 readiness 冻结的 `execution-authorization-v3/v4` 组合，稳定 v4 只能与绑定 `suiteId/suiteVersion` 的 `execution-authorization-v5` 组合；旧 v2 授权可读历史，不得用来启动或封印新执行。Runner 必须在启动 BrowserServer/Provider 前重算身份，`execution-run-finalize` 必须在封印前使用同一验证器再算一次。任一资料、章节、脚本、Oracle 或 build evidence 语义漂移都是 `invalid input`，不得降级为 deferred，也不得从 CLI 接受人工摘要覆盖。
+请求级 v3 build identity 同时冻结 Oracle 契约、来源索引与全部 build evidence 内容摘要。请求内来源 SHA 变化时，先通过 `SRC → RULE → caseId` 计算局部失效；映射完整时只重建关联 RULE/case，映射不完整或全局边界漂移时才 `full_replan`。稳定 v4 对 JSON build evidence 使用去除 `targetBuildDigest`、采集时间等易变字段后的语义摘要；静态测试资产始终使用原始文件摘要。evidence 路径与 `sourceFiles[]` 必须在 `realpath` 后仍位于工作区，且声明摘要与真实文件一致。`formal-execution-manifest-v3` 只与 `execution-authorization-v3/v4` 组合，稳定 v4 只与绑定 `suiteId/suiteVersion` 的 `execution-authorization-v5` 组合。Runner 在启动和封印前都必须重算身份。脚本、Oracle、相关来源或 build evidence 语义漂移仍为受影响范围的 `invalid input`，不得降级为 deferred，也不得从 CLI 接受人工摘要覆盖。历史授权只读回放，不得用来启动或封印新执行。
 
 只有整条 case 从第一阶段启动就必需的真实运行能力才能放入用例级 `requiredCapabilities`；某个可选参数、精确边界样本或后续分支专用条件不得延期同一 case 的其他独立等价类。资料给出数值阈值但未定义十进制/二进制等单位换算时，优先使用对所有合理口径都成立的明显低于与明显高于代表值；精确等号、相邻一单位等无法定案的边界只记录为未断言，不得虚构口径，也不得阻塞格式、非法值和明确区间场景。
 

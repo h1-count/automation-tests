@@ -45,11 +45,20 @@ function reusableInput(
   };
 }
 
-test("v7 full replan has one case confirmation and no plan/conflict callback", () => {
+test("v7 full replan automatically converges a complete candidate before one confirmation", () => {
   const definition = buildWorkflowDefinition(baseDefinitionInput());
   const callbacks = definition.activities.filter((activity) => activity.kind === "callback");
+  const confirmationIndex = definition.activities.findIndex(
+    (activity) => activity.id === "case-confirmation"
+  );
   assert.equal(definition.definitionVersion, "v7");
   assert.deepEqual(callbacks.map((activity) => activity.id), ["case-confirmation"]);
+  assert.equal(confirmationIndex > 0, true);
+  assert.equal(
+    definition.activities.slice(0, confirmationIndex)
+      .some((activity) => activity.kind === "callback"),
+    false
+  );
   assert.equal(definition.activities.some((activity) => activity.id === "plan-confirmation"), false);
   assert.equal(
     definition.activities.some((activity) => activity.id === "case-review-conflict-decision"),
@@ -60,8 +69,63 @@ test("v7 full replan has one case confirmation and no plan/conflict callback", (
     ["plan-validation"]
   );
   assert.deepEqual(
+    definition.activities.find((activity) => activity.id === "relation-sync")?.dependencies,
+    ["case-generation-cases-main-md"]
+  );
+  const reviewActivityIds = definition.activities
+    .filter((activity) => activity.kind === "review")
+    .map((activity) => activity.id);
+  assert.equal(reviewActivityIds.length > 0, true);
+  assert.deepEqual(
+    definition.activities.find((activity) => activity.id === "case-review-resolution")?.dependencies,
+    reviewActivityIds
+  );
+  assert.deepEqual(
+    definition.activities.find((activity) => activity.id === "case-confirmation")?.dependencies,
+    ["case-review-resolution", "case-review-evolution"]
+  );
+  assert.deepEqual(
     definition.activities.find((activity) => activity.id === "build")?.dependencies,
     ["case-confirmation"]
+  );
+});
+
+test("v3 lean workflow merges generation gates and defers authorization policy until readiness", () => {
+  const definition = buildWorkflowDefinition({
+    ...baseDefinitionInput(),
+    casePackages: ["cases.md"],
+    planText: [
+      "test-design-index-v3",
+      "rule-design-ledger-v3",
+      ...Array.from({ length: 40 }, (_, index) => `REQ-DEMO-${String(index + 1).padStart(3, "0")}`)
+    ].join("\n")
+  });
+  assert.equal(definition.reviewPolicy?.schemaVersion, "review-policy-v3");
+  assert.equal(definition.reviewPolicy?.maxAttemptsPerRole, 2);
+  assert.equal(definition.reviewPolicy?.maxSemanticEvolutionCycles, 1);
+  assert.deepEqual(
+    definition.activities.slice(0, 3).map((activity) => activity.id),
+    ["source-selection", "candidate-generation", "candidate-gate"]
+  );
+  assert.equal(
+    definition.activities.some((activity) =>
+      ["plan-validation", "relation-sync", "completeness-validation"].includes(activity.id)
+    ),
+    false
+  );
+  assert.deepEqual(
+    definition.activities.filter((activity) => activity.kind === "review").map((activity) => activity.id),
+    ["case-review-combined", "case-review-impact"]
+  );
+  assert.equal(
+    definition.activities.find((activity) => activity.id === "execution-authorization")
+      ?.metadata?.decisionMode,
+    "risk_adaptive"
+  );
+  assert.equal(
+    definition.activities.find((activity) => activity.id === "execution-authorization")
+      ?.metadata?.policyVersion,
+    "policy_auto_no_write_v2"
   );
 });
 
@@ -86,17 +150,81 @@ test("v7 reuse branches confirm only the design that was rebuilt", () => {
   );
 });
 
+test("v7 delivery target pins a real terminal graph before initialization", () => {
+  const testcaseOnly = buildWorkflowDefinition({
+    ...baseDefinitionInput(),
+    deliveryTarget: "testcase_only"
+  });
+  const scriptOnly = buildWorkflowDefinition({
+    ...baseDefinitionInput(),
+    deliveryTarget: "script_only"
+  });
+  const fullRun = buildWorkflowDefinition({
+    ...baseDefinitionInput(),
+    deliveryTarget: "full_run"
+  });
+
+  assert.equal(testcaseOnly.deliveryTarget, "testcase_only");
+  assert.equal(
+    testcaseOnly.activities.find((activity) => activity.id === "case-confirmation")
+      ?.metadata?.completesWorkflow,
+    true
+  );
+  assert.equal(testcaseOnly.activities.some((activity) => activity.id === "build"), false);
+  assert.equal(
+    scriptOnly.activities.find((activity) => activity.id === "build")
+      ?.metadata?.completesWorkflow,
+    true
+  );
+  assert.equal(scriptOnly.activities.some((activity) => activity.id === "readiness"), false);
+  assert.equal(fullRun.activities.some((activity) => activity.id === "report"), true);
+  assert.notEqual(testcaseOnly.graphDigest, scriptOnly.graphDigest);
+  assert.notEqual(scriptOnly.graphDigest, fullRun.graphDigest);
+});
+
+test("v7 reusable branches stop at the selected delivery endpoint", () => {
+  const direct = buildReusableWorkflowDefinition({
+    ...reusableInput("direct_execute"),
+    deliveryTarget: "testcase_only"
+  });
+  const affected = buildReusableWorkflowDefinition({
+    ...reusableInput("affected_rebuild"),
+    deliveryTarget: "testcase_only"
+  });
+  const full = buildReusableWorkflowDefinition({
+    ...reusableInput("full_replan"),
+    deliveryTarget: "script_only"
+  });
+
+  assert.equal(
+    direct.activities.find((activity) => activity.id === "suite-validation")
+      ?.metadata?.completesWorkflow,
+    true
+  );
+  assert.equal(direct.activities.some((activity) => activity.id === "readiness"), false);
+  assert.equal(
+    affected.activities.find((activity) => activity.id === "case-confirmation")
+      ?.metadata?.completesWorkflow,
+    true
+  );
+  assert.equal(affected.activities.some((activity) => activity.id === "build"), false);
+  assert.equal(full.activities.find((activity) => activity.id === "build")
+    ?.metadata?.completesWorkflow, true);
+  assert.equal(full.activities.some((activity) => activity.id === "readiness"), false);
+});
+
 const plan = `# 测试设计索引：示例
 
-> 结构版本：test-design-index-v2 / rule-design-ledger-v2 / case-relation-projection-v2。
+> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
 
-## 基本信息
+## 请求默认值
 
 | 项目 | 内容 |
 | --- | --- |
 | 测试请求 | web/demo/request-001 |
 | 测试类型 | Web |
 | 目标环境 | test |
+| 数据策略 | no_write |
 
 ## 测试范围
 
@@ -108,9 +236,9 @@ const plan = `# 测试设计索引：示例
 
 - 生产执行
 
-## 资料来源
+## 请求内来源
 
-| 来源 ID / sectionId | 可点击链接与精确定位 | 版本 / SHA-256 | 用途 |
+| 来源 ID | 可点击路径与精确定位 | 版本 / SHA-256 | 用途 |
 | --- | --- | --- | --- |
 | SRC-DEMO-001 | 需求；注册章节 | ${digest("1")} | REQ-DEMO-001 |
 | SRC-DEMO-002 | 需求；登录章节 | ${digest("2")} | REQ-DEMO-002 |
@@ -125,17 +253,17 @@ const plan = `# 测试设计索引：示例
 
 ## 需求索引
 
-| 需求编号 | 来源定位 | 优先级 | 可验证需求 | 适用性与依据 |
-| --- | --- | --- | --- | --- |
-| REQ-DEMO-001 | SRC-DEMO-001 | P0 | 注册成功 | 适用 |
-| REQ-DEMO-002 | SRC-DEMO-002 | P1 | 登录成功 | 适用 |
+| REQ | sourceRef | 可验证需求 | 适用性 |
+| --- | --- | --- | --- |
+| REQ-DEMO-001 | SRC-DEMO-001 | 注册成功 | 适用 |
+| REQ-DEMO-002 | SRC-DEMO-002 | 登录成功 | 适用 |
 
 ## 规则设计台账
 
-| 规则编号 | 需求编号 | 来源定位 | 覆盖域 | 触发条件 | 输入边界 | 可观察预期 | 设计技术 | 数据/执行门禁 | 关联 caseId | 结论 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| RULE-DEMO-001 | REQ-DEMO-001 | SRC-DEMO-001 | 注册 | 提交 | 有效 | 显示成功页 | 场景法 | 无 | DEMO-CASE-001 | 已覆盖 |
-| RULE-DEMO-002 | REQ-DEMO-002 | SRC-DEMO-002 | 登录 | 提交 | 有效 | 显示首页 | 场景法 | 无 | DEMO-CASE-002 | 已覆盖 |
+| RULE | REQ | sourceRef | 条件 / 输入 | 可观察预期 | 设计方法 | caseIds | 风险 / 门禁 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| RULE-DEMO-001 | REQ-DEMO-001 | SRC-DEMO-001 | 注册；提交有效输入 | 显示成功页 | 场景法 | DEMO-CASE-001 | 无 | 已覆盖 |
+| RULE-DEMO-002 | REQ-DEMO-002 | SRC-DEMO-002 | 登录；提交有效输入 | 显示首页 | 场景法 | DEMO-CASE-002 | 无 | 已覆盖 |
 
 ## 假设、缺口与风险
 
@@ -237,6 +365,12 @@ const testcasePackage = `> 结构版本：testcase-v2。
 | 用例编号 | DEMO-CASE-001 |
 | 需求编号 | REQ-DEMO-001 |
 | 规则编号 | RULE-DEMO-001 |
+| 模块 | 注册 |
+| 优先级 | P0 |
+| 测试类型 | Web |
+| 目标环境 | test |
+| 数据策略 | no_write |
+| 风险等级 | 中 |
 
 ## 来源
 
@@ -263,27 +397,14 @@ const testcasePackage = `> 结构版本：testcase-v2。
 - 无。
 `;
 
-test("testcase-v2 completeness uses the compact body and semantic changes invalidate it", () => {
-  assert.equal(
-    evaluateTestcasePackage(testcasePackage, {
-      expectedCount: 1,
-      expectedCaseIds: ["DEMO-CASE-001"]
-    }).complete,
-    true
-  );
-  assert.equal(
-    evaluateTestcasePackage(testcasePackage.replace("## 步骤", "## 过程"), {
-      expectedCount: 1,
-      expectedCaseIds: ["DEMO-CASE-001"]
-    }).complete,
-    false
-  );
-  const before = caseConfirmationSemanticCases(testcasePackage);
-  const after = caseConfirmationSemanticCases(
-    testcasePackage.replace("显示注册成功页", "显示注册完成页")
-  );
-  assert.deepEqual(before.map((item) => item.caseId), ["DEMO-CASE-001"]);
-  assert.notEqual(before[0]?.semanticSummary, after[0]?.semanticSummary);
+test("archived testcase-v2 cannot enter completeness or confirmation runtime", () => {
+  const completeness = evaluateTestcasePackage(testcasePackage, {
+    expectedCount: 1,
+    expectedCaseIds: ["DEMO-CASE-001"]
+  });
+  assert.equal(completeness.complete, false);
+  assert.ok(completeness.reasons.some((reason) => reason.includes("archived formats")));
+  assert.throws(() => caseConfirmationSemanticCases(testcasePackage), /only accepts testcase-v6-layered/u);
 });
 
 test("v7 user status has exactly four phases", () => {

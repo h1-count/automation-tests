@@ -8,6 +8,8 @@ node_modules/
 !.codex/hooks.json
 .vscode/*
 !.vscode/extensions.json
+*.iml
+.fleet/
 
 # Local environment configuration and secrets
 .env
@@ -17,30 +19,44 @@ node_modules/
 .local/
 
 # Local audit ledgers retained with archived testcase requests; never commit test resource IDs.
-testcases/archive/**/test-data/
-testcases/archive/**/test-ledger/
+testcases/archive/**/test-*/
 testcases/archive/**/task-state/
 testcases/archive/legacy-local-test-data/
 
-# Test execution artifacts
+# Host session outputs (Excel review views, inspect logs, previews) must never be committed
+outputs/
+
+# Test execution artifacts: keep only placeholder files.
+# All Runner outputs (playwright/wdio outputDir) land under artifacts/ and are covered by artifacts/*.
 artifacts/*
 !artifacts/.gitkeep
 !artifacts/README.md
-!artifacts/**/
 !artifacts/**/.gitkeep
 tmp/
-playwright-report/
-test-results/
-allure-results/
-allure-report/
+
+# Generic caches and coverage (defensive)
 coverage/
+.cache/
 
 # Runtime logs
 *.log
 appium-logs/
 
-# Interrupted atomic writes must never become source artifacts.
+# Interrupted atomic writes and merge/patch leftovers must never become source artifacts.
 *.tmp
+*.orig
+*.rej
+*~
+
+# Editor swap files
+*.swp
+*.swo
+
+# App signing and secret key material must never be committed.
+*.p12
+*.p8
+*.jks
+*.mobileprovision
 
 # Operating-system files
 .DS_Store

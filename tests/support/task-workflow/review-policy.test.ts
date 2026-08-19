@@ -27,12 +27,15 @@ function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-async function workspace(): Promise<string> {
+async function archivedWorkspaceFixture(): Promise<string> {
   const root = await mkdtemp(resolve(tmpdir(), "workflow-repeatable-review-"));
   const requestRoot = resolve(root, "testcases", ...requestId.split("/"));
   await mkdir(requestRoot, { recursive: true });
   const planPath = resolve(requestRoot, "plan.md");
   const casesPath = resolve(requestRoot, "cases-main.md");
+  const sourcePath = resolve(requestRoot, "source.md");
+  const sourceBytes = Buffer.from("demo registration requirement", "utf8");
+  await writeFile(sourcePath, sourceBytes);
   await writeFile(
     planPath,
     [
@@ -158,6 +161,97 @@ async function workspace(): Promise<string> {
   );
   assert.deepEqual(projected.issues, []);
   await writeFile(planPath, projected.plan, "utf8");
+  await writeFile(casesPath, projected.packages["cases-main.md"]!, "utf8");
+  return root;
+}
+
+async function workspace(): Promise<string> {
+  const root = await mkdtemp(resolve(tmpdir(), "workflow-repeatable-review-current-"));
+  const requestRoot = resolve(root, "testcases", ...requestId.split("/"));
+  await mkdir(requestRoot, { recursive: true });
+  const planPath = resolve(requestRoot, "plan.md");
+  const casesPath = resolve(requestRoot, "cases-main.md");
+  const sourcePath = resolve(requestRoot, "source.md");
+  const sourceBytes = Buffer.from("demo registration requirement", "utf8");
+  await writeFile(sourcePath, sourceBytes);
+  await writeFile(planPath, `# Repeatable review
+
+> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
+> 用例格式：testcase-v6-layered。
+
+## 请求默认值
+
+| 项目 | 内容 |
+| --- | --- |
+| 测试请求 | ${requestId} |
+| 测试类型 | Web |
+| 目标环境 | test |
+| 数据策略 | ephemeral_cleanup |
+
+## 测试范围
+
+- 注册。
+- 风险标记：普通 test 环境提交申请。
+
+## 请求内来源
+
+| 来源 ID | 可点击路径与精确定位 | 版本 / SHA-256 | 用途 |
+| --- | --- | --- | --- |
+| SRC-DEMO-001 | [需求](${sourcePath})；注册章节 | ${sha256(sourceBytes)} | 注册规则 |
+
+## 需求索引
+
+| REQ | sourceRef | 可验证需求 | 适用性 |
+| --- | --- | --- | --- |
+| REQ-DEMO-001 | SRC-DEMO-001 | 注册结果可见 | 适用 |
+
+## 规则设计台账
+
+| RULE | REQ | sourceRef | 条件 / 输入 | 可观察预期 | 设计方法 | caseIds | 风险 / 门禁 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| RULE-DEMO-001 | REQ-DEMO-001 | SRC-DEMO-001 | valid | visible result | 场景法 | DEMO-001 | ephemeral_cleanup；执行清单；cleanup；后置查询核对 | 已覆盖 |
+
+## 缺口与风险
+
+- 无。
+
+## 评审与正式决定
+
+- 尚未评审。
+- 尚未演进。
+`, "utf8");
+  await writeFile(casesPath, `> 结构版本：testcase-v6-layered。
+
+# 用例集：Repeatable review
+
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：ephemeral_cleanup
+> 本文档仅用于确认测试设计，不代表授权执行或业务写入。
+> 共 1 条 ｜ P0 0 条 ｜ 高风险 0 条 ｜ 参数化 0 条
+
+## 快速索引
+
+| 模块 | 用例编号 | 用例标题 | 优先级 | 风险 |
+| --- | --- | --- | --- | --- |
+| 注册 | DEMO-001 | 验证正常路径 | P1 | 低 |
+
+## 模块：注册
+
+<details open>
+<summary>DEMO-001｜验证正常路径｜P1｜低风险</summary>
+
+> 规则：RULE-DEMO-001
+> 前置条件：precondition
+
+| 数据编号 | 步骤 | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- | --- |
+| — | 1 | 核对认证状态并打开当前页 | 无 | 页面可见 |
+
+</details>
+`, "utf8");
+  const projected = projectRelationProjection(await readFile(planPath, "utf8"), {
+    "cases-main.md": await readFile(casesPath, "utf8")
+  });
+  assert.deepEqual(projected.issues, []);
   await writeFile(casesPath, projected.packages["cases-main.md"]!, "utf8");
   return root;
 }
@@ -410,7 +504,10 @@ test("review-policy-v2 stops after two semantic evolution cycles in one epoch", 
     const path = resolve(manager.requestRoot, "cases-main.md");
     await writeFile(
       path,
-      `${await readFile(path, "utf8")}\n## 预期结果补充 ${cycle}\n\n- 资料支持的语义变更 ${cycle}。\n`,
+      (await readFile(path, "utf8")).replaceAll(
+        "验证正常路径",
+        `验证正常路径（演进 ${cycle}）`
+      ),
       "utf8"
     );
   };
@@ -630,9 +727,7 @@ test("review resolution rejects scope, rule, and testcase changes before publica
     );
   }
 
-  const acceptedPlan = currentPlan
-    .replace("- 尚未评审。", "- reviewer 结论与发现项已登记。")
-    .replace("- 尚未演进。", "- 结论为需演进，等待 automatic evolution。");
+  const acceptedPlan = currentPlan;
   const completed = await manager.publishArtifactsAndSucceed(
     "case-review-resolution",
     {
@@ -815,7 +910,7 @@ test("case subject drift reconciles in-flight downstream work before reopening c
   ));
 });
 
-test("a dispatched reviewer stays await_event regardless of elapsed wall-clock time", async (context) => {
+test("a dispatched reviewer awaits submission but an idle window only suggests a runtime rebind", async (context) => {
   const root = await workspace();
   context.after(() => rm(root, { recursive: true, force: true }));
   const manager = compatibilityManager(root);
@@ -837,13 +932,30 @@ test("a dispatched reviewer stays await_event regardless of elapsed wall-clock t
     role: "requirements",
     agentTaskId: "requirements-long-wait"
   });
+  for (const readyReviewer of Object.values((await manager.gate()).activities)) {
+    if (readyReviewer.state !== "READY" || readyReviewer.definition.kind !== "review") continue;
+    await manager.dispatchReviewer({
+      activityId: readyReviewer.id,
+      batchId,
+      role: String(readyReviewer.definition.metadata?.role ?? "reviewer"),
+      agentTaskId: `${readyReviewer.id}-long-wait`
+    });
+  }
 
   const historyBeforeWait = await readFile(manager.historyPath, "utf8");
+  const freshView = await manager.gate();
+  assert.equal(freshView.activities[activityId]?.state, "RUNNING");
+  assert.ok(!freshView.nextActions.some((action) => action.startsWith("reviewer-rebind:")));
+  assert.equal(freshView.continuation.kind, "await_event");
+
   const view = await manager.gate(Date.parse("2099-01-01T00:00:00.000Z"));
 
   assert.equal(view.activities[activityId]?.state, "RUNNING");
   assert.equal(view.activities[activityId]?.attempt, 1);
-  assert.equal(view.continuation.kind, "await_event");
+  assert.ok(view.nextActions.some((action) =>
+    action.startsWith(`reviewer-rebind:${batchId}:`)));
+  assert.equal(view.continuation.kind, "continue_now");
+  assert.equal(view.continuation.reason, "reviewer_idle_rebind_suggested");
   assert.equal(view.reply.kind, "none");
   assert.equal(await readFile(manager.historyPath, "utf8"), historyBeforeWait);
 });
@@ -992,9 +1104,15 @@ test("targeted re-review binds changed refs and reuses untouched reviewer eviden
   const scope = started.payload.scope as Record<string, unknown>;
   assert.equal(scope.mode, "targeted");
   assert.deepEqual(scope.requiredActivityIds, [designActivityId]);
-  assert.equal(
-    (scope.reusedReviewerEvidence as unknown[]).length,
-    2
+  assert.deepEqual(
+    (scope.reusedReviewerEvidence as Array<{ activityId: string }>)
+      .map((evidence) => evidence.activityId)
+      .sort(),
+    [
+      "case-review-impact",
+      "case-review-requirements",
+      "case-review-traceability"
+    ]
   );
   assert.match(String(started.payload.scopeDigest), /^[a-f0-9]{64}$/);
   assert.match(String(started.payload.readinessDigest), /^[a-f0-9]{64}$/);
@@ -1028,6 +1146,7 @@ test("targeted re-review binds changed refs and reuses untouched reviewer eviden
     ),
     [
       "case-review-design",
+      "case-review-impact",
       "case-review-requirements",
       "case-review-traceability"
     ]

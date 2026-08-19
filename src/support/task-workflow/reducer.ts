@@ -1,3 +1,4 @@
+import { extname, isAbsolute, sep } from "node:path";
 import {
   WorkflowTransitionError,
   workflowPhases,
@@ -468,7 +469,10 @@ function applyActivityEvent(
     case "ActivitySucceeded": {
       const activity = activityFor(activities, payload);
       requireState(activity, ["RUNNING", "RECONCILING"], event);
-      if (usesCallbackSemantics(activity)) {
+      const adaptivePolicySuccess = activity.definition.kind === "execution_authorization"
+        && activity.definition.metadata?.decisionMode === "risk_adaptive"
+        && typeof payload.executionSubjectDigest === "string";
+      if (usesCallbackSemantics(activity) && !adaptivePolicySuccess) {
         throw new WorkflowTransitionError(
           `Callback activity ${activity.id} must complete with CallbackResolved.`
         );
@@ -959,7 +963,18 @@ function applyActivityEvent(
             throw new WorkflowTransitionError(`Review batch ${batchId} has malformed inputRef.`);
           }
           const ref = value as Record<string, unknown>;
-          if (typeof ref.path !== "string" || ref.path.startsWith("/") || ref.path.includes("..")
+          const allowedExternalExtensions = new Set([
+            ".docx", ".pdf", ".md", ".txt", ".yaml", ".yml", ".json",
+            ".png", ".jpg", ".jpeg", ".webp"
+          ]);
+          const externalPath = typeof ref.path === "string"
+            && isAbsolute(ref.path)
+            && !ref.path.split(sep).filter(Boolean).some((segment) => segment.startsWith("."))
+            && allowedExternalExtensions.has(extname(ref.path).toLowerCase());
+          const controlledPath = typeof ref.path === "string"
+            && !ref.path.startsWith("/")
+            && !ref.path.includes("..");
+          if ((!controlledPath && !externalPath)
             || typeof ref.digest !== "string" || !/^[a-f0-9]{64}$/.test(ref.digest)
             || !Number.isInteger(ref.sizeBytes) || Number(ref.sizeBytes) < 0) {
             throw new WorkflowTransitionError(`Review batch ${batchId} has malformed inputRef.`);
@@ -988,7 +1003,7 @@ function applyActivityEvent(
             );
           }
           return {
-            sourcePath: ref.path,
+            sourcePath: String(ref.path),
             digest: ref.digest,
             sizeBytes: Number(ref.sizeBytes),
             ...(typeof ref.semanticDigest === "string"
@@ -1270,6 +1285,31 @@ function applyActivityEvent(
       activity.lastEventSeq = event.seq;
       return;
     }
+    case "ReviewerWaived": {
+      const activity = activityFor(activities, payload);
+      if (event.definitionVersion !== "v7"
+        || activity.definition.kind !== "review"
+        || activity.definition.metadata?.failurePolicy !== "lean_warning_strict_block") {
+        throw new WorkflowTransitionError(
+          `ReviewerWaived is not supported by review activity ${activity.id}.`
+        );
+      }
+      requireState(activity, ["FAILED"], event);
+      if (payload.profile !== "lean") {
+        throw new WorkflowTransitionError("ReviewerWaived requires the lean candidate profile.");
+      }
+      stringField(payload, "batchId");
+      stringField(payload, "warning");
+      runtime.reviewerDispatches.delete(activity.id);
+      runtime.reviewerSubmissions.delete(activity.id);
+      runtime.reviewerBatchByActivity.delete(activity.id);
+      activity.reviewerDispatchedRoles = [];
+      activity.reviewerSubmittedRoles = [];
+      activity.state = "CANCELLED";
+      activity.outcome = "waived_with_warning";
+      activity.lastEventSeq = event.seq;
+      return;
+    }
     case "ActivitiesInvalidated": {
       const invalidated = new Set(stringArray(payload, "activityIds"));
       if (!invalidated.size) {
@@ -1465,6 +1505,9 @@ export function reduceWorkflow(
       ? expanded.payload.capabilities as WorkflowDefinition["capabilities"]
       : [],
     writesData: expanded.payload.writesData === true,
+    ...(typeof expanded.payload.deliveryTarget === "string"
+      ? { deliveryTarget: expanded.payload.deliveryTarget as WorkflowDefinition["deliveryTarget"] }
+      : {}),
     ...(expanded.payload.reviewPolicy && typeof expanded.payload.reviewPolicy === "object"
       ? { reviewPolicy: expanded.payload.reviewPolicy as unknown as ReviewPolicy }
       : {}),
@@ -1668,6 +1711,9 @@ export function reduceWorkflow(
     definitionVersion: identity.definitionVersion,
     graphDigest,
     planDigest,
+    ...(expandedDefinition.deliveryTarget
+      ? { deliveryTarget: expandedDefinition.deliveryTarget }
+      : {}),
     ...(runtime.reviewPolicy ? { reviewPolicy: runtime.reviewPolicy } : {}),
     head: { seq: last.seq, digest: last.digest || GENESIS_DIGEST },
     workflowState,

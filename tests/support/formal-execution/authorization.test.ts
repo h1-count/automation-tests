@@ -67,15 +67,17 @@ function relationFixture(): { plan: string; cases: string } {
   const plan = [
     "# 测试设计索引：Authorization",
     "",
-    "> 结构版本：test-design-index-v2 / rule-design-ledger-v2 / case-relation-projection-v2。",
+    "> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。",
+    "> 用例格式：testcase-v6-layered。",
     "",
-    "## 基本信息",
+    "## 请求默认值",
     "",
     "| 项目 | 内容 |",
     "| --- | --- |",
     `| 测试请求 | \`${requestId}\` |`,
     "| 测试类型 | Web |",
     "| 目标环境 | test |",
+    "| 数据策略 | no_write |",
     "## 测试范围",
     "",
     "### 包含",
@@ -86,11 +88,11 @@ function relationFixture(): { plan: string; cases: string } {
     "",
     "- production execution",
     "",
-    "## 资料来源",
+    "## 请求内来源",
     "",
-    "| 来源 ID / sectionId | 可点击链接与精确定位 | 版本 / SHA-256 | 用途 |",
+    "| 来源 ID | 可点击路径与精确定位 | 版本 / SHA-256 | 用途 |",
     "| --- | --- | --- | --- |",
-    `| SRC-AUTH-001 / query | [authorization source](../../../../sources/requirements/project/authorization.txt)；章节 query | ${sourceDigest} | REQ-AUTH-001 |`,
+    `| SRC-AUTH-001 | [authorization source](../../../../sources/requirements/project/authorization.txt)；materialId authorization-prd；sectionId query | ${sourceDigest} | REQ-AUTH-001 |`,
     "",
     "## 环境、静态资产与数据安全边界",
     "",
@@ -103,21 +105,21 @@ function relationFixture(): { plan: string; cases: string } {
     "",
     "## 需求索引",
     "",
-    "| 需求编号 | 来源定位 | 优先级 | 可验证需求 | 适用性与依据 |",
-    "| --- | --- | --- | --- | --- |",
-    "| REQ-AUTH-001 | SRC-AUTH-001 / query | P0 | query response is visible | 适用；已注册资料明确要求 |",
+    "| REQ | sourceRef | 可验证需求 | 适用性 |",
+    "| --- | --- | --- | --- |",
+    "| REQ-AUTH-001 | SRC-AUTH-001 | query response is visible | 适用 |",
     "",
     "## 规则设计台账",
     "",
-    "| 规则编号 | 需求编号 | 来源定位 | 覆盖域 | 触发条件 | 输入边界 | 可观察预期 | 设计技术 | 数据/执行门禁 | 关联 caseId | 结论 |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    `| RULE-AUTH-001 | REQ-AUTH-001 | SRC-AUTH-001 / query | 业务规则 | issue query request | valid isolated query | visible query response | 场景法 | no_write；test only | ${caseId} | 已覆盖 |`,
+    "| RULE | REQ | sourceRef | 条件 / 输入 | 可观察预期 | 设计方法 | caseIds | 风险 / 门禁 | 结论 |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    `| RULE-AUTH-001 | REQ-AUTH-001 | SRC-AUTH-001 | issue query request；valid isolated query | visible query response | 场景法 | ${caseId} | no_write；test only | 已覆盖 |`,
     "",
     "## 用例包目录",
     "",
     "| 用例包 | 覆盖模块或流程 | 原子用例编号 | 特殊门禁 |",
     "| --- | --- | --- | --- |",
-    "| `cases-core.md` | query | 待生成 | no_write |",
+    "| `cases.md` | query | 待生成 | no_write |",
     "",
     "## 变更影响分析",
     "",
@@ -125,7 +127,7 @@ function relationFixture(): { plan: string; cases: string } {
     "| --- | --- | --- | --- | --- |",
     "| 无 | 无 | 无 | 无 | 无影响 |",
     "",
-    "## 假设、缺口与风险",
+    "## 缺口与风险",
     "",
     "### 假设",
     "",
@@ -139,7 +141,7 @@ function relationFixture(): { plan: string; cases: string } {
     "",
     "- 仅允许 test 环境只读查询。",
     "",
-    "## 评审记录",
+    "## 评审与正式决定",
     "",
     "| 字段 | 内容 |",
     "| --- | --- |",
@@ -147,8 +149,6 @@ function relationFixture(): { plan: string; cases: string } {
     "| 适用 reviewer 与依据 | requirements；业务预期来源复核 |",
     "| 最新结论 | 可提交确认 |",
     "| 发现与处置摘要 | 无未收口发现 |",
-    "",
-    "## 正式用户决定",
     "",
     "| 决定类型 | subjectDigest | 正式决定 | 决定内容与适用范围 | 后续处理 |",
     "| --- | --- | --- | --- | --- |",
@@ -159,66 +159,37 @@ function relationFixture(): { plan: string; cases: string } {
     "| --- | --- | --- | --- | --- | --- |",
     ""
   ].join("\n");
-  const cases = `> 结构版本：testcase-v2。
+  const cases = `> 结构版本：testcase-v6-layered。
 
-# 用例包：Core cases
+# 用例集：Core cases
 
-## 用例目录
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：no_write
+> 本文档仅用于确认测试设计，不代表授权执行或业务写入。
+> 共 1 条 ｜ P0 1 条 ｜ 高风险 0 条 ｜ 参数化 0 条
 
-| 用例编号 | 标题 |
-| --- | --- |
-| ${caseId} | query |
+## 快速索引
 
-## 测试用例：query
+| 模块 | 用例编号 | 用例标题 | 优先级 | 风险 |
+| --- | --- | --- | --- | --- |
+| query | ${caseId} | 验证 query 响应可见 | P0 | 低 |
 
-## 基本信息
+## 模块：query
 
-| 项目 | 内容 |
-| --- | --- |
-| 用例编号 | ${caseId} |
-| 需求编号 | REQ-AUTH-001 |
-| 规则编号 | RULE-AUTH-001 |
-| 模块 | query |
-| 优先级 | P0 |
-| 测试类型 | Web |
-| 目标环境 | test |
-| 数据策略 | no_write |
-| 风险等级 | 低 |
+<details open>
+<summary>${caseId}｜验证 query 响应可见｜P0｜低风险</summary>
 
-## 来源
+> 规则：RULE-AUTH-001
+> 前置条件：test 环境可访问
 
-| manifest id / sectionId | 可点击链接与精确定位 | 来源 SHA-256 | 支持的步骤或预期 |
-| --- | --- | --- | --- |
-| SRC-AUTH-001 / authorization-prd / query | [authorization source](../../../../sources/requirements/project/authorization.txt)；章节 query | ${sourceDigest} | query response is visible |
+| 数据编号 | 步骤 | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- | --- |
+| — | 1 | issue query | isolated query | visible query response |
 
-## 前置条件
-
-- test 环境可访问。
-- no_write，不创建业务数据。
-
-## 步骤
-
-| 序号 | 操作 | 输入 |
-| --- | --- | --- |
-| 1 | issue query | isolated query |
-
-## 预期结果
-
-- visible query response。
-
-## 假设与待确认项
-
-### 假设
-
-- 无。
-
-### 待确认项
-
-- 无。
+</details>
 `;
-  const projected = projectRelationProjection(plan, { "cases-core.md": cases });
+  const projected = projectRelationProjection(plan, { "cases.md": cases });
   assert.deepEqual(projected.issues, []);
-  return { plan: projected.plan, cases: projected.packages["cases-core.md"]! };
+  return { plan: projected.plan, cases: projected.packages["cases.md"]! };
 }
 
 function withoutFormalCompletionMarkers(current: WorkflowDefinition): WorkflowDefinition {
@@ -329,7 +300,7 @@ async function createVNextHarness(options: {
   const sourceContractDigest = createHash("sha256")
     .update(sourceContractContent)
     .digest("hex");
-  const casePackagePath = resolve(requestRoot, "cases-core.md");
+  const casePackagePath = resolve(requestRoot, "cases.md");
   await mkdir(dirname(scriptPath), { recursive: true });
   await mkdir(requestRoot, { recursive: true });
   await mkdir(dirname(sourceContractPath), { recursive: true });
@@ -420,7 +391,7 @@ documents:
   const workflowInput = {
     capabilities: ["web" as const],
     writesData: options.writesData ?? false,
-    casePackages: ["cases-core.md"],
+    casePackages: ["cases.md"],
     reviewerRoles: ["requirements"]
   };
   if (options.legacyUnmarkedFormalCompletion) {
@@ -458,10 +429,8 @@ documents:
     await manager.initialize(workflowInput);
   }
   await succeed(manager, "source-selection");
-  await succeed(manager, "plan-validation");
-  await succeed(manager, "case-generation-cases-core-md");
-  await succeed(manager, "relation-sync");
-  await succeed(manager, "completeness-validation");
+  await succeed(manager, "candidate-generation");
+  await succeed(manager, "candidate-gate");
   const initialReviewIds = Object.values((await manager.gate()).activities)
     .filter((activity) => activity.definition.kind === "review")
     .map((activity) => activity.id);
@@ -710,7 +679,7 @@ async function succeed(
     )) {
       await manager.startReviewBatch({
         batchId,
-        inputPaths: [manager.planPath, resolve(manager.requestRoot, "cases-core.md")]
+        inputPaths: [manager.planPath, resolve(manager.requestRoot, "cases.md")]
       });
     }
     await manager.dispatchReviewer({
@@ -730,14 +699,18 @@ async function succeed(
   }
   const owner = "authorization-test";
   const started = await manager.startActivity(activityId, owner);
+  if (activity.definition.kind === "candidate_gate") {
+    await manager.succeedCandidateGate(started.claimToken);
+    return;
+  }
   if (activity.definition.publishesArtifacts) {
     const publishId = `fixture-${activityId}-attempt-${activity.attempt + 1}`;
     const planArtifactPath = `testcases/${manager.requestId}/plan.md`;
-    const caseArtifactPath = `testcases/${manager.requestId}/cases-core.md`;
+    const caseArtifactPath = `testcases/${manager.requestId}/cases.md`;
     const artifactPaths = activityId === "relation-sync"
-      ? [planArtifactPath, caseArtifactPath]
-      : activity.definition.kind === "case_generation"
-        ? [caseArtifactPath]
+      || activityId === "candidate-generation"
+      || activity.definition.kind === "case_generation"
+        ? [planArtifactPath, caseArtifactPath]
         : [planArtifactPath];
     await manager.publishArtifactsAndSucceed(activityId, {
       claimToken: started.claimToken,

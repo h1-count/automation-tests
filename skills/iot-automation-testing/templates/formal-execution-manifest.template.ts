@@ -1,16 +1,22 @@
 import { defineFormalExecutionManifest } from "../../../../src/support/formal-execution/manifest.js";
 
 export const formalExecutionManifest = defineFormalExecutionManifest({
-  schemaVersion: "formal-execution-manifest-v2",
+  schemaVersion: "formal-execution-manifest-v3",
   requestId: "${TYPE}/${PROJECT}/${REQUEST}",
   projectId: "${PROJECT}",
   environment: "${ENVIRONMENT}",
   buildEvidence: [{
+    kind: "source_contract",
+    path: "${WORKSPACE_SOURCE_CONTRACT_PATH}",
+    sha256: "${SOURCE_CONTRACT_SHA256}"
+  }, {
     kind: "selector_contract",
-    path: "${WORKSPACE_SELECTOR_EVIDENCE_PATH}"
+    path: "${WORKSPACE_SELECTOR_EVIDENCE_PATH}",
+    sha256: "${SELECTOR_EVIDENCE_SHA256}"
   }, {
     kind: "browser_response_contract",
-    path: "${WORKSPACE_RESPONSE_CONTRACT_PATH}"
+    path: "${WORKSPACE_RESPONSE_CONTRACT_PATH}",
+    sha256: "${RESPONSE_CONTRACT_SHA256}"
   }, {
     kind: "test_asset",
     assetId: "${TEST_ASSET_ID}",
@@ -69,6 +75,19 @@ export const formalExecutionManifest = defineFormalExecutionManifest({
       // reachableBoundary: "${REACHABLE_BOUNDARY}",
       // pendingCapabilityIds: ["${CAPABILITY_ID}"]
     },
+    businessOracles: [{
+      oracleId: "${ORACLE_ID}",
+      ruleRef: "${RULE_ID}",
+      // Use browser_response, postcondition_query or runtime_state only when
+      // the reviewed Oracle actually uses that observation contract.
+      observationKind: "dom",
+      authorities: [{
+        kind: "registered_source",
+        materialId: "${SOURCE_MATERIAL_ID}",
+        sectionId: "${SOURCE_SECTION_ID}",
+        sourceSha256: "${SOURCE_SHA256}"
+      }]
+    }],
     // Only add stages when this one business case truly depends on an
     // external state transition. Simple atomic cases omit executionStages.
     executionStages: [{

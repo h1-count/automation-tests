@@ -3,6 +3,10 @@ import type {
   CallbackResolution,
   WorkflowProjection
 } from "./types.js";
+import {
+  parseTestcaseDocument,
+  TESTCASE_V6_LAYERED_MARKER
+} from "../testcase/testcaseDocument.js";
 
 export const PLAN_CONFIRMATION_SUBJECT_SCHEMA_V2 = "plan-confirmation-subject-v2";
 export const CASE_CONFIRMATION_SUBJECT_SCHEMA_V2 = "case-confirmation-subject-v2";
@@ -322,7 +326,7 @@ export function planDecisionProjectionV2(value: string): string {
   const source = normalizeDecisionMarkdown(value);
   const firstSection = source.search(/^##\s+/m);
   const basicInformation = markdownSections(source)
-    .find((section) => section.heading === "基本信息")?.body
+    .find((section) => ["基本信息", "请求默认值"].includes(section.heading))?.body
     ?? (firstSection < 0 ? source : source.slice(0, firstSection));
   const requestId = keyValueField(basicInformation, "测试请求")
     ?? keyValueField(basicInformation, "计划编号");
@@ -330,12 +334,16 @@ export function planDecisionProjectionV2(value: string): string {
     .find((section) => section.heading === "测试范围")?.body
     ?? "";
   const categorical = categoricalBoundaries(source, scope);
+  const included = scopeItems(scope, "包含");
+  const excluded = scopeItems(scope, "不包含");
+  const v3ScopeItems = [...scope.matchAll(/^\s*-\s+(.+)$/gmu)]
+    .map((match) => match[1]!.trim());
   return canonicalJson({
     schemaVersion: PLAN_CONFIRMATION_SUBJECT_SCHEMA_V2,
     requestId: normalizedBoundaryValue(requestId ?? ""),
     businessScope: {
-      included: scopeItems(scope, "包含"),
-      excluded: scopeItems(scope, "不包含")
+      included: included.length ? included : v3ScopeItems.filter((item) => !/^不包含/.test(item)),
+      excluded: excluded.length ? excluded : v3ScopeItems.filter((item) => /^不包含/.test(item))
     },
     testTypes: normalizedTestTypes(
       keyValueField(basicInformation, "测试类型"),
@@ -470,16 +478,6 @@ export function casePackageDecisionProjection(value: string): string {
   );
 }
 
-const v2CaseSemanticSections = new Set([
-  "基本信息",
-  "来源",
-  "前置条件",
-  "步骤",
-  "操作步骤",
-  "预期结果",
-  "假设与待确认项"
-]);
-
 export interface CaseConfirmationSemanticCase {
   caseId: string;
   semanticSummary: string;
@@ -490,28 +488,27 @@ export interface CaseConfirmationSemanticCase {
  * directories and any legacy status/review backlinks. */
 export function caseConfirmationSemanticCases(value: string): CaseConfirmationSemanticCase[] {
   const source = normalizeDecisionMarkdown(value);
-  const starts = [...source.matchAll(/^##\s+测试用例[：:]\s*(.+?)\s*$/gm)];
-  return starts.flatMap((start, index) => {
-    const body = source.slice(start.index ?? 0, starts[index + 1]?.index ?? source.length);
-    const caseId = [...body.matchAll(/^\|\s*用例编号\s*\|\s*([^|]+?)\s*\|/gm)]
-      .map((match) => cleanPlanSubjectText(match[1] ?? ""))
-      .find(Boolean);
-    if (!caseId) return [];
-    const sections = markdownSections(body)
-      .filter((section) => section.heading.startsWith("测试用例：")
-        || section.heading.startsWith("测试用例:")
-        || v2CaseSemanticSections.has(section.heading))
-      .map((section) => section.body);
-    const semanticSummary = normalizeDecisionMarkdown(sections.join("\n\n")).replace(
-      /^\|\s*状态\s*\|[^|\n]*\|\s*$/gm,
-      "| 状态 | <derived> |"
-    );
-    const refs = uniqueSorted(
-      [...semanticSummary.matchAll(/\b(?:REQ|RULE|SRC|ISO)-[A-Z0-9][A-Z0-9-]*\b/g)]
-        .map((match) => match[0]!)
-    );
-    return [{ caseId, semanticSummary, refs }];
-  });
+  const document = parseTestcaseDocument(source);
+  if (document.version === TESTCASE_V6_LAYERED_MARKER) {
+    return document.cases.map((testcase) => {
+      const semanticSummary = JSON.stringify({
+        module: testcase.module,
+        caseId: testcase.caseId,
+        title: testcase.title,
+        priority: testcase.priority,
+        ruleIds: testcase.ruleIds,
+        preconditions: testcase.preconditions,
+        executionRows: testcase.executionRows,
+        overrides: testcase.overrides
+      });
+      const refs = uniqueSorted(
+        [...semanticSummary.matchAll(/\b(?:REQ|RULE|SRC|ISO)-[A-Z0-9][A-Z0-9-]*\b/g)]
+          .map((match) => match[0]!)
+      );
+      return { caseId: testcase.caseId, semanticSummary, refs };
+    });
+  }
+  throw new Error("Case confirmation only accepts testcase-v6-layered; archived formats cannot create a new confirmation.");
 }
 
 function filterAffectedDesignSection(body: string, refs: Set<string>): string {

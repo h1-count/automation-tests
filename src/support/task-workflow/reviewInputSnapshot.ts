@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";
-import { basename, relative, resolve, sep } from "node:path";
+import { basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { canonicalJson } from "./canonicalJson.js";
 import {
   reviewBatchScopeDigest,
@@ -9,6 +9,12 @@ import {
   type ReviewRoleCaseScope
 } from "./reviewBatchScope.js";
 import { RuntimeLeaseStore } from "./runtimeLeaseStore.js";
+import {
+  isStructuredTestcaseDocumentVersion,
+  TESTCASE_V6_LAYERED_MARKER,
+  parseTestcaseDocument,
+  testcaseV6LayeredSemanticProjection
+} from "../testcase/testcaseDocument.js";
 
 export const REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION = "review-input-snapshot-v1" as const;
 export const REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION = "review-input-snapshot-v2" as const;
@@ -122,14 +128,15 @@ function semanticReviewContent(sourcePath: string, content: Uint8Array): Uint8Ar
   if (sourcePath.endsWith("/plan.md")) {
     return Buffer.from(normalizePlanProjection(stripTopLevelSections(
       markdown,
-      /^(?:评审记录|多角色评审记录|用例集评审与演进|确认后的工程映射|工程层|预计交付物)/u
+      /^(?:评审记录|多角色评审记录|评审与正式决定|用例集评审与演进|确认后的工程映射|工程层|预计交付物)/u
     )), "utf8");
   }
-  if (/\/cases-[^/]+\.md$/u.test(sourcePath)) {
-    const firstCase = /^##\s+测试用例[：:]/mu.exec(markdown);
-    const bodies = firstCase ? markdown.slice(firstCase.index) : markdown;
-    return Buffer.from(bodies.split(/\r?\n/u).map((line) => line.trimEnd())
-      .join("\n").replace(/\n{3,}/gu, "\n\n").trim(), "utf8");
+  if (/\/cases(?:-[^/]+)?\.md$/u.test(sourcePath)) {
+    const version = parseTestcaseDocument(markdown).version;
+    if (version === TESTCASE_V6_LAYERED_MARKER) {
+      return Buffer.from(testcaseV6LayeredSemanticProjection(markdown), "utf8");
+    }
+    throw new Error(`Review snapshot only accepts ${TESTCASE_V6_LAYERED_MARKER}: ${sourcePath}.`);
   }
   return content;
 }
@@ -140,11 +147,16 @@ function roleSemanticReviewContent(
   roleScope: ReviewRoleCaseScope
 ): Uint8Array {
   const semantic = Buffer.from(semanticReviewContent(sourcePath, content)).toString("utf8");
-  if (/\/cases-[^/]+\.md$/u.test(sourcePath)) {
-    const starts = [...semantic.matchAll(/^##\s+测试用例[：:]\s*(.+?)\s*$/gmu)];
+  if (/\/cases(?:-[^/]+)?\.md$/u.test(sourcePath)) {
+    const raw = Buffer.from(content).toString("utf8");
+    const structured = isStructuredTestcaseDocumentVersion(parseTestcaseDocument(raw).version);
+    const starts = [...semantic.matchAll(structured
+      ? /^###\s+([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\s*｜\s*(.+?)\s*$/gmu
+      : /^##\s+测试用例[：:]\s*(.+?)\s*$/gmu
+    )];
     const allowed = new Set(roleScope.caseIds);
     const safetyLine = /(?:数据策略|权限|特权|允许操作|requiredOperations|permissionProfile|OTP|验证码|安全挑战|敏感凭据|cleanup|reconciliation|结果未知|无法判定)/iu;
-    const identityLine = /(?:用例编号|需求追溯编号|规则覆盖编号|\bREQ-|\bRULE-)/u;
+    const identityLine = /(?:^###\s+[A-Z]|用例编号|需求编号|规则编号|需求追溯编号|规则覆盖编号|\bREQ-|\bRULE-)/u;
     const selected = starts.flatMap((start, index) => {
       const bodyStart = start.index ?? 0;
       const bodyEnd = starts[index + 1]?.index ?? semantic.length;
@@ -326,7 +338,7 @@ export class ReviewInputSnapshotStore {
   ): Promise<ReviewInputSnapshotManifest> {
     this.validateBatchId(batchId);
     if (!inputPaths.length) throw new Error("A review input snapshot requires at least one input path.");
-    const requested = [...new Set(inputPaths.map((path) => this.normalizeInputPath(path)))].sort();
+    const requested = await this.normalizeInputPaths(inputPaths);
     const artifacts = await Promise.all(requested.map(async (sourcePath, index) => {
       const absolute = resolve(this.workspaceRoot, sourcePath);
       const content = await readFile(absolute);
@@ -415,7 +427,7 @@ export class ReviewInputSnapshotStore {
     scope?: ReviewBatchScope
   ): Promise<ReviewInputIdentity> {
     if (!inputPaths.length) throw new Error("A review input identity requires at least one input path.");
-    const requested = [...new Set(inputPaths.map((path) => this.normalizeInputPath(path)))].sort();
+    const requested = await this.normalizeInputPaths(inputPaths);
     const artifacts = await Promise.all(requested.map(async (sourcePath) => {
       const content = await readFile(resolve(this.workspaceRoot, sourcePath));
       return {
@@ -463,7 +475,10 @@ export class ReviewInputSnapshotStore {
     const manifest = await this.read(batchId);
     const identity: Array<{ sourcePath: string; digest: string; sizeBytes: number }> = [];
     for (const artifact of manifest.artifacts) {
-      this.normalizeInputPath(artifact.sourcePath);
+      this.normalizeInputPath(
+        artifact.sourcePath,
+        new Set([resolve(this.workspaceRoot, artifact.sourcePath)])
+      );
       const expectedRoot = this.batchRoot(batchId);
       const snapshotPath = resolve(artifact.snapshotPath);
       const snapshotRelative = portableRelative(expectedRoot, snapshotPath);
@@ -637,14 +652,38 @@ export class ReviewInputSnapshotStore {
     }
   }
 
-  private normalizeInputPath(path: string): string {
+  private async normalizeInputPaths(paths: string[]): Promise<string[]> {
+    const planPath = resolve(this.requestRoot, "plan.md");
+    const allowedRequestSources = new Set<string>();
+    if (existsSync(planPath)) {
+      const plan = await readFile(planPath, "utf8");
+      const heading = /^##\s+请求内来源\s*$/mu.exec(plan);
+      if (heading) {
+        const start = heading.index + heading[0].length;
+        const next = /^##\s+/mu.exec(plan.slice(start));
+        const section = plan.slice(start, next ? start + next.index : undefined);
+        for (const match of section.matchAll(/\]\(\s*<?([^)>]+?)>?\s*\)/gu)) {
+          let reference = match[1]!.trim();
+          try {
+            reference = decodeURI(reference);
+          } catch {
+            // Keep the literal path; normalizeInputPath still validates it.
+          }
+          allowedRequestSources.add(resolve(this.requestRoot, reference));
+        }
+      }
+    }
+    return [...new Set(paths.map((path) => this.normalizeInputPath(path, allowedRequestSources)))].sort();
+  }
+
+  private normalizeInputPath(path: string, allowedRequestSources = new Set<string>()): string {
     const absolute = resolve(this.workspaceRoot, path);
     const requestRelative = portableRelative(this.requestRoot, absolute);
     if (
       requestRelative
       && requestRelative !== ".."
       && !requestRelative.startsWith("../")
-      && /^(?:plan\.md|cases-[a-z0-9][a-z0-9-]*\.md)$/.test(requestRelative)
+      && /^(?:plan\.md|cases(?:-[a-z0-9][a-z0-9-]*)?\.md)$/.test(requestRelative)
     ) {
       return portableRelative(this.workspaceRoot, absolute);
     }
@@ -661,6 +700,19 @@ export class ReviewInputSnapshotStore {
       )
     ) {
       return workspaceRelative;
+    }
+    const externalSegments = absolute.split(sep).filter(Boolean);
+    const allowedExternalExtensions = new Set([
+      ".docx", ".pdf", ".md", ".txt", ".yaml", ".yml", ".json",
+      ".png", ".jpg", ".jpeg", ".webp"
+    ]);
+    if (
+      isAbsolute(path)
+      && allowedRequestSources.has(absolute)
+      && !externalSegments.some((segment) => segment.startsWith("."))
+      && allowedExternalExtensions.has(extname(absolute).toLowerCase())
+    ) {
+      return absolute;
     }
     throw new Error(
       `Reviewer input must be the request plan/case package or an explicitly selected controlled source: ${path}`

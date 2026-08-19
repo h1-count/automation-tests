@@ -83,27 +83,46 @@ test("targeted scope fails closed without impact refs or reusable evidence", () 
 });
 
 test("v3 mixed scope excludes light from combined and keeps impact strict-only", () => {
-  const markdown = (caseId: string, strategy: string, req: string, rule: string) => `
-## 测试用例：${caseId}
-## 基本信息
-| 项目 | 内容 |
-| --- | --- |
-| 用例编号 | ${caseId} |
-| 需求追溯编号 | ${req} |
-| 规则覆盖编号 | ${rule} |
-| 数据策略 | ${strategy} |
-| 风险等级 | ${strategy === "no_write" ? "低" : "高"} |
-## 前置条件
-- test 环境。
-## 操作步骤
-| 序号 | 操作 | 输入 | 预期 |
+  const v6Document = (caseId: string, strategy: string, risk: string, action: string) => `> 结构版本：testcase-v6-layered。
+
+# 用例集：注册演示
+
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：${strategy}
+> 本文档仅用于确认测试设计，不代表授权执行或业务写入。
+
+## 模块：注册
+
+<details open>
+<summary>${caseId}｜验证注册行为｜P1｜${risk}风险</summary>
+
+> 规则：RULE-${caseId.replace(/^OPEN-/u, "")}
+
+| 数据编号 | 步骤 | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- | --- |
+| — | 1 | ${action} | 合成数据 | 可观察结果 |
+
+</details>
+`;
+  const plan = `> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
+
+## 需求索引
+
+| REQ | sourceRef | 可验证需求 | 适用性 |
 | --- | --- | --- | --- |
-| 1 | ${strategy === "no_write" ? "打开当前页" : "发送一次 OTP 并提交申请"} | 合成数据 | 可观察 |
+| REQ-REG-001 | SRC-REG-001 | 注册页面可读 | 适用 |
+| REQ-REG-002 | SRC-REG-002 | 提交受控 | 适用 |
+
+## 规则设计台账
+
+| RULE | REQ | sourceRef | 条件 / 输入 | 可观察预期 | 设计方法 | caseIds | 风险 / 门禁 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| RULE-REG-001 | REQ-REG-001 | SRC-REG-001 | 打开页面 | 页面可读 | 场景法 | OPEN-REG-001 | no_write | 已覆盖 |
+| RULE-REG-002 | REQ-REG-002 | SRC-REG-002 | 提交申请 | 提交结果受控 | 场景法 | OPEN-REG-002 | 受控执行 | 已覆盖 |
 `;
   const assessment = assessCaseReviewRisk([
-    markdown("OPEN-REG-001", "no_write", "REQ-REG-001", "RULE-REG-001"),
-    markdown("OPEN-REG-002", "managed_cleanup", "REQ-REG-002", "RULE-REG-002")
-  ]);
+    v6Document("OPEN-REG-001", "no_write", "低", "打开当前页"),
+    v6Document("OPEN-REG-002", "managed_cleanup", "高", "发送一次 OTP 并提交申请")
+  ], { plan });
   const allActivityIds = ["case-review-combined", "case-review-impact"];
   const scope = buildReviewBatchScopeV3({
     allActivityIds,

@@ -4,129 +4,110 @@ import { evaluateReviewReadiness } from "../../../src/support/task-workflow/revi
 
 const sha = "a".repeat(64);
 
-const plan = `
-## 输入资料
+function plan(): string {
+  return `> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
+> 用例格式：testcase-v6-layered。
 
-| 资料 | manifest id / sectionId |
-| --- | --- |
-| source | demo / main |
-
-## 覆盖基准与拆分清单
-
-- demo
-
-## 需求追溯矩阵
-
-| 需求追溯编号 | 派生 caseId |
-| --- | --- |
-| REQ-DEMO-001 | DEMO-MAIN-001 |
-
-## 规则覆盖台账
-
-| RULE | REQ | 来源 | 类型 | 输入 | 预期 | 技术 | 适用性 | 结论 | caseId |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| RULE-DEMO-001 | REQ-DEMO-001 | source | 业务规则 | valid | visible result | 场景法 | 适用 | 已覆盖 | DEMO-MAIN-001 |
-
-结构版本：rule-design-matrix-v1
-
-## 规则设计矩阵
-
-| RULE | 字段或状态 | 必填性 | 输入 | 可观察预期 | 数据前置 | 执行门禁 | 关联 caseId | 结论 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| RULE-DEMO-001 | demo | 必填 | valid | visible result | isolated | no_write | DEMO-MAIN-001 | 已覆盖 |
-`;
-
-const testcase = `
-## 用例目录
-
-| 用例编号 | 标题 |
-| --- | --- |
-| DEMO-MAIN-001 | demo |
-
-## 测试用例：demo
-
-## 基本信息
+## 请求默认值
 
 | 项目 | 内容 |
 | --- | --- |
-| 用例编号 | DEMO-MAIN-001 |
+| 测试请求 | web/demo/request |
+| 测试类型 | Web |
+| 目标环境 | test |
+| 数据策略 | no_write |
 
-## 来源
+## 测试范围
 
-| 资料 | 说明 |
-| --- | --- |
-| source | manifest \`demo\`；sectionId \`main\`；SHA-256 \`${sha}\` |
+- 页面展示。
 
-## 前置条件
+## 请求内来源
 
-- isolated
+| 来源 ID | 可点击路径与精确定位 | 版本 / SHA-256 | 用途 |
+| --- | --- | --- | --- |
+| SRC-DEMO-001 | [需求](/tmp/demo.pdf)；第 1 页 | ${sha} | 页面规则 |
 
-## 操作步骤
+## 需求索引
 
-1. act
+| REQ | sourceRef | 可验证需求 | 适用性 |
+| --- | --- | --- | --- |
+| REQ-DEMO-001 | SRC-DEMO-001 | 展示欢迎信息 | 适用 |
 
-## 预期结果
+## 规则设计台账
 
-- visible
+| RULE | REQ | sourceRef | 条件 / 输入 | 可观察预期 | 设计方法 | caseIds | 风险 / 门禁 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| RULE-DEMO-001 | REQ-DEMO-001 | SRC-DEMO-001 | 打开页面 | 展示欢迎信息 | 场景法 | DEMO-MAIN-001 | no_write | 已覆盖 |
 
-## 覆盖关联
+## 缺口与风险
 
-- RULE-DEMO-001
+- 无。
 
-## 合理推断
+## 评审与正式决定
 
-- 无
-
-## 待补充信息
-
-- 无
-
-## 评审与演进回链
-
-- 未评审
+| 类型 | subjectDigest / 输入摘要 | 结论或决定 | 说明 |
+| --- | --- | --- | --- |
 `;
+}
 
-test("review readiness closes structural, design, relation, and source identity checks", () => {
+function cases(strategy = "no_write", details = ""): string {
+  return `> 结构版本：testcase-v6-layered。
+
+# 用例集：Demo
+
+> 测试类型：Web ｜ 默认环境：test ｜ 默认数据策略：${strategy}
+> 本文档仅用于确认测试设计，不代表授权执行或业务写入。
+> 共 1 条 ｜ P0 1 条 ｜ 高风险 0 条 ｜ 参数化 0 条
+
+## 快速索引
+
+| 模块 | 用例编号 | 用例标题 | 优先级 | 风险 |
+| --- | --- | --- | --- | --- |
+| 页面 | DEMO-MAIN-001 | 验证欢迎信息 | P0 | 低 |
+
+## 模块：页面
+
+<details open>
+<summary>DEMO-MAIN-001｜验证欢迎信息｜P0｜低风险</summary>
+
+> 规则：RULE-DEMO-001
+> 前置条件：页面可访问
+
+${details}
+| 数据编号 | 步骤 | 操作 | 测试数据 | 预期结果 |
+| --- | --- | --- | --- | --- |
+| — | 1 | 打开页面 | 无 | 展示欢迎信息 |
+
+</details>
+`;
+}
+
+test("review readiness closes current structure, relation and completeness checks", () => {
   const report = evaluateReviewReadiness({
-    plan,
-    packages: { "cases-main.md": testcase },
+    plan: plan(),
+    packages: { "cases.md": cases() },
     writesData: false
   });
   assert.equal(report.complete, true, report.issues.join("\n"));
-  assert.deepEqual(report.counts, {
-    requirements: 1,
-    rules: 1,
-    cases: 1,
-    packages: 1
-  });
-  assert.match(report.digest, /^[a-f0-9]{64}$/);
+  assert.deepEqual(report.counts, { requirements: 1, rules: 1, cases: 1, packages: 1 });
+  assert.match(report.digest, /^[a-f0-9]{64}$/u);
 });
 
-test("review readiness fails before reviewer dispatch on obvious draft gaps", () => {
+test("review readiness hard-fails archived testcase and rule formats", () => {
   const report = evaluateReviewReadiness({
-    plan: plan.replace("结构版本：rule-design-matrix-v1", ""),
-    packages: {
-      "cases-main.md": testcase
-        .replace("sectionId `main`；", "")
-        .replace("## 预期结果", "## 缺失预期")
-    },
+    plan: plan().replace("rule-design-ledger-v3", "rule-design-ledger-v2"),
+    packages: { "cases.md": cases().replace("testcase-v6-layered", "testcase-v4") },
     writesData: false
   });
   assert.equal(report.complete, false);
-  assert.ok(report.issues.some((issue) => issue.includes("rule-design-matrix-v1")));
-  assert.ok(report.issues.some((issue) => issue.includes("sectionId")));
-  assert.ok(report.issues.some((issue) => issue.includes("missing required sections")));
+  assert.ok(report.issues.some((issue) => issue.includes("rule-design-ledger-v2")));
+  assert.ok(report.issues.some((issue) => issue.includes("archived formats")));
 });
 
-test("write readiness reports safety gaps together instead of one reviewer round at a time", () => {
+test("write readiness reports all safety warnings together", () => {
   const report = evaluateReviewReadiness({
-    plan,
-    packages: {
-      "cases-main.md": testcase.replace(
-        "| 用例编号 | DEMO-MAIN-001 |",
-        "| 用例编号 | DEMO-MAIN-001 |\n| 数据策略 | managed_cleanup |"
-      )
-    },
+    plan: plan(),
+    packages: { "cases.md": cases("ephemeral_cleanup") },
     writesData: true
   });
   assert.equal(report.warnings.length, 3);

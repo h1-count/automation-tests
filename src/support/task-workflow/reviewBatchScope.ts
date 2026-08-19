@@ -61,6 +61,7 @@ export interface ReviewBatchScopeV3 extends ReviewBatchScopeBase {
   roleScopes: ReviewRoleCaseScope[];
   reviewEpochDigest: string;
   semanticEvolutionCycle: number;
+  adaptiveSemanticReview?: true;
 }
 
 export type ReviewBatchScope = ReviewBatchScopeV1 | ReviewBatchScopeV2 | ReviewBatchScopeV3;
@@ -83,6 +84,7 @@ export interface BuildReviewBatchScopeV2Input extends BuildReviewBatchScopeInput
 export interface BuildReviewBatchScopeV3Input extends BuildReviewBatchScopeV2Input {
   reviewEpochDigest: string;
   semanticEvolutionCycle: number;
+  adaptiveSemanticReview?: boolean;
 }
 
 const digestPattern = /^[a-f0-9]{64}$/;
@@ -229,15 +231,18 @@ function assessmentSummary(assessment: CaseReviewRiskAssessment): ReviewBatchRis
 function roleCaseScope(
   activityId: string,
   role: string,
-  assessment: CaseReviewRiskAssessment
+  assessment: CaseReviewRiskAssessment,
+  adaptiveSemanticReview = false
 ): ReviewRoleCaseScope {
   assertActivityId(activityId);
   const normalizedRole = role.trim();
   if (!normalizedRole) throw new Error("Review role scope requires a role.");
   const selected = normalizedRole === "impact"
-    ? assessment.cases.filter((item) => item.level === "strict")
+    ? assessment.cases.filter((item) =>
+        adaptiveSemanticReview || item.level === "strict"
+      )
     : normalizedRole === "combined"
-      ? assessment.cases.filter((item) => item.level !== "light")
+      ? assessment.cases.filter((item) => adaptiveSemanticReview || item.level !== "light")
       : assessment.cases;
   if (!selected.length && normalizedRole !== "impact") {
     throw new Error(`Review role ${normalizedRole} has no applicable case scope.`);
@@ -320,10 +325,16 @@ export function buildReviewBatchScopeV3(
     schemaVersion: REVIEW_BATCH_SCOPE_V3_SCHEMA_VERSION,
     riskSummary: riskSummary as ReviewBatchScopeV3["riskSummary"],
     roleScopes: activityRoles.map(({ activityId, role }) =>
-      roleCaseScope(activityId, role, input.caseRiskAssessment)
+      roleCaseScope(
+        activityId,
+        role,
+        input.caseRiskAssessment,
+        input.adaptiveSemanticReview
+      )
     ),
     reviewEpochDigest: input.reviewEpochDigest,
-    semanticEvolutionCycle: input.semanticEvolutionCycle
+    semanticEvolutionCycle: input.semanticEvolutionCycle,
+    ...(input.adaptiveSemanticReview ? { adaptiveSemanticReview: true as const } : {})
   };
 }
 
@@ -433,7 +444,10 @@ export function parseReviewBatchScope(value: unknown): ReviewBatchScope {
     semanticEvolutionCycle: nonNegativeInteger(
       record.semanticEvolutionCycle,
       "semanticEvolutionCycle"
-    )
+    ),
+    ...(record.adaptiveSemanticReview === true
+      ? { adaptiveSemanticReview: true as const }
+      : {})
   });
 }
 
@@ -454,7 +468,8 @@ function normalizeV3Scope(scope: ReviewBatchScopeV3): ReviewBatchScopeV3 {
     schemaVersion: REVIEW_BATCH_SCOPE_V3_SCHEMA_VERSION,
     riskSummary: normalized.riskSummary as ReviewBatchScopeV3["riskSummary"],
     reviewEpochDigest: scope.reviewEpochDigest,
-    semanticEvolutionCycle: scope.semanticEvolutionCycle
+    semanticEvolutionCycle: scope.semanticEvolutionCycle,
+    ...(scope.adaptiveSemanticReview ? { adaptiveSemanticReview: true as const } : {})
   };
 }
 
@@ -487,8 +502,11 @@ function normalizeV2Scope(scope: ReviewBatchScopeV2): ReviewBatchScopeV2 {
   }
   const riskSummary = parseRiskSummary(scope.riskSummary);
   const caseIds = uniqueSorted(roleScopes.flatMap((item) => item.caseIds));
+  const adaptiveSemanticReview = (scope as unknown as { adaptiveSemanticReview?: true })
+    .adaptiveSemanticReview === true;
   const excludesLight = riskSummary.schemaVersion === "case-review-risk-v2"
-    && roleScopes.some((item) => item.role === "combined");
+    && roleScopes.some((item) => item.role === "combined")
+    && !adaptiveSemanticReview;
   const expectedCount = (excludesLight ? 0 : riskSummary.counts.light)
     + riskSummary.counts.standard
     + riskSummary.counts.strict;
