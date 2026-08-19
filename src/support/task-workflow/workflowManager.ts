@@ -72,10 +72,12 @@ import {
   reviewRevisionDigest,
   REVIEWER_ISOLATION_PROOF_VERSION,
   ReviewInputDriftError,
+  assertReviewerFindingsShape,
   reviewerBindingId,
   deterministicReviewerTaskId,
   rotatedReviewBatchId,
-  verifyOrRepairReviewSnapshot
+  verifyOrRepairReviewSnapshot,
+  type ReviewerConclusion
 } from "./reviewLifecycle.js";
 import {
   buildReviewBatchScope,
@@ -104,6 +106,11 @@ import {
   validateRuleDesignMatrix
 } from "../testcase/relationProjection.js";
 import { CURRENT_RULE_LEDGER_MARKER } from "../testcase/relationContract.js";
+import {
+  isCurrentTestcaseDocumentVersion,
+  parseTestcaseDocument,
+  validateTestcaseV6Layered
+} from "../testcase/testcaseDocument.js";
 import {
   assertExecutionAuthorizationInputsCurrent
 } from "./executionAuthorizationSubject.js";
@@ -1751,6 +1758,11 @@ export class DurableWorkflowManager {
     if (activity.definition.kind === "review_resolution") {
       await this.assertReviewResolutionOwnership(artifacts);
     }
+    // 发布边界校验：任何活动把 cases.md 用例包发布进工作区前，其内容必须通过
+    // 当前 testcase-v6-layered 结构校验（含派生视图漂移检查）。生成时的
+    // candidate-gate 只跑一次；评审演进等修订发布若无此边界，漂移会绕过门禁
+    // 直接进入后续评审轮（r2 实测：计数漂移与模块归属错位由此漏出）。
+    await this.assertCasePackageStructurallyValid(artifacts);
     const publisher = new ArtifactPublisher(this.requestId, {
       workspaceRoot: this.workspaceRoot,
       runtimeStore: this.runtime
@@ -3685,14 +3697,23 @@ export class DurableWorkflowManager {
     agentTaskId?: string;
     /** 修订分层 structural 档：须提供 converged 发现文件与分级器摘要。 */
     deterministic?: { classifierDigest: string; findingsPath: string };
+    /** LLM 评审员必须提交发现文件（review-findings-evidence-v1 骨架契约）。 */
+    findingsPath?: string;
   }): Promise<ReviewLifecycleView> {
+    let conclusion: ReviewerConclusion | undefined;
+    let findingsDigest: string | undefined;
     if (input.deterministic) {
       const findingsText = await readFile(input.deterministic.findingsPath, "utf8");
-      if (!/^##\s+结论\s*$/mu.test(findingsText) || !/^\s*converged\s*$/mu.test(findingsText)) {
-        throw new Error(
-          "Deterministic reviewer requires a findings file whose 结论 section is converged; non-structural revisions must use an isolated reviewer."
-        );
-      }
+      conclusion = assertReviewerFindingsShape(findingsText, { requireConverged: true });
+      findingsDigest = sha256(findingsText);
+    } else if (input.findingsPath) {
+      const findingsText = await readFile(input.findingsPath, "utf8");
+      conclusion = assertReviewerFindingsShape(findingsText);
+      findingsDigest = sha256(findingsText);
+    } else {
+      throw new Error(
+        "Isolated reviewer submission requires --findings（发现文件缺失或未提交，评审轮不可收口）。"
+      );
     }
     const agentTaskId = input.deterministic
       ? deterministicReviewerTaskId(input.activityId, input.batchId)
@@ -3730,9 +3751,10 @@ export class DurableWorkflowManager {
       ...(input.deterministic
         ? {
           deterministic: { classifierDigest: input.deterministic.classifierDigest },
-          findingsDigest: sha256(await readFile(input.deterministic.findingsPath))
+          findingsDigest,
+          conclusion
         }
-        : {}),
+        : { findingsDigest, conclusion }),
       isolationProofVersion: REVIEWER_ISOLATION_PROOF_VERSION
     });
     try {
@@ -5389,6 +5411,37 @@ export class DurableWorkflowManager {
       throw new Error(
         `${kind} must publish exactly its owned artifacts: ${required.join(", ")}.`
       );
+    }
+  }
+
+  /**
+   * 发布边界校验：任何用例包（解析为当前 testcase-v6-layered 版本的文档）
+   * 发布进工作区前必须通过结构校验（含派生视图漂移检查）。按内容探测而非
+   * 文件名，覆盖 cases.md / cases-<feature>.md 等包名；历史版本文档仅允许
+   * 作为归档证据回放，不拦截。生成时的 candidate-gate 只跑一次，评审演进
+   * 等修订发布若无此边界，漂移会绕过门禁进入后续评审轮。
+   */
+  private async assertCasePackageStructurallyValid(
+    artifacts: Array<{ targetPath: string; content: ArtifactContent }>
+  ): Promise<void> {
+    for (const artifact of artifacts) {
+      const text = typeof artifact.content === "string"
+        ? artifact.content
+        : Buffer.from(artifact.content).toString("utf8");
+      const parsed = (() => {
+        try {
+          return parseTestcaseDocument(text);
+        } catch {
+          return undefined;
+        }
+      })();
+      if (!parsed || !isCurrentTestcaseDocumentVersion(parsed.version)) continue;
+      const issues = validateTestcaseV6Layered(text);
+      if (issues.length) {
+        throw new Error(
+          `Refusing to publish structurally invalid case package (${artifact.targetPath}): ${issues.join(" ")}`
+        );
+      }
     }
   }
 

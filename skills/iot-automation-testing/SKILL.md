@@ -45,6 +45,16 @@ npm run task:resume -- --request <runRequestId>
 - `substantive`（安全边界/数据策略语义、无用户决定覆盖的台账行集变化、>8 用例块）：完整评审链。
 - 同一评审纪元的收敛断路器只解除一次；再次触发必须先刷新纪元（新增正式用户决定或受控来源），引擎会显式报错而非静默失败。
 
+评审与生成的结构不变量（引擎强制）：
+
+- 任何 `reviewer-submit`（含 LLM 隔离评审员）必须带 `--findings` 发现文件：`## 结论` 为 converged/findings_present 枚举，findings_present 必须伴随非空「## 发现项」表；引擎在提交时校验并记录 findingsDigest 与 conclusion，缺失或非法直接拒绝收口。
+- cases.md 的统计行与快速索引是**派生区**，只能由 `projectTestcaseV6DerivedView` 生成；手写计数/索引会在 candidate-gate 与一切用例包发布边界被「派生视图漂移」确定性拒绝。
+- 结构漂移（陈旧计数、模块归属错位）用 `npm run testcases:reproject -- <cases.md>` 一键重投影修复（`--dry-run` 预览；按原始快速索引的模块声明归位正文块）。
+- no_write 用例的操作列不得含业务写动词（创建/新增/提交/修改/编辑/更新/删除/上传/写入）；需要写动作的步骤拆分为 ephemeral_cleanup 用例。
+- RULE 台账「条件/输入」含「必填」但关联参数化用例无空值数据行 → gate warning，交 reviewer/用户裁决。
+- plan.md 必须含「## 需求歧义与未定义预期」节（无歧义显式写「无」）；需求矛盾在 plan 确认回调一次裁决，不留到评审后升级。
+- 同纪元已有前导批次时，`review-batch-start` 不带 `--activity/--affected-ref` 会触发全量复审防呆警告；验证有界修正集优先走修订分层或 targeted 范围。
+
 - `direct_execute`：只验证稳定 suite，不重新生成或确认设计；`testcase_only/script_only` 在 `suite-validation` 后完成，`full_run` 才继续 readiness、authorization、run 和 report。
 - `affected_rebuild`：只处理评估给出的 affected 引用，完成定向评审后确认受影响用例，再按交付目标停在用例、`build` 或完整执行终点。全局边界变化回退 `full_replan`。
 - `full_replan`：使用模板创建内部设计索引和用例；校验、评审收敛后只请求一次完整用例确认，再按交付目标决定是否进入 `build` 或执行链。

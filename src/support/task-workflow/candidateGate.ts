@@ -61,6 +61,10 @@ const strictRisk = /(?:\bprod(?:uction)?\b|生产环境|真实数据|归属未�
 const impactRisk = /(?:ephemeral_cleanup|reusable_fixture|tracked_residual|写入|新增|创建|修改|更新|删除|上传|提交|权限|安全挑战|验证码|\bOTP\b|设备|\bMQTT\b|结果未知|无法判定)/iu;
 const combinedRisk = /(?:来源冲突|未定义验收|待确认|决策表|状态迁移|状态流转|角色差异|多条件)/iu;
 const secretLiteral = /(?:password|passwd|token|secret|cookie|authorization|验证码|口令)\s*(?:=|:|\|)\s*(?!<|\$\{|\*{3,}|\[?REDACTED\]?)["'`]?[^\s|"'`]{6,}/iu;
+/** 业务写动词：no_write 用例的操作列不得包含（触发校验类清空/输入不属于业务写入）。 */
+const businessWriteVerb = /创建|新增|提交|修改|编辑|更新|删除|上传|写入/u;
+/** 必填字段空值覆盖的数据行特征（warning 级，交 reviewer 裁决）。 */
+const emptyInputRow = /留空|为空|不填|空值|清空/u;
 
 function unique(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort();
@@ -221,6 +225,48 @@ export function evaluateCandidateGate(input: CandidateGateInput): CandidateGateR
     : input.cases;
   const fullText = `${input.plan}\n${riskCases}`;
   if (secretLiteral.test(fullText)) issues.push("候选用例集疑似包含敏感值字面量。");
+  // 歧义前置：plan 必须显式登记需求歧义与未定义预期（可为「无」），使 F-06 类
+  // 需求矛盾在 plan 确认回调（用户停点）一次裁决，而不是拖到评审后升级。
+  if (!/^##\s+需求歧义与未定义预期\s*$/mu.test(input.plan)) {
+    issues.push("plan.md 缺少「## 需求歧义与未定义预期」节；无歧义时也须显式登记「无」。");
+  }
+
+  // 覆盖 lint 1：写动词 × no_write（阻断）。r2 实测 F-02 类策略矛盾由此前置拦截。
+  const coverageWarnings: string[] = [];
+  if (isCurrentTestcaseDocumentVersion(document.version)) {
+    for (const testcase of document.cases) {
+      const strategy = testcase.overrides.dataStrategy?.replace(/`/gu, "").trim() || defaultStrategy;
+      if (strategy !== "no_write") continue;
+      for (const row of testcase.executionRows) {
+        if (businessWriteVerb.test(row.action)) {
+          issues.push(
+            `${testcase.caseId} 步骤 ${row.stepIndex} 操作「${row.action.trim()}」含业务写动词，但有效数据策略为 no_write；须拆分为 ephemeral_cleanup 用例（执行需授权）或改为纯读操作。`
+          );
+        }
+      }
+    }
+    // 覆盖 lint 2：必填 → 空值数据行（warning）。字段级精确映射是语义命题，
+    // 只做存在性提示，交 reviewer/用户裁决，不阻断。
+    const requiredRules = markdownTableRows(markdownSection(input.plan, "## 规则设计台账"))
+      .filter((row) => /^RULE-[A-Z0-9-]+$/u.test(row[0] ?? "") && /必填/u.test(row[3] ?? ""));
+    const casesById = new Map(document.cases.map((testcase) => [testcase.caseId, testcase]));
+    for (const rule of requiredRules) {
+      const linkedCaseIds = unique((rule[6] ?? "").match(/\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b/gu) ?? []);
+      const parameterized = linkedCaseIds
+        .map((caseId) => casesById.get(caseId))
+        .filter((testcase): testcase is NonNullable<typeof testcase> => Boolean(testcase))
+        .filter((testcase) => testcase.dataInstances.length > 0);
+      if (!parameterized.length) continue;
+      const hasEmptyRow = parameterized.some((testcase) =>
+        testcase.dataInstances.some((instance) => emptyInputRow.test(instance.data))
+      );
+      if (!hasEmptyRow) {
+        coverageWarnings.push(
+          `${rule[0]} 声明必填，但关联参数化用例（${linkedCaseIds.join("、")}）未见空值输入数据行；必填校验覆盖待确认。`
+        );
+      }
+    }
+  }
 
   const profile: CandidateGenerationProfile = strictRisk.test(fullText) ? "strict" : "lean";
   if (profile === "strict") issues.push(...strictCaseIssues(input.plan, input.cases));
@@ -235,6 +281,7 @@ export function evaluateCandidateGate(input: CandidateGateInput): CandidateGateR
       : "deterministic_only";
   const reviewMode = capReviewMode(reviewSpeed, derivedMode, effectiveWritesData);
   const warnings = unique([
+    ...coverageWarnings,
     ...(hasCombinedRisk ? ["候选集包含需要 reviewer 或用户确认的语义风险。"] : []),
     ...(profile === "lean" && hasImpactRisk
       ? ["普通写入保持 lean 结构，但必须经过 impact reviewer 和独立执行确认。"] : []),

@@ -53,6 +53,10 @@ function plan(dataStrategy = "no_write", environment = "test"): string {
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | RULE-DEMO-001 | REQ-DEMO-001 | SRC-DEMO-001；第 1 页 | 用户打开页面 | 页面展示欢迎信息 | 场景法 | CASE-DEMO-001 | 无 | 已覆盖 |
 
+## 需求歧义与未定义预期
+
+- 无。
+
 ## 缺口与风险
 
 - 无。
@@ -95,6 +99,67 @@ function cases(_legacyRows = "", dataStrategy = "no_write", environment = "test"
 </details>
 `;
 }
+
+
+let findingsCounter = 0;
+
+async function writeReviewerFindings(
+  root: string,
+  name: string,
+  conclusion: "converged" | "findings_present" = "converged"
+): Promise<string> {
+  const path = resolve(root, `${name}-reviewer-findings.md`);
+  await writeFile(path, [
+    "# Reviewer Findings",
+    "",
+    "## 结论",
+    "",
+    conclusion,
+    "",
+    "## 发现项",
+    "",
+    ...(conclusion === "converged"
+      ? ["无"]
+      : ["| 编号 | 类别 | 位置 | 发现 | 处置建议 |", "| --- | --- | --- | --- | --- |", "| F-01 | 语义演进 | 位置 | 发现 | 处置 |"]),
+    ""
+  ].join("\n"), "utf8");
+  return path;
+}
+
+test("no_write cases with business write verbs are blocked at the candidate gate", () => {
+  const writeCase = cases()
+    .replace("| — | 1 | 打开页面 | 无 | 页面展示欢迎信息 |",
+      "| — | 1 | 打开页面 | 无 | 页面展示欢迎信息 |\n| — | 2 | 编辑产品信息后回到产品页 | 临时修改 | 更新时间刷新 |");
+  const report = evaluateCandidateGate({ plan: plan(), cases: writeCase });
+  assert.ok(report.issues.some((issue) =>
+    issue.includes("CASE-DEMO-001") && issue.includes("写动词") && issue.includes("no_write")
+  ));
+  const cleanReport = evaluateCandidateGate({ plan: plan(), cases: cases() });
+  assert.equal(cleanReport.issues.some((issue) => issue.includes("写动词")), false);
+});
+
+test("required-field rules without an empty-input data row raise a coverage warning", () => {
+  const requiredPlan = plan().replace(
+    "| RULE-DEMO-001 | REQ-DEMO-001 | SRC-DEMO-001；第 1 页 | 用户打开页面 |",
+    "| RULE-DEMO-001 | REQ-DEMO-001 | SRC-DEMO-001；第 1 页 | 产品名称必填、≤60 字符 |"
+  );
+  const parameterizedCases = cases()
+    .replace("> 共 1 条 ｜ P0 0 条 ｜ 高风险 0 条 ｜ 参数化 0 条",
+      "> 共 1 条 ｜ P0 0 条 ｜ 高风险 0 条 ｜ 参数化 1 条")
+    .replace("| — | 1 | 打开页面 | 无 | 页面展示欢迎信息 |",
+      "| D01 | 1 | 输入名称并触发校验 | 60 个合法字符 | 提示通过 |\n| D02 | 1 | 输入名称并触发校验 | 61 个字符 | 提示长度超限 |");
+  const warnReport = evaluateCandidateGate({ plan: requiredPlan, cases: parameterizedCases });
+  assert.ok(warnReport.warnings.some((warning) =>
+    warning.includes("RULE-DEMO-001") && warning.includes("空值输入数据行")
+  ));
+  const coveredCases = parameterizedCases.replace(
+    "| D02 | 1 | 输入名称并触发校验 | 61 个字符 | 提示长度超限 |",
+    "| D02 | 1 | 输入名称并触发校验 | 61 个字符 | 提示长度超限 |\n| D03 | 1 | 输入名称并触发校验 | 名称留空 | 提示必填 |"
+  ).replace("> 共 1 条 ｜ P0 0 条 ｜ 高风险 0 条 ｜ 参数化 1 条",
+    "> 共 1 条 ｜ P0 0 条 ｜ 高风险 0 条 ｜ 参数化 1 条");
+  const okReport = evaluateCandidateGate({ plan: requiredPlan, cases: coveredCases });
+  assert.equal(okReport.warnings.some((warning) => warning.includes("空值输入数据行")), false);
+});
 
 test("candidate gate keeps a lean design deterministic", () => {
   const report = evaluateCandidateGate({ plan: plan(), cases: cases() });
@@ -293,7 +358,8 @@ test("resume activates a frozen targeted review batch after v7 evolution", async
       batchId: baseBatchId,
       role,
       planEvidenceRef: manager.planPath,
-      agentTaskId
+      agentTaskId,
+      findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
     });
   }
   const resolution = await manager.startActivity("case-review-resolution", "test");

@@ -211,6 +211,10 @@ async function workspace(): Promise<string> {
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | RULE-DEMO-001 | REQ-DEMO-001 | SRC-DEMO-001 | valid | visible result | 场景法 | DEMO-001 | ephemeral_cleanup；执行清单；cleanup；后置查询核对 | 已覆盖 |
 
+## 需求歧义与未定义预期
+
+- 无。
+
 ## 缺口与风险
 
 - 无。
@@ -386,7 +390,8 @@ async function completeReviewBatch(
       batchId,
       role,
       planEvidenceRef: manager.planPath,
-      agentTaskId: `${batchId}-${role}`
+      agentTaskId: `${batchId}-${role}`,
+      findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
     });
   }
   return reviewIds;
@@ -416,6 +421,32 @@ async function evolveAndInvalidate(
   assert.ok(reviewIds.every((activityId) => view.activities[activityId]?.state === "READY"));
   assert.ok(reviewIds.every((activityId) => view.activities[activityId]?.attempt === 0));
   assert.notEqual(view.activities.build?.state, "READY");
+}
+
+
+let findingsCounter = 0;
+
+async function writeReviewerFindings(
+  root: string,
+  name: string,
+  conclusion: "converged" | "findings_present" = "converged"
+): Promise<string> {
+  const path = resolve(root, `${name}-reviewer-findings.md`);
+  await writeFile(path, [
+    "# Reviewer Findings",
+    "",
+    "## 结论",
+    "",
+    conclusion,
+    "",
+    "## 发现项",
+    "",
+    ...(conclusion === "converged"
+      ? ["无"]
+      : ["| 编号 | 类别 | 位置 | 发现 | 处置建议 |", "| --- | --- | --- | --- | --- |", "| F-01 | 语义演进 | 位置 | 发现 | 处置 |"]),
+    ""
+  ].join("\n"), "utf8");
+  return path;
 }
 
 test("four progressing revisions can repeat the full case-review before latest convergence", async (context) => {
@@ -485,7 +516,8 @@ test("review-policy-v2 stops after two semantic evolution cycles in one epoch", 
       batchId,
       role: "combined",
       planEvidenceRef: manager.planPath,
-      agentTaskId: `${batchId}-combined`
+      agentTaskId: `${batchId}-combined`,
+      findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
     });
   };
   const evolve = async (batchId: string, cycle: number): Promise<void> => {
@@ -1050,7 +1082,8 @@ test("review capacity admits three independent v4 reviewers and rejects only the
     batchId,
     role: completedRole,
     planEvidenceRef: manager.planPath,
-    agentTaskId: `${batchId}-${completedRole}`
+    agentTaskId: `${batchId}-${completedRole}`,
+    findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
   });
   view = await manager.dispatchReviewer({
     activityId: reviewByRole.get("interaction")!,
@@ -1137,7 +1170,8 @@ test("targeted re-review binds changed refs and reuses untouched reviewer eviden
     batchId: "REV-TARGET-DESIGN",
     role: "design",
     planEvidenceRef: manager.planPath,
-    agentTaskId: "REV-TARGET-DESIGN-design"
+    agentTaskId: "REV-TARGET-DESIGN-design",
+    findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
   });
   assert.deepEqual(
     reviewBatchCoveredActivityIds(

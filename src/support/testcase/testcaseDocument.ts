@@ -472,5 +472,10 @@ export function validateTestcaseV6Layered(value: string): string[] {
   const expectedStats = renderTestcaseV6DerivedView(document.cases).split("\n", 1)[0];
   const actualStats = value.split(/\r?\n/u).find((line) => /^>\s*共\s+\d+\s+条/u.test(line.trim()));
   if (actualStats?.trim() !== expectedStats) issues.push("顶部用例统计与折叠用例详情不一致。");
+  // 派生区（统计行+快速索引）必须与 projectTestcaseV6DerivedView 的重投影完全一致；
+  // 任何漂移（计数、索引行、模块归属、格式）在此确定性拦截，禁止手写派生区。
+  if (projectTestcaseV6DerivedView(value) !== value) {
+    issues.push("派生视图漂移：统计行/快速索引与用例体不一致，必须以 projectTestcaseV6DerivedView 重投影。");
+  }
   return unique(issues);
 }

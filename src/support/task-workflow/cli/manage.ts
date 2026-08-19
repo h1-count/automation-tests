@@ -1874,6 +1874,19 @@ async function main(): Promise<void> {
     const activityIds = options(args, "--activity");
     const affectedRefs = options(args, "--affected-ref");
     const excludedRefs = options(args, "--excluded-ref");
+    // 防呆守卫：同一工作流已有前序批次时，无 --activity/--affected-ref 的再次
+    // start 会解析为全量复审。验证有界修正集应走修订分层 structural/scoped 档
+    // 或 targeted 范围（r2 实测：2 个结构修复的验证被派发为全量复审，40 分钟异常）。
+    if (!activityIds.length && !affectedRefs.length) {
+      const priorBatches = (await manager.events()).filter((event) =>
+        event.type === "ReviewBatchStarted" && event.payload.batchId !== batchId
+      );
+      if (priorBatches.length) {
+        process.stdout.write(
+          `⚠ 本批未声明 --activity/--affected-ref，将解析为全量复审（${priorBatches.length} 个前序批次同纪元）；若仅验证有界修正集，请改用修订分层 structural/scoped 档或 targeted 范围。\n`
+        );
+      }
+    }
     const view = await manager.startReviewBatch({
       batchId,
       inputPaths,
@@ -1929,16 +1942,18 @@ async function main(): Promise<void> {
     }
     const role = option(args, "--role") ?? String(activity.definition.metadata?.role ?? "reviewer");
     const deterministicSubmit = option(args, "--deterministic");
+    const findingsPath = required(args, "--findings");
     const view = await manager.submitReviewer({
       activityId,
       batchId,
       role,
       planEvidenceRef: evidencePath,
+      findingsPath,
       ...(deterministicSubmit
         ? {
           deterministic: {
             classifierDigest: required(args, "--classifier-digest"),
-            findingsPath: required(args, "--findings")
+            findingsPath
           }
         }
         : { agentTaskId: required(args, "--agent-task") })

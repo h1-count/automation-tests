@@ -127,6 +127,10 @@ function relationFixture(): { plan: string; cases: string } {
     "| --- | --- | --- | --- | --- |",
     "| 无 | 无 | 无 | 无 | 无影响 |",
     "",
+    "## 需求歧义与未定义预期",
+    "",
+    "- 无。",
+    "",
     "## 缺口与风险",
     "",
     "### 假设",
@@ -693,7 +697,8 @@ async function succeed(
       batchId,
       role,
       planEvidenceRef: manager.planPath,
-      agentTaskId: `${batchId}-${role}`
+      agentTaskId: `${batchId}-${role}`,
+      findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
     });
     return;
   }
@@ -753,6 +758,32 @@ async function acceptCallback(
     callbackId,
     resolution: "accepted"
   });
+}
+
+
+let findingsCounter = 0;
+
+async function writeReviewerFindings(
+  root: string,
+  name: string,
+  conclusion: "converged" | "findings_present" = "converged"
+): Promise<string> {
+  const path = resolve(root, `${name}-reviewer-findings.md`);
+  await writeFile(path, [
+    "# Reviewer Findings",
+    "",
+    "## 结论",
+    "",
+    conclusion,
+    "",
+    "## 发现项",
+    "",
+    ...(conclusion === "converged"
+      ? ["无"]
+      : ["| 编号 | 类别 | 位置 | 发现 | 处置建议 |", "| --- | --- | --- | --- | --- |", "| F-01 | 语义演进 | 位置 | 发现 | 处置 |"]),
+    ""
+  ].join("\n"), "utf8");
+  return path;
 }
 
 test("public CLI atomically publishes the v4 execution manifest from readiness", async (context) => {

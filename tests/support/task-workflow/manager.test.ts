@@ -173,6 +173,10 @@ function planMarkdown(
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 ${caseIds.map((caseId) => `| RULE-${caseId} | REQ-DEMO-REG-001 | SRC-DEMO-001 | ${caseId} 合法注册输入 | 注册流程给出可观察结果 | 场景法 | ${caseId} | no_write | 已覆盖 |`).join("\n")}
 
+## 需求歧义与未定义预期
+
+- 无。
+
 ## 缺口与风险
 
 - 无。
@@ -304,7 +308,7 @@ function v7CasesMarkdown(): string {
 
 | 数据编号 | 步骤 | 操作 | 测试数据 | 预期结果 |
 | --- | --- | --- | --- | --- |
-| — | 1 | 提交注册 | 有效非敏感输入 | 显示注册成功页 |
+| — | 1 | 打开注册页 | 无 | 显示注册表单结构 |
 
 </details>
 `;
@@ -372,7 +376,8 @@ async function advanceV7ToCaseConfirmation(
         batchId,
         role,
         planEvidenceRef: manager.planPath,
-        agentTaskId
+        agentTaskId,
+        findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
       });
     }
   }
@@ -452,6 +457,32 @@ async function advanceToReviewReady(manager: DurableWorkflowManager): Promise<vo
   }
 }
 
+
+let findingsCounter = 0;
+
+async function writeReviewerFindings(
+  root: string,
+  name: string,
+  conclusion: "converged" | "findings_present" = "converged"
+): Promise<string> {
+  const path = resolve(root, `${name}-reviewer-findings.md`);
+  await writeFile(path, [
+    "# Reviewer Findings",
+    "",
+    "## 结论",
+    "",
+    conclusion,
+    "",
+    "## 发现项",
+    "",
+    ...(conclusion === "converged"
+      ? ["无"]
+      : ["| 编号 | 类别 | 位置 | 发现 | 处置建议 |", "| --- | --- | --- | --- | --- |", "| F-01 | 语义演进 | 位置 | 发现 | 处置 |"]),
+    ""
+  ].join("\n"), "utf8");
+  return path;
+}
+
 test("task:initialize requires the delivery target selected before workflow creation", async () => {
   await assert.rejects(
     execFileAsync(process.execPath, [
@@ -464,6 +495,105 @@ test("task:initialize requires the delivery target selected before workflow crea
     ]),
     /Missing --delivery-target/
   );
+});
+
+test("publishing a drifted case package through evolution is rejected at the publish boundary", async () => {
+  const root = await makeV7Workspace();
+  try {
+    const manager = new DurableWorkflowManager(requestId, root);
+    await manager.initialize({
+      capabilities: ["web"],
+      casePackages: ["cases.md"],
+      deliveryTarget: "testcase_only"
+    });
+    const sourceSelection = await manager.startActivity("source-selection", "v7-delivery-worker");
+    await manager.succeedActivity("source-selection", {
+      claimToken: sourceSelection.claimToken,
+      verification: "source selection verified"
+    });
+    const generation = await manager.startActivity("candidate-generation", "v7-delivery-worker");
+    await manager.publishArtifactsAndSucceed("candidate-generation", {
+      claimToken: generation.claimToken,
+      publishId: "drift-guard-candidate-generation",
+      verification: "candidate generated",
+      artifacts: [{
+        targetPath: `testcases/${requestId}/plan.md`,
+        content: await readFile(manager.planPath)
+      }, {
+        targetPath: `testcases/${requestId}/cases.md`,
+        content: await readFile(resolve(manager.requestRoot, "cases.md"))
+      }]
+    });
+    const candidateGate = await manager.startActivity("candidate-gate", "v7-delivery-worker");
+    await manager.succeedCandidateGate(candidateGate.claimToken);
+    const batchId = "REV-DRIFT-GUARD";
+    const reviewActivities = Object.values((await manager.gate()).activities)
+      .filter((activity) => activity.definition.kind === "review" && activity.state === "READY");
+    await manager.startReviewBatch({ batchId });
+    for (const activity of reviewActivities) {
+      const role = String(activity.definition.metadata?.role);
+      const agentTaskId = `${batchId}-${role}`;
+      await manager.dispatchReviewer({ activityId: activity.id, batchId, role, agentTaskId });
+      await manager.submitReviewer({
+        activityId: activity.id,
+        batchId,
+        role,
+        planEvidenceRef: manager.planPath,
+        agentTaskId,
+        findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
+      });
+    }
+    const resolution = await manager.startActivity("case-review-resolution", "drift-guard-worker");
+    await manager.publishArtifactsAndSucceed("case-review-resolution", {
+      claimToken: resolution.claimToken,
+      publishId: `${batchId}-resolution`,
+      verification: "semantic findings require evolution",
+      outcome: "evolve",
+      artifacts: [{
+        targetPath: `testcases/${requestId}/plan.md`,
+        content: await readFile(manager.planPath)
+      }]
+    });
+    const evolution = await manager.startActivity("case-review-evolution", "drift-guard-worker");
+    const validCases = await readFile(resolve(manager.requestRoot, "cases.md"), "utf8");
+    const driftedCases = validCases.replace(
+      /^>\s*共\s+\d+\s+条.*$/mu,
+      "> 共 9 条 ｜ P0 9 条 ｜ 高风险 9 条 ｜ 参数化 9 条"
+    );
+    assert.notEqual(driftedCases, validCases);
+    await assert.rejects(
+      manager.publishArtifactsAndSucceed("case-review-evolution", {
+        claimToken: evolution.claimToken,
+        publishId: `${batchId}-evolution`,
+        verification: "evolved testcase revision",
+        artifacts: [
+          { targetPath: `testcases/${requestId}/plan.md`, content: await readFile(manager.planPath) },
+          { targetPath: `testcases/${requestId}/cases.md`, content: driftedCases }
+        ]
+      }),
+      /structurally invalid case package[\s\S]*派生视图漂移/
+    );
+    assert.equal(
+      (await manager.gate()).activities["case-review-evolution"]?.state,
+      "RUNNING",
+      "rejection must happen before staging so the activity stays running"
+    );
+    await manager.publishArtifactsAndSucceed("case-review-evolution", {
+      claimToken: evolution.claimToken,
+      publishId: `${batchId}-evolution`,
+      verification: "evolved testcase revision",
+      artifacts: [
+        { targetPath: `testcases/${requestId}/plan.md`, content: await readFile(manager.planPath) },
+        { targetPath: `testcases/${requestId}/cases.md`, content: validCases }
+      ]
+    });
+    assert.equal(
+      (await manager.gate()).activities["case-review-evolution"]?.state,
+      "SUCCEEDED"
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("deleting disposable runtime preserves the exact event-derived business state", async () => {
@@ -1782,7 +1912,8 @@ test("resume carries one legacy plan confirmation across evidence-backed testcas
       batchId,
       role: "requirements",
       planEvidenceRef: manager.planPath,
-      agentTaskId: `${batchId}-requirements`
+      agentTaskId: `${batchId}-requirements`,
+      findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
     });
     const resolution = await manager.startActivity(
       "case-review-resolution",
@@ -2221,7 +2352,8 @@ test("manager persists v2 risk with combined and strict-only impact scope v3", a
       batchId: "REV-MIXED-RISK-V2",
       role: "combined",
       planEvidenceRef: manager.planPath,
-      agentTaskId: "REV-MIXED-RISK-V2-combined"
+      agentTaskId: "REV-MIXED-RISK-V2-combined",
+      findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
     });
     await manager.dispatchReviewer({
       activityId: "case-review-impact",
@@ -2234,7 +2366,8 @@ test("manager persists v2 risk with combined and strict-only impact scope v3", a
       batchId: "REV-MIXED-RISK-V2",
       role: "impact",
       planEvidenceRef: manager.planPath,
-      agentTaskId: "REV-MIXED-RISK-V2-impact"
+      agentTaskId: "REV-MIXED-RISK-V2-impact",
+      findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
     });
     const casePath = resolve(manager.requestRoot, "cases-registration.md");
     await writeFile(
@@ -2460,7 +2593,7 @@ test("v7 revision_requested invalidates design and resume repairs a crash before
     const casePath = resolve(recoveredManager.requestRoot, "cases.md");
     await writeFile(
       casePath,
-      (await readFile(casePath, "utf8")).replace("显示注册成功页", "显示注册完成页"),
+      (await readFile(casePath, "utf8")).replace("显示注册表单结构", "显示注册完成表单"),
       "utf8"
     );
     const reselection = await recoveredManager.startActivity(
@@ -2506,7 +2639,8 @@ test("v7 revision_requested invalidates design and resume repairs a crash before
           batchId,
           role,
           planEvidenceRef: recoveredManager.planPath,
-          agentTaskId
+          agentTaskId,
+          findingsPath: await writeReviewerFindings(recoveredManager.workspaceRoot, `findings-${++findingsCounter}`)
         });
       }
     }
@@ -2585,7 +2719,8 @@ test("reviewer submission requires a distinct running host binding and records o
         batchId,
         role: "requirements",
         planEvidenceRef: manager.planPath,
-        agentTaskId: "different-reviewer"
+        agentTaskId: "different-reviewer",
+        findingsPath: await writeReviewerFindings(manager.workspaceRoot, "findings-isolated-mismatch")
       }),
       /does not match the isolated reviewer submission/
     );
@@ -2598,7 +2733,8 @@ test("reviewer submission requires a distinct running host binding and records o
       batchId,
       role: "requirements",
       planEvidenceRef: manager.planPath,
-      agentTaskId: "isolated-reviewer"
+      agentTaskId: "isolated-reviewer",
+      findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
     });
     const submission = (await manager.events()).find((event) =>
       event.type === "ReviewerSubmitted"
@@ -2609,6 +2745,84 @@ test("reviewer submission requires a distinct running host binding and records o
     );
     assert.equal(submission?.payload.agentTaskId, undefined);
     assert.equal(JSON.stringify(submission).includes("isolated-reviewer"), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("isolated reviewer submissions are rejected without a findings file or with an illegal conclusion", async () => {
+  const root = await makeWorkspace();
+  try {
+    const manager = compatibilityManager(root);
+    await manager.initialize({ reviewerRoles: ["requirements"] });
+    await advanceToReviewReady(manager);
+    const batchId = "REV-FINDINGS-CONTRACT";
+    const activityId = "case-review-requirements";
+    await manager.startReviewBatch({ batchId });
+    await manager.dispatchReviewer({
+      activityId,
+      batchId,
+      role: "requirements",
+      agentTaskId: "findings-contract-reviewer"
+    });
+    await assert.rejects(
+      manager.submitReviewer({
+        activityId,
+        batchId,
+        role: "requirements",
+        planEvidenceRef: manager.planPath,
+        agentTaskId: "findings-contract-reviewer"
+      }),
+      /requires --findings/
+    );
+    const badConclusion = resolve(root, "findings-bad-conclusion.md");
+    await writeFile(badConclusion, [
+      "# Reviewer Findings",
+      "",
+      "## 结论",
+      "",
+      "部分通过",
+      ""
+    ].join("\n"), "utf8");
+    await assert.rejects(
+      manager.submitReviewer({
+        activityId,
+        batchId,
+        role: "requirements",
+        planEvidenceRef: manager.planPath,
+        agentTaskId: "findings-contract-reviewer",
+        findingsPath: badConclusion
+      }),
+      /converged or findings_present/
+    );
+    const findingsPresent = resolve(root, "findings-present.md");
+    await writeFile(findingsPresent, [
+      "# Reviewer Findings",
+      "",
+      "## 结论",
+      "",
+      "findings_present",
+      "",
+      "## 发现项",
+      "",
+      "| F-01 | 语义演进 | 位置 | 发现 | 处置 |",
+      "| --- | --- | --- | --- | --- |",
+      "| F-01 | 语义演进 | 用例 | 发现 | 处置 |",
+      ""
+    ].join("\n"), "utf8");
+    await manager.submitReviewer({
+      activityId,
+      batchId,
+      role: "requirements",
+      planEvidenceRef: manager.planPath,
+      agentTaskId: "findings-contract-reviewer",
+      findingsPath: findingsPresent
+    });
+    const submission = (await manager.events())
+      .reverse()
+      .find((event) => event.type === "ReviewerSubmitted");
+    assert.equal(submission?.payload.conclusion, "findings_present");
+    assert.equal(typeof submission?.payload.findingsDigest, "string");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -2777,7 +2991,8 @@ test("resume preserves a durably dispatched reviewer without duplicating its bat
       batchId: "REV-ORPHAN-1",
       role: "requirements",
       planEvidenceRef: recoveredManager.planPath,
-      agentTaskId: "replacement-reviewer-task"
+      agentTaskId: "replacement-reviewer-task",
+      findingsPath: await writeReviewerFindings(recoveredManager.workspaceRoot, `findings-${++findingsCounter}`)
     });
     assert.equal(rejected.reviewBatch?.status, "new_batch_started");
     assert.equal(rejected.reviewBatch?.previousBatchId, "REV-ORPHAN-1");
@@ -2820,7 +3035,8 @@ test("resume preserves a durably dispatched reviewer without duplicating its bat
       batchId: "REV-ORPHAN-1",
       role: "requirements",
       planEvidenceRef: recoveredManager.planPath,
-      agentTaskId: "replacement-reviewer-task"
+      agentTaskId: "replacement-reviewer-task",
+      findingsPath: await writeReviewerFindings(recoveredManager.workspaceRoot, `findings-${++findingsCounter}`)
     });
     assert.equal(repeated.reviewBatch?.batchId, rejected.reviewBatch?.batchId);
     assert.deepEqual((await recoveredManager.gate()).head, rotatedHead);
@@ -2885,7 +3101,8 @@ test("durable reviewer dispatch survives runtime binding failure and resume repa
       batchId,
       role: "requirements",
       planEvidenceRef: manager.planPath,
-      agentTaskId: "reviewer-task-after-runtime-failure"
+      agentTaskId: "reviewer-task-after-runtime-failure",
+      findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
     });
     assert.ok((await manager.runtime.read())?.reviewerBindings[
       `${batchId}:${activityId}:requirements`

@@ -248,6 +248,8 @@ export interface ReviewLifecycleEventInput {
   isolationProofVersion?: typeof REVIEWER_ISOLATION_PROOF_VERSION;
   /** 修订分层 structural 档标记：该评审由确定性分级器收口，非隔离 LLM 评审员。 */
   deterministic?: { classifierDigest: string };
+  /** 发现文件结论枚举（与 findingsDigest 一同构成 review-findings-evidence-v1 证据）。 */
+  conclusion?: ReviewerConclusion;
 }
 
 function assertDigest(value: string | undefined, name: string): void {
@@ -264,6 +266,10 @@ export function prepareReviewLifecycleEvent(
   assertDigest(input.planEvidenceDigest, "planEvidenceDigest");
   assertDigest(input.revisionDigest, "revisionDigest");
   assertDigest(input.findingsDigest, "findingsDigest");
+  if (input.conclusion !== undefined && input.conclusion !== "converged"
+    && input.conclusion !== "findings_present") {
+    throw new Error("conclusion must be converged or findings_present.");
+  }
   assertDigest(input.scopeDigest, "scopeDigest");
   assertDigest(input.readinessDigest, "readinessDigest");
   if (input.roleInputDigests) {
@@ -354,6 +360,7 @@ export function prepareReviewLifecycleEvent(
     ...(input.isolationProofVersion
       ? { isolationProofVersion: input.isolationProofVersion }
       : {}),
+    ...(input.conclusion ? { conclusion: input.conclusion } : {}),
     ...(input.deterministic
       ? {
         deterministic: true,
@@ -451,4 +458,43 @@ export function requiredReviewInputs(
   additional: string[]
 ): string[] {
   return [...new Set([planPath, ...packagePaths, ...sourcePaths, ...additional])];
+}
+
+export type ReviewerConclusion = "converged" | "findings_present";
+
+/**
+ * reviewer 发现文件的骨架契约（复用 review-findings-evidence-v1）：
+ * 必须含「## 结论」节且值为 converged/findings_present 枚举；findings_present
+ * 时必须含非空「## 发现项」。LLM 评审员与确定性收口共用此校验，杜绝
+ * 评审轮结束后发现文件缺失或结论非法导致的整轮返工。
+ */
+export function assertReviewerFindingsShape(
+  text: string,
+  options: { requireConverged?: boolean } = {}
+): ReviewerConclusion {
+  const conclusionMatch = /^##\s+结论\s*$([\s\S]*?)(?=^##\s|(?![\s\S]))/mu.exec(text);
+  if (!conclusionMatch) {
+    throw new Error("Reviewer findings file must contain a '## 结论' section.");
+  }
+  const value = (conclusionMatch[1] ?? "").trim().split(/\r?\n/u)[0]?.trim() ?? "";
+  if (value !== "converged" && value !== "findings_present") {
+    throw new Error(
+      `Reviewer findings conclusion must be converged or findings_present, got: ${value || "(empty)"}.`
+    );
+  }
+  if (options.requireConverged && value !== "converged") {
+    throw new Error(
+      "Deterministic reviewer requires a findings file whose 结论 section is converged; non-structural revisions must use an isolated reviewer."
+    );
+  }
+  if (value === "findings_present") {
+    const findingsMatch = /^##\s+发现项\s*$([\s\S]*?)(?=^##\s|(?![\s\S]))/mu.exec(text);
+    const hasFindingsRow = (findingsMatch?.[1] ?? "")
+      .split(/\r?\n/u)
+      .some((line) => /^\|.*\|/u.test(line.trim()) && !/^\|\s*[-: ]+\|/u.test(line.trim()));
+    if (!hasFindingsRow) {
+      throw new Error("findings_present 结论必须伴随非空「## 发现项」表格。");
+    }
+  }
+  return value;
 }

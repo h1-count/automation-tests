@@ -134,6 +134,30 @@ test("v6 derived view and RULE projection are deterministic and excluded from se
   );
 });
 
+test("derived-view drift is rejected deterministically and a healthy document is projection-idempotent", () => {
+  const healthy = layeredCases();
+  const issues = validateTestcaseV6Layered(healthy);
+  assert.equal(issues.length, 0, `healthy fixture must be valid: ${issues.join(" | ")}`);
+  assert.equal(projectTestcaseV6DerivedView(healthy), healthy);
+
+  const staleCount = healthy.replace(
+    /^>\s*共\s+\d+\s+条.*$/mu,
+    "> 共 99 条 ｜ P0 99 条 ｜ 高风险 99 条 ｜ 参数化 99 条"
+  );
+  const countIssues = validateTestcaseV6Layered(staleCount);
+  assert.ok(countIssues.some((issue) => issue.includes("派生视图漂移")));
+  assert.ok(countIssues.some((issue) => issue.includes("顶部用例统计与折叠用例详情不一致")));
+  assert.equal(projectTestcaseV6DerivedView(staleCount), healthy);
+
+  const indexModuleMismatch = healthy.replace(
+    "| 产品创建 | OPEN-PRODUCT-001 | 验证创建入口 | P0 | 低 |",
+    "| 其他模块 | OPEN-PRODUCT-001 | 验证创建入口 | P0 | 低 |"
+  );
+  const mismatchIssues = validateTestcaseV6Layered(indexModuleMismatch);
+  assert.ok(mismatchIssues.some((issue) => issue.includes("派生视图漂移")));
+  assert.equal(projectTestcaseV6DerivedView(indexModuleMismatch).includes("其他模块"), false);
+});
+
 test("review model resolves RULE sources once per parent testcase", () => {
   const model = buildTestcaseReviewModel({
     requestId: "web/open-platform/product-create",
