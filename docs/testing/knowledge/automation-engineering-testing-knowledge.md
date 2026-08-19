@@ -1,4 +1,6 @@
-# automation-engineering 项目测试经验
+# 自动化工程（测试工程自身）经验
+
+> 记录测试工程自身（工作流引擎、用例文档契约、评审编排、套件复用、工具链）的经验；被测产品的产品测试经验见对应 `<project>-testing-knowledge.md`。
 
 <!-- project-experience:D481E5946181:start -->
 <a id="exp-d481e5946181"></a>
