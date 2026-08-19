@@ -3394,16 +3394,23 @@ export class DurableWorkflowManager {
     });
     const inputPaths = await this.requiredReviewInputPaths(input.inputPaths ?? []);
     const currentIdentity = await this.reviewInputs.inspectCurrent(inputPaths);
-    const latestPlanConfirmationSubject = [...events].reverse().find((event) =>
+    // 评审纪元随正式回调决定刷新：CallbackResolved 事件（v6/v7 非
+    // execution_authorization 的正式 callback）携带发布后 plan 的 digest，
+    // 使「新增正式用户决定」兑现 blocker resolutionCondition 声明的纪元刷新
+    // 语义；无正式决定时回退 WorkflowStarted 冻结的 planDigest。
+    const latestFormalDecisionPlanDigest = [...events].reverse().find((event) =>
       event.type === "CallbackResolved"
-      && event.payload.activityId === "plan-confirmation"
-      && event.payload.resolution === "accepted"
-      && typeof event.payload.subjectDigest === "string"
-    )?.payload.subjectDigest;
+      && (
+        event.payload.activityId === "plan-confirmation"
+        || event.payload.activityId === "case-confirmation"
+        || event.payload.activityId === "case-review-conflict-decision"
+      )
+      && typeof event.payload.planDigest === "string"
+    )?.payload.planDigest;
     const reviewEpochDigest = sha256(canonicalJson({
       schemaVersion: "review-epoch-v1",
       requestId: before.requestId,
-      planSubjectDigest: latestPlanConfirmationSubject ?? before.planDigest,
+      planSubjectDigest: latestFormalDecisionPlanDigest ?? before.planDigest,
       controlledSources: currentIdentity.artifacts
         .filter((artifact) => artifact.sourcePath.startsWith("sources/"))
         .map(({ sourcePath, digest }) => ({ sourcePath, digest }))
@@ -3544,8 +3551,7 @@ export class DurableWorkflowManager {
       }
       try {
         const scope = parseReviewBatchScope(event.payload.scope);
-        return scope.schemaVersion === "review-batch-scope-v3"
-          && typeof scope.baseBatchId === "string";
+        return scope.schemaVersion === "review-batch-scope-v3";
       } catch {
         return false;
       }
@@ -3558,7 +3564,7 @@ export class DurableWorkflowManager {
       return view;
     }
     const scope = parseReviewBatchScope(batch.payload.scope);
-    if (scope.schemaVersion !== "review-batch-scope-v3" || !scope.baseBatchId) {
+    if (scope.schemaVersion !== "review-batch-scope-v3") {
       return view;
     }
     const alreadyActivated = events.some((event) =>
@@ -3580,11 +3586,31 @@ export class DurableWorkflowManager {
     );
     if (alreadyActivated) return view;
 
-    const baseBatch = reviewBatchStarted(events, scope.baseBatchId);
+    // 比较基准：targeted 批次用 baseBatchId；单 review 活动的 full 批次
+    // （requiredActivityIds=全部 review 活动，scope 无 baseBatchId）用本批次
+    // 之前最近的 v3 批次。输入无变化时 startReviewBatch 已短路，这里同样不激活。
+    const baseInputDigest = scope.baseBatchId
+      ? reviewBatchStarted(events, scope.baseBatchId)?.payload.inputDigest
+      : (() => {
+          const previous = [...events]
+            .filter((event) => event.type === "ReviewBatchStarted" && event.seq < batch.seq)
+            .reverse()
+            .find((event) => {
+              if (event.payload.scope === undefined) return false;
+              try {
+                return parseReviewBatchScope(event.payload.scope).schemaVersion
+                  === "review-batch-scope-v3";
+              } catch {
+                return false;
+              }
+            });
+          return typeof previous?.payload.inputDigest === "string"
+            ? previous.payload.inputDigest
+            : undefined;
+        })();
     if (
-      !baseBatch
-      || typeof baseBatch.payload.inputDigest !== "string"
-      || baseBatch.payload.inputDigest === batch.payload.inputDigest
+      typeof baseInputDigest !== "string"
+      || baseInputDigest === batch.payload.inputDigest
     ) {
       return view;
     }

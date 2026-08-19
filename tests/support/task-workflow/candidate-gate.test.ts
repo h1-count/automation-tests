@@ -13,6 +13,8 @@ import {
   isPolicyAutoNoWriteSubject
 } from "../../../src/support/task-workflow/workflowManager.js";
 import { DurableWorkflowManager } from "../../../src/support/task-workflow/workflowManager.js";
+import { parseReviewBatchScope } from "../../../src/support/task-workflow/reviewBatchScope.js";
+import { recordFormalDecision } from "./formalDecisionFixture.js";
 
 const sourceDigest = "a".repeat(64);
 
@@ -569,4 +571,246 @@ test("request source digest drift invalidates only linked rules and cases", () =
   assert.deepEqual(impact.affectedRuleIds, ["RULE-DEMO-001"]);
   assert.deepEqual(impact.affectedCaseIds, ["CASE-DEMO-001"]);
   assert.equal(impact.fullReplanRequired, false);
+});
+
+test("single-reviewer v7 evolution auto-activates the review activity without manual invalidate", async (context) => {
+  const root = await mkdtemp(resolve(tmpdir(), "candidate-gate-single-reviewer-activation-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const requestId = "web/demo/single-reviewer-activation";
+  const requestRoot = resolve(root, "testcases", ...requestId.split("/"));
+  const sourcePath = resolve(root, "single-reviewer-spec.pdf");
+  const source = Buffer.from("single reviewer requirement", "utf8");
+  const sourceSha = createHash("sha256").update(source).digest("hex");
+  const planText = plan()
+    .replace("web/demo/request", requestId)
+    .replace("/tmp/demo-spec.pdf", sourcePath)
+    .replace(sourceDigest, sourceSha)
+    .replace("- 展示页面。", "- 展示页面。\n- 状态流转规则。")
+    .replace(
+      "## 评审与正式决定",
+      "## 多角色评审记录\n\n- 待评审。\n\n## 评审与正式决定"
+    );
+  const casesText = cases();
+  await mkdir(requestRoot, { recursive: true });
+  await writeFile(sourcePath, source);
+  await writeFile(resolve(requestRoot, "plan.md"), planText, "utf8");
+  await writeFile(resolve(requestRoot, "cases.md"), casesText, "utf8");
+
+  const manager = new DurableWorkflowManager(requestId, root);
+  await manager.initialize({
+    capabilities: ["web"],
+    casePackages: ["cases.md"],
+    deliveryTarget: "testcase_only"
+  });
+  const sourceSelection = await manager.startActivity("source-selection", "test");
+  await manager.succeedActivity("source-selection", {
+    claimToken: sourceSelection.claimToken,
+    verification: "source selected"
+  });
+  const generation = await manager.startActivity("candidate-generation", "test");
+  await manager.publishArtifactsAndSucceed("candidate-generation", {
+    claimToken: generation.claimToken,
+    publishId: "single-reviewer-candidate",
+    verification: "candidate generated",
+    artifacts: [{
+      targetPath: `testcases/${requestId}/plan.md`,
+      content: planText
+    }, {
+      targetPath: `testcases/${requestId}/cases.md`,
+      content: casesText
+    }]
+  });
+  const candidateGate = await manager.startActivity("candidate-gate", "test");
+  const evaluated = await manager.succeedCandidateGate(candidateGate.claimToken);
+  // 单 review 活动：no_write + 状态流转 marker → combined 模式，无 impact 活动
+  assert.equal(evaluated.report.reviewMode, "combined");
+
+  const baseBatchId = "REV-SINGLE-BASE";
+  await manager.startReviewBatch({ batchId: baseBatchId });
+  await manager.dispatchReviewer({
+    activityId: "case-review-combined",
+    batchId: baseBatchId,
+    role: "combined",
+    agentTaskId: `${baseBatchId}-combined`
+  });
+  await manager.submitReviewer({
+    activityId: "case-review-combined",
+    batchId: baseBatchId,
+    role: "combined",
+    planEvidenceRef: manager.planPath,
+    agentTaskId: `${baseBatchId}-combined`,
+    findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`, "findings_present")
+  });
+  const resolution = await manager.startActivity("case-review-resolution", "test");
+  const reviewedPlan = planText.replace("- 待评审。", "- reviewer 请求补充继承契约。");
+  await manager.publishArtifactsAndSucceed("case-review-resolution", {
+    claimToken: resolution.claimToken,
+    publishId: "single-reviewer-resolution",
+    verification: "review requested one evolution",
+    outcome: "evolve",
+    artifacts: [{
+      targetPath: `testcases/${requestId}/plan.md`,
+      content: reviewedPlan
+    }]
+  });
+  const evolution = await manager.startActivity("case-review-evolution", "test");
+  const evolvedCases = casesText.replaceAll("页面展示欢迎信息", "页面展示欢迎信息且可继续操作");
+  const evolvedPlan = reviewedPlan.replace(
+    "- reviewer 请求补充继承契约。",
+    "- reviewer 已确认继承契约。"
+  );
+  await manager.publishArtifactsAndSucceed("case-review-evolution", {
+    claimToken: evolution.claimToken,
+    publishId: "single-reviewer-evolution",
+    verification: "evolved testcase revision",
+    artifacts: [{
+      targetPath: `testcases/${requestId}/plan.md`,
+      content: evolvedPlan
+    }, {
+      targetPath: `testcases/${requestId}/cases.md`,
+      content: evolvedCases
+    }]
+  });
+
+  // 单 review 活动（full 模式、无 baseBatchId）的演进复审批次必须被自动激活，
+  // 不再需要手工 activity-invalidate（EXP-260F23257EEE 的 workaround 场景）。
+  await manager.startReviewBatch({
+    batchId: "REV-SINGLE-NEXT",
+    activityIds: ["case-review-combined"],
+    reason: "single reviewer evolution re-review"
+  });
+  const history = await readFile(manager.history.historyPath, "utf8");
+  const last = JSON.parse(history.trimEnd().split("\n").at(-1)!) as {
+    type: string;
+    payload: { reason?: string };
+  };
+  assert.equal(last.type, "ActivitiesInvalidated");
+  assert.equal(last.payload.reason, "activate_evolved_review_batch");
+  assert.equal(
+    (await manager.gate()).activities["case-review-combined"]?.state,
+    "READY"
+  );
+});
+
+test("v7 formal decision refreshes the review epoch so later batches are not permanently blocked", async (context) => {
+  const root = await mkdtemp(resolve(tmpdir(), "candidate-gate-epoch-refresh-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const requestId = "web/demo/epoch-refresh";
+  const requestRoot = resolve(root, "testcases", ...requestId.split("/"));
+  const sourcePath = resolve(root, "epoch-refresh-spec.pdf");
+  const source = Buffer.from("epoch refresh requirement", "utf8");
+  const sourceSha = createHash("sha256").update(source).digest("hex");
+  const planText = plan()
+    .replace("web/demo/request", requestId)
+    .replace("/tmp/demo-spec.pdf", sourcePath)
+    .replace(sourceDigest, sourceSha)
+    .replace("- 展示页面。", "- 展示页面。\n- 状态流转规则。")
+    .replace(
+      "## 评审与正式决定",
+      "## 多角色评审记录\n\n- 待评审。\n\n## 评审与正式决定"
+    );
+  const casesText = cases();
+  await mkdir(requestRoot, { recursive: true });
+  await writeFile(sourcePath, source);
+  await writeFile(resolve(requestRoot, "plan.md"), planText, "utf8");
+  await writeFile(resolve(requestRoot, "cases.md"), casesText, "utf8");
+
+  const manager = new DurableWorkflowManager(requestId, root);
+  await manager.initialize({
+    capabilities: ["web"],
+    casePackages: ["cases.md"]
+  });
+  const sourceSelection = await manager.startActivity("source-selection", "test");
+  await manager.succeedActivity("source-selection", {
+    claimToken: sourceSelection.claimToken,
+    verification: "source selected"
+  });
+  const generation = await manager.startActivity("candidate-generation", "test");
+  await manager.publishArtifactsAndSucceed("candidate-generation", {
+    claimToken: generation.claimToken,
+    publishId: "epoch-refresh-candidate",
+    verification: "candidate generated",
+    artifacts: [{
+      targetPath: `testcases/${requestId}/plan.md`,
+      content: planText
+    }, {
+      targetPath: `testcases/${requestId}/cases.md`,
+      content: casesText
+    }]
+  });
+  const candidateGate = await manager.startActivity("candidate-gate", "test");
+  await manager.succeedCandidateGate(candidateGate.claimToken);
+
+  const batchBeforeDecision = "REV-EPOCH-BEFORE";
+  await manager.startReviewBatch({ batchId: batchBeforeDecision });
+  const beforeScope = parseReviewBatchScope(
+    [...(await manager.events())].reverse().find((event) =>
+      event.type === "ReviewBatchStarted" && event.payload.batchId === batchBeforeDecision
+    )!.payload.scope
+  );
+  assert.equal(beforeScope.schemaVersion, "review-batch-scope-v3");
+
+  await manager.dispatchReviewer({
+    activityId: "case-review-combined",
+    batchId: batchBeforeDecision,
+    role: "combined",
+    agentTaskId: `${batchBeforeDecision}-combined`
+  });
+  await manager.submitReviewer({
+    activityId: "case-review-combined",
+    batchId: batchBeforeDecision,
+    role: "combined",
+    planEvidenceRef: manager.planPath,
+    agentTaskId: `${batchBeforeDecision}-combined`,
+    findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
+  });
+  const resolution = await manager.startActivity("case-review-resolution", "test");
+  await manager.publishArtifactsAndSucceed("case-review-resolution", {
+    claimToken: resolution.claimToken,
+    publishId: "epoch-refresh-resolution",
+    verification: "review converged",
+    outcome: "converged",
+    artifacts: [{
+      targetPath: `testcases/${requestId}/plan.md`,
+      content: planText
+    }]
+  });
+
+  const confirmation = await manager.gate();
+  assert.equal(confirmation.activities["case-confirmation"]?.state, "READY");
+  const subjectDigest = await manager.callbackSubjectDigest("case-confirmation");
+  await manager.requestCallback({
+    activityId: "case-confirmation",
+    callbackId: "confirm-epoch",
+    subjectDigest,
+    kind: "case_confirmation"
+  });
+  await recordFormalDecision(manager, "case-confirmation", subjectDigest, "accepted");
+  await manager.resolveCallback({
+    activityId: "case-confirmation",
+    callbackId: "confirm-epoch",
+    subjectDigest,
+    resolution: "accepted"
+  });
+
+  // 正式决定（CallbackResolved）必须携带发布后 plan digest——评审纪元刷新的数据前提。
+  const resolved = [...(await manager.events())].reverse().find((event) =>
+    event.type === "CallbackResolved" && event.payload.activityId === "case-confirmation"
+  )!;
+  assert.equal(typeof resolved.payload.planDigest, "string");
+
+  // 正式决定后开新批次：纪元刷新（reviewEpochDigest 变化），不再被同纪元
+  // 收敛断路器以「只解除一次」拒绝。
+  const batchAfterDecision = "REV-EPOCH-AFTER";
+  const view = await manager.startReviewBatch({ batchId: batchAfterDecision });
+  assert.notEqual(view.workflowState, "BLOCKED");
+  const afterScope = parseReviewBatchScope(
+    [...(await manager.events())].reverse().find((event) =>
+      event.type === "ReviewBatchStarted" && event.payload.batchId === batchAfterDecision
+    )!.payload.scope
+  );
+  assert.equal(afterScope.schemaVersion, "review-batch-scope-v3");
+  if (afterScope.schemaVersion === "review-batch-scope-v3") {
+    assert.notEqual(afterScope.reviewEpochDigest, beforeScope.reviewEpochDigest);
+  }
 });
