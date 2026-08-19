@@ -8,7 +8,7 @@
 
 **什么写入这里**：工作流引擎编排与耗时归因（修订分层、评审批次范围、收敛断路器）、用例文档契约（testcase-v6-layered 结构、派生区唯一作者、参数化拆行）、评审产物契约（发现文件骨架、事件字段白名单）、套件模型与复用评估（stable 注册门槛、设计复验路径）、工具链入口（reproject、revision-tier、quality-gate 脚本语义）及其踩坑与修复验证。
 
-**什么不写入这里**：被测系统行为与定位策略（→ 项目文件）；引擎规范性不变量——已在 SKILL.md / docs/testing 规范文件中作为规则维护的，不在此重复（本文件记「为什么」与「怎么验证」，规则文件记「是什么」）；用户协作偏好（→ `.local/testing-memory.md`）。
+**什么不写入这里**：被测系统行为与定位策略（→ 项目文件）；引擎规范性不变量——已在 SKILL.md / docs/testing 规范文件中作为规则维护的，不在此重复（本文件记「为什么」与「怎么验证」，规则文件记「是什么」）；用户协作偏好（→ `.local/USER-PREFERENCES.md`）。
 
 **写入方式**：通过 `scripts/manage-project-knowledge.ts` 的官方 upsert 入口（`--project automation-engineering` 或直接调用 `upsertProjectExperience`），保证 EXP 编号（scope 哈希派生）、九字段结构与敏感信息扫描。同一 scope 原位覆盖，旧内容只由 Git 历史保留；标题与「适用范围」必须使用同一 scope 文字。
 

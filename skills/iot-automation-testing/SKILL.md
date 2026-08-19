@@ -11,7 +11,7 @@ description: 在本仓库中规划、设计、维护或分析 Web、H5、App、W
 
 ## 读取顺序
 
-1. 读取 `AGENTS.md`、`.local/testing-memory.md`（如存在）、[docs/testing/knowledge/MEMORY.md](../../docs/testing/knowledge/MEMORY.md)（自动化工程经验：引擎编排、文档契约、工具链踩坑——每次任务开始必读，按当前任务阶段取相关 scope 条目）和当前请求的 `workflow-history.ndjson`（如存在）。
+1. 读取 `AGENTS.md`、`.local/USER-PREFERENCES.md`（如存在）、[docs/testing/knowledge/MEMORY.md](../../docs/testing/knowledge/MEMORY.md)（自动化工程经验：引擎编排、文档契约、工具链踩坑——每次任务开始必读，按当前任务阶段取相关 scope 条目）和当前请求的 `workflow-history.ndjson`（如存在）。
 2. 确认被测项目后，读取 `docs/testing/knowledge/<project>-testing-knowledge.md`（如存在；产品测试经验：环境约束、定位策略、失败归因）。
 3. 在新测试开始前让用户选择 `testcase_only / script_only / full_run`；用户已明确目标时直接采用，不重复询问。同 `runRequestId` 已有 history 时不重选。
 4. 确定 `suiteId=<type/project/feature>` 与 `runRequestId=<type/project/request>`；无法唯一确定时只询问最小必要信息。
