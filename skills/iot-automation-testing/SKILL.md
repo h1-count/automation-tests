@@ -32,9 +32,11 @@ description: 在本仓库中规划、设计、维护或分析 Web、H5、App、W
 
 ```bash
 npm run test:suite:assess -- --suite <suiteId> --environment <test|pre> [--profile <profile>]
-npm run task:initialize -- --request <runRequestId> --delivery-target <testcase_only|script_only|full_run> --suite <suiteId> --reuse auto --environment <env>
+npm run task:initialize -- --request <runRequestId> --delivery-target <testcase_only|script_only|full_run> --suite <suiteId> --reuse auto --environment <env> [--speed <fast|balanced|strict>]
 npm run task:resume -- --request <runRequestId>
 ```
+
+评审速度档 `--speed`（缺省推导：`testcase_only` 且不写数据 → `fast`；其余 → `strict`）：`fast` 对 no_write 运行跳过 reviewer（仅确定性门禁）并禁用自动语义演进，语义发现直接进入用例确认；`balanced` 至多保留 1 名 combined reviewer；`strict` 为完整双角色评审与一轮演进。涉及写入或执行时不要使用 fast。
 
 - `direct_execute`：只验证稳定 suite，不重新生成或确认设计；`testcase_only/script_only` 在 `suite-validation` 后完成，`full_run` 才继续 readiness、authorization、run 和 report。
 - `affected_rebuild`：只处理评估给出的 affected 引用，完成定向评审后确认受影响用例，再按交付目标停在用例、`build` 或完整执行终点。全局边界变化回退 `full_replan`。

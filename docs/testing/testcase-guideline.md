@@ -159,6 +159,8 @@ reviewer 收敛后、发起用例确认前，可由宿主表格运行时从标�
 
 资料冲突、未定义预期、复杂条件/状态/角色语义触发 `combined`；写入、权限、安全、设备或结果未知触发 `impact`。数量和模块数不触发 reviewer。
 
+评审速度档（`task:initialize --speed`，缺省推导：`testcase_only` 且不写数据 → `fast`，其余 → `strict`）在上述推导之上封顶评审模式：`fast` 对 no_write 运行把评审模式压为 `deterministic_only`（完全跳过 reviewer，仅确定性门禁）并禁用自动语义演进——语义发现全部作为“需用户裁决”随完整用例集进入一次用例确认；存在有效数据写入时 fast 仅保留 1 名 combined。`balanced` 至多保留 1 名 combined（去掉 impact）。`strict` 不封顶。速度档写入 WorkflowStarted 的 `reviewSpeed`，随请求持久化；确定性门禁（结构、关系、敏感信息、完整度）在任何速度档下都不放宽。
+
 `case-review-resolution` 汇总 reviewer 发现项时必须逐项归类，并把分类写入发现项处置字段（固定取值：结构修复 / 语义演进 / 需用户裁决）：
 
 - **结构/确定性问题**：步骤或预期缺失、参数实例步骤集合或操作链不一致、固定表头/差异字段/追溯断裂、敏感字面量等 `candidate-gate` 可判定类别。此类发现不驱动语义演进：按确定性修正处理，修正后重跑 `candidate-gate` 与关系校验，不消耗语义演进轮次，也不扩大批次作废范围。

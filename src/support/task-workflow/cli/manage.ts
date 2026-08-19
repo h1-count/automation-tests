@@ -23,6 +23,7 @@ import {
 } from "../../formal-execution/manifest.js";
 import { createDefaultCapabilityProviderRegistry } from "../../formal-execution/capabilityProvider.js";
 import { FormalExecutionStore } from "../../formal-execution/formalExecutionStore.js";
+import { parseReviewSpeed, resolveReviewSpeed } from "../speedProfile.js";
 import {
   finalizeFormalReportWorkflow,
   finalizeFormalRunWorkflow
@@ -720,6 +721,13 @@ async function main(): Promise<void> {
       suiteId: option(args, "--suite"),
       reuse: reuse as "auto" | undefined,
       environment: option(args, "--environment"),
+      speed: resolveReviewSpeed({
+        requested: parseReviewSpeed(option(args, "--speed")),
+        deliveryTarget: parseDeliveryTarget(option(args, "--delivery-target")),
+        writesData: option(args, "--writes-data")
+          ? parseBoolean(required(args, "--writes-data"), "--writes-data")
+          : false
+      }),
       profile: profile as StableTestSuiteProfile | undefined
     });
     output(args, view, workflowStatusText(view));

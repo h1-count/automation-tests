@@ -35,6 +35,7 @@ import {
   suiteDirectoryPath,
   writeSuiteBinding
 } from "./runRoots.js";
+import { resolveReviewSpeed, type ReviewSpeed } from "./speedProfile.js";
 import {
   assertFormalDecisionAppendOnly,
   assertFormalUserDecision,
@@ -259,6 +260,8 @@ export interface InitializeWorkflowInput {
   reuse?: "auto";
   environment?: string;
   profile?: StableTestSuiteProfile;
+  /** Review speed cap persisted on WorkflowStarted; default: testcase_only + no writes → fast. */
+  speed?: ReviewSpeed;
 }
 
 export interface DurableWorkflowManagerOptions {
@@ -542,6 +545,16 @@ export class DurableWorkflowManager {
     return existsSync(this.historyPath);
   }
 
+  /** Review speed persisted on WorkflowStarted; runs without the field replay as strict. */
+  async reviewSpeed(): Promise<ReviewSpeed> {
+    const started = (await this.events()).find((event) => event.type === "WorkflowStarted");
+    const value = started
+      && typeof (started.payload as { reviewSpeed?: unknown }).reviewSpeed === "string"
+      ? (started.payload as { reviewSpeed: string }).reviewSpeed
+      : undefined;
+    return value === "fast" || value === "balanced" ? value : "strict";
+  }
+
   async initialize(input: InitializeWorkflowInput = {}): Promise<WorkflowGateView> {
     if (this.exists()) {
       if (input.sessionId) await this.runtime.bindSession(input.sessionId, input.targetThreadId);
@@ -605,6 +618,9 @@ export class DurableWorkflowManager {
       reviewerRoles: input.reviewerRoles,
       executionIsolation: input.executionIsolation
     };
+    // Speed defaulting happens at the CLI boundary (task:initialize --speed);
+    // engine-level callers keep strict unless they opt in explicitly.
+    const reviewSpeed: ReviewSpeed = input.speed ?? "strict";
     const definition = reuseAssessment
       ? buildReusableWorkflowDefinition({
           ...definitionInput,
@@ -628,7 +644,10 @@ export class DurableWorkflowManager {
         type: "WorkflowStarted",
         actorType: "system",
         idempotencyKey: `${runId}/workflow-started`,
-        payload: workflowStartedPayload(definition)
+        payload: {
+          ...workflowStartedPayload(definition),
+          reviewSpeed
+        }
       },
       {
         ...identity,
@@ -951,6 +970,14 @@ export class DurableWorkflowManager {
     if (activity.definition.kind === "complete") {
       throw new Error("Workflow completion must be recorded with task:manage complete.");
     }
+    if (
+      activityId === "case-review-evolution"
+      && await this.reviewSpeed() === "fast"
+    ) {
+      throw new Error(
+        "fast 评审速度档已禁用自动语义演进：语义发现随完整用例集进入用户确认（case-review-resolution 以 converged 收口）。"
+      );
+    }
     if (activity.state === "RUNNING") {
       const existing = await this.currentLease(activityId);
       if (existing?.owner === owner) {
@@ -1021,7 +1048,8 @@ export class DurableWorkflowManager {
     }
     const report = evaluateCandidateGate({
       plan: await readFile(this.planPath, "utf8"),
-      cases: await readFile(this.designAssetPath("cases.md"), "utf8")
+      cases: await readFile(this.designAssetPath("cases.md"), "utf8"),
+      speed: await this.reviewSpeed()
     });
     if (report.issues.length > 0) {
       throw new Error(`Candidate gate failed:\n${report.issues.join("\n")}`);

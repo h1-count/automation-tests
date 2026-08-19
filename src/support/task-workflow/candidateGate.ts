@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { canonicalJson } from "./canonicalJson.js";
 import { evaluateReviewReadiness } from "./reviewReadiness.js";
 import { assessCaseReviewRisk } from "./caseReviewRisk.js";
+import { capReviewMode, type ReviewSpeed } from "./speedProfile.js";
 import {
   markdownSection,
   markdownTableRows,
@@ -27,6 +28,7 @@ export interface CandidateGateReport {
   schemaVersion: typeof CANDIDATE_GATE_SCHEMA_VERSION;
   profile: CandidateGenerationProfile;
   reviewMode: CandidateReviewMode;
+  reviewSpeed: ReviewSpeed;
   effectiveWritesData: boolean;
   effectiveDataStrategies: string[];
   issues: string[];
@@ -37,6 +39,8 @@ export interface CandidateGateReport {
 export interface CandidateGateInput {
   plan: string;
   cases: string;
+  /** Speed cap from the run's WorkflowStarted payload; omitted = strict. */
+  speed?: ReviewSpeed;
 }
 
 export interface CandidateSourceImpact {
@@ -223,21 +227,29 @@ export function evaluateCandidateGate(input: CandidateGateInput): CandidateGateR
   const effectiveWritesData = strategies.some((strategy) => strategy !== "no_write");
   const hasImpactRisk = profile === "strict" || effectiveWritesData || impactRisk.test(fullText);
   const hasCombinedRisk = combinedRisk.test(fullText);
-  const reviewMode: CandidateReviewMode = hasImpactRisk
+  const reviewSpeed: ReviewSpeed = input.speed ?? "strict";
+  const derivedMode: CandidateReviewMode = hasImpactRisk
     ? "combined_with_impact"
     : hasCombinedRisk
       ? "combined"
       : "deterministic_only";
+  const reviewMode = capReviewMode(reviewSpeed, derivedMode, effectiveWritesData);
   const warnings = unique([
     ...(hasCombinedRisk ? ["候选集包含需要 reviewer 或用户确认的语义风险。"] : []),
     ...(profile === "lean" && hasImpactRisk
-      ? ["普通写入保持 lean 结构，但必须经过 impact reviewer 和独立执行确认。"]
+      ? ["普通写入保持 lean 结构，但必须经过 impact reviewer 和独立执行确认。"] : []),
+    ...(reviewMode !== derivedMode
+      ? [`评审速度档 ${reviewSpeed} 已将评审模式从 ${derivedMode} 收敛为 ${reviewMode}。`]
+      : []),
+    ...(reviewSpeed === "fast"
+      ? ["fast 档已关闭自动语义演进：语义发现随完整用例集进入用户确认。"]
       : [])
   ]);
   const normalized = {
     schemaVersion: CANDIDATE_GATE_SCHEMA_VERSION,
     profile,
     reviewMode,
+    reviewSpeed,
     effectiveWritesData,
     effectiveDataStrategies: strategies,
     issues: unique(issues),
