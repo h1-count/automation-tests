@@ -62,7 +62,8 @@
     "archive:noncurrent-requests": "tsx scripts/archive-noncurrent-requests.ts",
     "report:playwright": "playwright show-report artifacts/playwright-report",
     "report:allure": "allure generate artifacts/allure-results --clean -o artifacts/allure-report",
-    "report": "npm run report:playwright"
+    "report": "npm run report:playwright",
+    "testcases:reproject": "tsx scripts/reproject-testcases.ts"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
