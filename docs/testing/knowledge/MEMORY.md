@@ -130,10 +130,25 @@
 - 经验编号：EXP-260F23257EEE
 - 适用范围：v7 单 review 活动工作流演进后重开评审的标准序列
 - 证据状态：受控探索已验证
-- 观察：delete-product 为 combined-only（无 impact 活动），评审演进后定向批次被解析为 full 模式（requiredActivityIds=全部 review 活动）→ scope 不写 baseBatchId → activateEvolvedReviewBatch 自动激活不触发，review 停在 SUCCEEDED，dispatch 被 reducer requireState(READY/RETRY_WAIT) 拒绝，评审循环断点。
-- 判断：单 reviewer 场景下 v7 自动激活路径（依赖 targeted 批次的 baseBatchId）不可达；activity-invalidate 是公开入口，其语义与自动激活（invalidate succeeded reviewers）等价，可安全完成同一重置。
-- 当前优先策略：演进发布后若 review 活动仍 SUCCEEDED：执行 task:manage activity-invalidate --activity <review-id> --reason "activate_evolved_review_batch:<base-batch>:<reason>" 重置（下游 resolution/evolution/confirmation 一并回 PENDING），再 review-batch-start 新批次（可带 --base-batch/--affected-ref）→ reviewer-dispatch → reviewer-submit。
-- 证据引用：src/support/task-workflow/workflowManager.ts（activateEvolvedReviewBatch/invalidateActivities）、src/support/task-workflow/reviewBatchScope.ts（mode 判定：required=all → full 不写 baseBatchId）、src/support/task-workflow/reducer.ts（ReviewerDispatched requireState）
+- 观察：delete-product 为 combined-only（无 impact 活动），评审演进后定向批次被解析为 full 模式（requiredActivityIds=全部 review 活动）→ scope 不写 baseBatchId → activateEvolvedReviewBatch 自动激活不触发，review 停在 SUCCEEDED，dispatch 被 reducer requireState(READY/RETRY_WAIT) 拒绝，评审循环断点（浪费约 3.7 分钟排查）。
+- 判断：单 reviewer 场景下 v7 自动激活路径（依赖 targeted 批次的 baseBatchId）不可达，属引擎缺陷；activity-invalidate 是公开入口，其语义与自动激活等价，可安全完成同一重置；该缺陷已修复。
+- 当前优先策略：引擎已修复：activateEvolvedReviewBatch 对单 review 活动（full 模式、无 baseBatchId）以『本批次之前最近的 v3 批次』为输入比较基准自动激活，无需手工 activity-invalidate；历史 workaround（task:manage activity-invalidate --activity <review-id> --reason activate_evolved_review_batch:...）仍向后兼容。
+- 证据引用：commit cf865ba（feat(formal-execution) 评审演进闭环修复）、src/support/task-workflow/workflowManager.ts（activateEvolvedReviewBatch）、tests/support/task-workflow/candidate-gate.test.ts（single-reviewer 自动激活测试）
 - 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
-- 最近更新：2026-08-19T08:52:10.566Z
+- 最近更新：2026-08-19T09:52:46.312Z
 <!-- project-experience:260F23257EEE:end -->
+
+<!-- project-experience:7F8B47B767DB:start -->
+<a id="exp-7f8b47b767db"></a>
+## 2026-08-19：正式回调决定刷新评审纪元（review epoch）
+
+- 经验编号：EXP-7F8B47B767DB
+- 适用范围：正式回调决定刷新评审纪元（review epoch）
+- 证据状态：受控探索已验证
+- 观察：delete-product 轮 r3 定向复审批次以 r2 为 base 被『同纪元语义演进 cycle 超限 + 收敛断路器只解除一次』拒绝（blocker review-convergence-failed），被迫改写正式决定、resolve blocker、再改用 r1 为 base 绕过；根因是 reviewEpochDigest 的 planSubjectDigest 取 WorkflowStarted 冻结的 planDigest（reducer 只校验不更新），正式决定不刷新纪元，与 blocker resolutionCondition 声明的『新增正式用户决定或受控来源』刷新语义不符。
+- 判断：评审纪元应随正式回调决定刷新：CallbackResolved 事件（v6/v7 非 execution_authorization 的正式 callback）已携带发布后 plan 的 digest（reducer 校验并记录），可直接作为 planSubjectDigest 来源；只有用户真实回调决定（有 subject 校验）刷新纪元，评审记录/台账/歧义表修改不刷新，cycle 上限安全阀不被绕过。
+- 当前优先策略：引擎已修复：startReviewBatch 计算 reviewEpochDigest 时，planSubjectDigest 取最新正式回调决定（plan-confirmation/case-confirmation/case-review-conflict-decision）的 planDigest，缺省回退 WorkflowStarted 冻结值；正式决定（accepted/revision_requested）后同受控来源下可开新纪元批次，cycle 重新计数，不再出现『breaker 只解除一次后同纪元批次被永久拒绝』。
+- 证据引用：commit cf865ba（feat(formal-execution) 评审演进闭环修复）、src/support/task-workflow/workflowManager.ts（reviewEpochDigest 计算）、tests/support/task-workflow/candidate-gate.test.ts（v7 formal decision refreshes the review epoch 测试）
+- 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
+- 最近更新：2026-08-19T09:52:51.486Z
+<!-- project-experience:7F8B47B767DB:end -->
