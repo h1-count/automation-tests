@@ -43,7 +43,7 @@
 - 观察：r2 修订发布后计数行未更新、新用例块错位到其他模块段，直到下一轮复审才发现；一致性检查早已存在但只挂在生成时 candidate-gate，评审演进发布 cases.md 后无任何重验（事件流证实 evolution 发布后直接进评审）。
 - 判断：统计行与快速索引是由用例体确定性派生的只读视图，手写必然漂移；结构校验必须在一切用例包发布边界强制，不能依赖生成时一次。重投影的模块归位依据只能是原始快速索引（reviewIndex）——解析器为正文块赋 module 用的是所在段头，先投影会销毁声明意图。
 - 当前优先策略：永不手写计数行/快速索引；编辑 cases.md 后用 npm run testcases:reproject -- <cases.md>（--dry-run 预览）重投影派生区并按原始索引声明归位模块；引擎已在 candidate-gate 与发布边界确定性拒绝漂移，r2 缺陷重建验证修复产物与接受态逐字节一致。
-- 证据引用：commit fded691 发布边界校验与派生视图漂移门禁、commit 1ba7e2f testcases:reproject 脚本、tests/support/testcase-document-v6-layered.test.ts、tests/support/task-workflow/manager.test.ts（漂移拒绝与归位测试）
+- 证据引用：commit fded691 发布边界校验与派生视图漂移门禁、commit 1ba7e2f testcases:reproject 脚本、`tests/support/` 的 v6 分层文档校验测试与 `tests/support/task-workflow/manager.test.ts`（漂移拒绝与归位测试）
 - 验证条件：下一次真实修订中出现漂移时被发布边界拒绝，并经 reproject 一键修复后通过结构校验。
 - 最近更新：2026-08-19T07:44:12.326Z
 <!-- project-experience:EC6FEBC23D0C:end -->

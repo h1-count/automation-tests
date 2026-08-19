@@ -65,7 +65,7 @@ setup → 正式测试 → teardown → 报告
 
 每次测试任务开始时，主 Agent 必须先完成以下上下文加载，再进入资料输入、受控探索或测试设计：
 
-1. 无条件读取 `.local/USER-PREFERENCES.md`（如存在），加载当前用户的长期协作与行为偏好。
+1. 无条件读取 `.local/USER-PREFERENCES.md`（如存在）与 `docs/testing/knowledge/MEMORY.md`（如存在）：前者是当前用户的长期协作与行为偏好，后者是自动化工程经验（引擎编排、文档契约、工具链，按当前任务阶段取相关条目）。本节是启动加载顺序的唯一全文源，Skill 与其他文档只引用不复述。
 2. 根据用户测试需求、目标 URL、资料来源、活跃套件（`testcases/<type>/<project>/suites/<feature>/`）或已关联资产确认被测项目与目标套件；此时不得扫描业务源码来替代需求理解。目标套件不存在时创建新套件；单次运行意图记录在运行档案 `plan.md`，不得单独请求计划确认。
 3. 被测项目已识别时，只读取对应项目测试经验库 `docs/testing/knowledge/<project>-testing-knowledge.md`（如存在）；不得读取或套用其他项目的测试经验。
 4. 用户直接指定的 Word、PDF、原型或附件直接作为本请求来源：读取后在 `plan.md` 的“请求内来源”记录稳定 SRC、可点击路径、章节/页码/字段、用途和一次 SHA-256，不要求预先登记 `sources/manifest.yaml`。只有确需跨请求复用时才晋升全局 manifest。

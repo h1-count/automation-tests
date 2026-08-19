@@ -11,14 +11,13 @@ description: 在本仓库中规划、设计、维护或分析 Web、H5、App、W
 
 ## 读取顺序
 
-1. 读取 `AGENTS.md`、`.local/USER-PREFERENCES.md`（如存在）、[docs/testing/knowledge/MEMORY.md](../../docs/testing/knowledge/MEMORY.md)（自动化工程经验：引擎编排、文档契约、工具链踩坑——每次任务开始必读，按当前任务阶段取相关 scope 条目）和当前请求的 `workflow-history.ndjson`（如存在）。
-2. 确认被测项目后，读取 `docs/testing/knowledge/<project>-testing-knowledge.md`（如存在；产品测试经验：环境约束、定位策略、失败归因）。
-3. 在新测试开始前让用户选择 `testcase_only / script_only / full_run`；用户已明确目标时直接采用，不重复询问。同 `runRequestId` 已有 history 时不重选。
-4. 确定 `suiteId=<type/project/feature>` 与 `runRequestId=<type/project/request>`；无法唯一确定时只询问最小必要信息。
-5. 有同一 `runRequestId` history：运行 `task:resume`，按现有 history 的固定 definition 恢复，不重新评估 suite。
-6. 无 history：先运行 `test:suite:assess`，再以 `--delivery-target <target> --reuse auto` 初始化 v7。
-7. 需要设计时，用户直接指定的 Word/PDF/原型/附件先读取并登记为请求内来源，不要求全局 manifest；未直接指定资料时再从 `sources/manifest.yaml` 和受控章节索引筛选。静态执行资产按需从 `test-assets/manifest.yaml` 选择。
-8. 按任务读取唯一责任规范：
+测试上下文加载（USER-PREFERENCES、MEMORY.md 工程经验、项目确认后读取项目经验库、来源与静态资产筛选）统一按[流程规范 §3.1](../../docs/testing/automation-guideline.md#31-测试上下文加载)执行，本节不复述；以下只列编排顺序：
+
+1. 在新测试开始前让用户选择 `testcase_only / script_only / full_run`；用户已明确目标时直接采用，不重复询问。同 `runRequestId` 已有 history 时不重选。
+2. 确定 `suiteId=<type/project/feature>` 与 `runRequestId=<type/project/request>`；无法唯一确定时只询问最小必要信息。
+3. 有同一 `runRequestId` history：运行 `task:resume`，按现有 history 的固定 definition 恢复，不重新评估 suite。
+4. 无 history：先运行 `test:suite:assess`，再以 `--delivery-target <target> --reuse auto` 初始化 v7。
+5. 按任务读取唯一责任规范：
 
    - 生命周期和恢复：[automation-guideline.md](../../docs/testing/automation-guideline.md)
    - 设计、用例和评审：[testcase-guideline.md](../../docs/testing/testcase-guideline.md)
@@ -37,24 +36,11 @@ npm run task:initialize -- --request <runRequestId> --delivery-target <testcase_
 npm run task:resume -- --request <runRequestId>
 ```
 
-评审速度档 `--speed`（缺省推导：`testcase_only` 且不写数据 → `fast`；其余 → `strict`）：`fast` 对 no_write 运行跳过 reviewer（仅确定性门禁）；语义发现直接进入用例确认由用户裁决，演进活动仅用于应用确定性结构修正（至多一轮）；`balanced` 至多保留 1 名 combined reviewer；`strict` 为完整双角色评审与一轮演进。涉及写入或执行时不要使用 fast。
+评审速度档 `--speed`（缺省推导：`testcase_only` 且不写数据 → `fast`，其余 → `strict`）：各档封顶规则、写入时的行为与「确定性门禁不随速度档放宽」统一读取[用例规范 §5](../../docs/testing/testcase-guideline.md#5-候选门禁与评审)，不在本 Skill 复述；涉及写入或执行时不主动选择 fast。
 
-修订分层（revision tiering）：用户裁决/评审修正引发的用例集修订，先用 `npm run testcases:revision-tier` 对照「已被接受的冻结快照」分级，再按档走评审路径，不默认重开完整评审链：
+修订分层（revision tiering）：已确认用例集的修订先用 `npm run testcases:revision-tier` 对照「已被接受的冻结快照」分级，再按 `structural / scoped / substantive` 三档走评审路径（零 LLM 收口 / 定向单轮 / 完整链），不默认重开完整评审链。各档判定边界、CLI 参数、语义行定义与收敛断路器规则统一读取[用例规范 §5](../../docs/testing/testcase-guideline.md#5-候选门禁与评审)。
 
-- `structural`（仅格式/计数/枚举级变化）：开新批次后 `reviewer-dispatch/submit --deterministic --classifier-digest <sha> --findings <分级器产物>` 确定性收口（零 LLM 评审轮），resolution 以 converged 结束，直接回用例确认。
-- `scoped`（≤8 个用例块语义行变化；规则台账变化须有新增正式用户决定覆盖）：`--base-batch + --affected-ref` 定向批次，仅受影响用例单轮 LLM 复审。
-- `substantive`（安全边界/数据策略语义、无用户决定覆盖的台账行集变化、>8 用例块）：完整评审链。
-- 同一评审纪元的收敛断路器只解除一次；再次触发必须先刷新纪元（新增正式用户决定或受控来源），引擎会显式报错而非静默失败。
-
-评审与生成的结构不变量（引擎强制）：
-
-- 任何 `reviewer-submit`（含 LLM 隔离评审员）必须带 `--findings` 发现文件：`## 结论` 为 converged/findings_present 枚举，findings_present 必须伴随非空「## 发现项」表；引擎在提交时校验并记录 findingsDigest 与 conclusion，缺失或非法直接拒绝收口。
-- cases.md 的统计行与快速索引是**派生区**，只能由 `projectTestcaseV6DerivedView` 生成；手写计数/索引会在 candidate-gate 与一切用例包发布边界被「派生视图漂移」确定性拒绝。
-- 结构漂移（陈旧计数、模块归属错位）用 `npm run testcases:reproject -- <cases.md>` 一键重投影修复（`--dry-run` 预览；按原始快速索引的模块声明归位正文块）。
-- no_write 用例的操作列不得含业务写动词（创建/新增/提交/修改/编辑/更新/删除/上传/写入）；需要写动作的步骤拆分为 ephemeral_cleanup 用例。
-- RULE 台账「条件/输入」含「必填」但关联参数化用例无空值数据行 → gate warning，交 reviewer/用户裁决。
-- plan.md 必须含「## 需求歧义与未定义预期」节（无歧义显式写「无」）；需求矛盾在 plan 确认回调一次裁决，不留到评审后升级。
-- 同纪元已有前导批次时，`review-batch-start` 不带 `--activity/--affected-ref` 会触发全量复审防呆警告；验证有界修正集优先走修订分层或 targeted 范围。
+评审与生成的结构不变量（评审发现文件契约、cases.md 派生区唯一作者与 reproject 结构修复、no_write 写动词阻断、必填空值 warning、plan 歧义节、全量复审防呆）由引擎强制，规则统一读取[用例规范 §5](../../docs/testing/testcase-guideline.md#5-候选门禁与评审)。
 
 - `direct_execute`：只验证稳定 suite，不重新生成或确认设计；`testcase_only/script_only` 在 `suite-validation` 后完成，`full_run` 才继续 readiness、authorization、run 和 report。
 - `affected_rebuild`：只处理评估给出的 affected 引用，完成定向评审后确认受影响用例，再按交付目标停在用例、`build` 或完整执行终点。全局边界变化回退 `full_replan`。
