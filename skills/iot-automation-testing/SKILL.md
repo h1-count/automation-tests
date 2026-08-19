@@ -11,13 +11,14 @@ description: 在本仓库中规划、设计、维护或分析 Web、H5、App、W
 
 ## 读取顺序
 
-1. 读取 `AGENTS.md`、`.local/testing-memory.md`（如存在）和当前请求的 `workflow-history.ndjson`（如存在）。
-2. 在新测试开始前让用户选择 `testcase_only / script_only / full_run`；用户已明确目标时直接采用，不重复询问。同 `runRequestId` 已有 history 时不重选。
-3. 确定 `suiteId=<type/project/feature>` 与 `runRequestId=<type/project/request>`；无法唯一确定时只询问最小必要信息。
-4. 有同一 `runRequestId` history：运行 `task:resume`，按现有 history 的固定 definition 恢复，不重新评估 suite。
-5. 无 history：先运行 `test:suite:assess`，再以 `--delivery-target <target> --reuse auto` 初始化 v7。
-6. 需要设计时，用户直接指定的 Word/PDF/原型/附件先读取并登记为请求内来源，不要求全局 manifest；未直接指定资料时再从 `sources/manifest.yaml` 和受控章节索引筛选。静态执行资产按需从 `test-assets/manifest.yaml` 选择。
-7. 按任务读取唯一责任规范：
+1. 读取 `AGENTS.md`、`.local/testing-memory.md`（如存在）、[docs/testing/knowledge/MEMORY.md](../../docs/testing/knowledge/MEMORY.md)（自动化工程经验：引擎编排、文档契约、工具链踩坑——每次任务开始必读，按当前任务阶段取相关 scope 条目）和当前请求的 `workflow-history.ndjson`（如存在）。
+2. 确认被测项目后，读取 `docs/testing/knowledge/<project>-testing-knowledge.md`（如存在；产品测试经验：环境约束、定位策略、失败归因）。
+3. 在新测试开始前让用户选择 `testcase_only / script_only / full_run`；用户已明确目标时直接采用，不重复询问。同 `runRequestId` 已有 history 时不重选。
+4. 确定 `suiteId=<type/project/feature>` 与 `runRequestId=<type/project/request>`；无法唯一确定时只询问最小必要信息。
+5. 有同一 `runRequestId` history：运行 `task:resume`，按现有 history 的固定 definition 恢复，不重新评估 suite。
+6. 无 history：先运行 `test:suite:assess`，再以 `--delivery-target <target> --reuse auto` 初始化 v7。
+7. 需要设计时，用户直接指定的 Word/PDF/原型/附件先读取并登记为请求内来源，不要求全局 manifest；未直接指定资料时再从 `sources/manifest.yaml` 和受控章节索引筛选。静态执行资产按需从 `test-assets/manifest.yaml` 选择。
+8. 按任务读取唯一责任规范：
 
    - 生命周期和恢复：[automation-guideline.md](../../docs/testing/automation-guideline.md)
    - 设计、用例和评审：[testcase-guideline.md](../../docs/testing/testcase-guideline.md)

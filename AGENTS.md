@@ -49,6 +49,7 @@
 - `.local/test-task-runtime/`：被 Git 忽略且可丢弃的本机执行元数据，只保存 claim/fencing、lease、session/reviewer 工具绑定、暂存路径和未收口工具句柄；任何宿主长期任务及其 ID、状态、预算和使用记录只属于对应宿主，不写入此目录、`plan.md` 或 workflow history。删除 runtime 不得改变或丢失业务状态。
 - `.local/test-ledger/`：被 Git 忽略的本机测试数据台账；其创建、复用、清理与恢复规则由 `docs/testing/environment-guideline.md` 定义。
 - `docs/testing/knowledge/<project>-testing-knowledge.md`：纳入 Git 的项目测试经验事实源；完整格式、状态、候选关系与冲突覆盖规则统一见[项目测试经验规范](docs/testing/knowledge/README.md)。
+- `docs/testing/knowledge/MEMORY.md`：纳入 Git 的自动化工程经验事实源（测试工程自身：引擎编排、文档契约、工具链）；沉淀规则（写入判据、范围、证据要求、状态生命周期）见文件开头「经验沉淀规则」节；每次任务开始时随启动序列读取。
 - `testcases/archive/`：纳入 Git 的只读历史测试证据（旧请求模型时代的遗留迁移，现已停用归档增量）；新模型下套件演进由 Git 历史天然承载，不再产生新归档；历史脚本保留在对应归档请求的 `automation/` 子目录。
 
 ## 提交信息规范
