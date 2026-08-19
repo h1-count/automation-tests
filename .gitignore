@@ -61,3 +61,4 @@ appium-logs/
 # Operating-system files
 .DS_Store
 Thumbs.db
+.dsh-filess/
