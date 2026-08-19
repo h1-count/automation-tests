@@ -12,36 +12,41 @@
 
 业务事实只能来自用户描述、实际读取的 Word/PDF/原型/截图/需求资料，或正式用户补充。源码、DOM、接口实现和测试脚本只是工程证据，不得补造资料未定义的业务规则。
 
-## 2. 新请求的设计资产
+## 2. 套件与运行档案
 
-新建或实质变更的 v7 请求默认使用：
+测试设计资产按套件组织，纳入 Git 并随提交演进；单次运行状态是本机运行档案，不进 Git。
 
-- `plan.md`：`test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3`；
-- `cases.md`：唯一的 `testcase-v6-layered` 完整候选用例集。
+- 套件目录：`testcases/<type>/<project>/suites/<feature>/`；
+  - `cases.md`：唯一的 `testcase-v6-layered` 完整用例集（活资产，增量修订）；
+  - `design.md`：`test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3` 设计台账——请求外来源登记、`REQ`、唯一 RULE 台账、缺口与风险、变更记录；
+- 运行档案：`.local/test-runs/<type>/<project>/<request>/`（被 Git 忽略）；
+  - `plan.md`：本次运行意图（测试类型、目标环境、数据策略、范围与用户排除项、请求内来源、最新 reviewer 结论与正式用户决定行）；
+  - `workflow-history.ndjson`：该次运行 Activity、重试、等待、恢复与终态的唯一事实源。
 
-已有 v5/v6/v7 workflow history 继续按原 definition 回放；已归档的 testcase-v2/v3/v4/v5 文件只作为字节级审计证据保存，不再进入当前解析、评审、关系、执行或恢复链路，也不改写 graphDigest、评审或确认证据。
+同一功能反复测试 = 对同一套件发起新运行并按需增量修订；回归 = 直接复用套件重跑。套件不按请求复制，Git 历史（commit + design.md 变更记录）即是套件版本与归档。
 
-### 2.1 `plan.md`
+已归档的 v2/v3/v4/v5 文件与旧请求目录只作为字节级审计证据保存，不再进入当前解析、评审、关系、执行或恢复链路，也不改写 graphDigest、评审或确认证据。
 
-`plan.md` 只保存：
+### 2.1 运行档案 `plan.md`
 
-1. 请求默认值：测试类型、目标环境、数据策略；
+运行档案中的 `plan.md` 只保存：
+
+1. 运行默认值：测试类型、目标环境、数据策略；
 2. 顶层测试范围和用户明确排除项；
-3. 本请求实际读取的来源；
-4. `REQ`、唯一 RULE 台账、缺口与风险；
-5. 最新 reviewer 结论和正式用户决定。
+3. 本次运行实际读取的来源（请求内来源）；
+4. 最新 reviewer 结论和正式用户决定行。
 
-Activity、重试、等待、完整度和终态只来自 `workflow-history.ndjson` 与真实产物，不写入 `plan.md`。不再维护平行覆盖矩阵、用例包目录或重复 caseId 清单。
+Activity、重试、等待、完整度和终态只来自 `workflow-history.ndjson` 与真实产物，不写入 `plan.md`。设计台账（REQ、RULE、来源登记、缺口与风险、变更记录）在套件 `design.md` 维护，不在运行档案中重复。不再维护平行覆盖矩阵、用例包目录或重复 caseId 清单。
 
-### 2.2 请求内来源
+### 2.2 来源登记
 
-用户直接指定的 Word、PDF、原型或附件可直接登记为请求内来源，不要求预先写入 `sources/manifest.yaml`。每份实际引用的来源计算一次 SHA-256，并记录：
+用户直接指定的 Word、PDF、原型或附件可直接登记为请求内来源（记录在运行档案 plan.md，供该次运行引用），不要求预先写入 `sources/manifest.yaml`。每份实际引用的来源计算一次 SHA-256，并记录：
 
 - 稳定 `SRC-<模块>-<序号>`；
 - 可点击路径、章节/页码/字段和用途；
 - 版本或 SHA-256。
 
-请求内来源只对当前请求有效；确需跨请求复用时才晋升到全局 manifest。来源摘要变化时，只失效引用该 `SRC` 的 `RULE` 及其 case；无法完整计算映射时才回退 `full_replan`。
+确定跨运行稳定引用的来源晋升到套件 `design.md` 的来源登记区，成为套件资产的一部分；确需跨项目复用时才晋升到全局 manifest。来源摘要变化时，只失效引用该 `SRC` 的 `RULE` 及其 case；无法完整计算映射时才回退 `full_replan`。
 
 ## 3. 生成提示卡
 
@@ -116,9 +121,9 @@ reviewer 收敛后、发起用例确认前，可由宿主表格运行时从标�
 
 - 固定包含“说明”“用例索引”和单一“用例详情”工作表；详情按模块连续排列，模块、用例、优先级、风险、RULE/差异和前置条件可按其执行行纵向合并，数据编号可按同一实例的连续步骤纵向合并，步骤/操作、测试数据和预期结果不得合并；
 - “用例详情”使用固定层级矩阵列：`模块、用例、优先级、风险、RULE / 差异、前置条件、数据编号、步骤 / 操作、测试数据、预期结果`。合并详情只用于只读连续浏览，不承担筛选和反向解析；筛选、定位和统计仍由“用例索引”承担；
-- 说明页记录请求编号、格式版本、默认值、当前 `callbackSubjectDigest` 和用例语义摘要；索引启用筛选、冻结表头，并用公式统计用例、P0 和高风险数量；
+- 说明页记录运行编号（requestId）、格式版本、默认值、当前 `callbackSubjectDigest` 和用例语义摘要；索引启用筛选、冻结表头，并用公式统计用例、P0 和高风险数量；
 - 工作簿必须标注“只读评审版，以 cases.md 为准”，禁止把人工修改后的 Excel 导回正式用例；
-- `.xlsx` 保存到宿主会话输出目录，不提交 Git、不写 workflow history，也不属于 candidate-generation 事实；
+- `.xlsx` 保存到运行档案目录（`.local/test-runs/<type>/<project>/<request>/`），不提交 Git、不写 workflow history，也不属于 candidate-generation 事实；
 - 生成前通过 `testcase-review-prepare` 从当前 v7 gate、`plan.md` 和 `cases.md` 自动导出 `testcase-review-export-v1`，不得手填确认摘要或复用其他请求的模型；
 - 宿主生成器必须从模型动态派生标题、统计公式、模块、用例和执行行，并产生 `testcase-review-workbook-receipt-v1`。回执固定记录模型摘要、工作簿 SHA-256、三张工作表、模块/用例/执行行统计、公式错误数和逐表预览摘要；
 - `testcase-review-publish` 必须在发布前重新计算当前模型与确认摘要，并校验工作簿、回执和三张预览的摘要；仅通过校验的暂存工作簿可原子发布为 `cases-review.xlsx`。生成后到 callback 发起前的资料漂移继续由 callback subject 门禁阻止；
@@ -134,7 +139,9 @@ reviewer 收敛后、发起用例确认前，可由宿主表格运行时从标�
 - 审计人员可直接查看原始 Markdown/history，但工具不得据此生成新的确认、授权或执行事实；
 - 归档内容保持字节不变，尤其不得修改 `workflow-history.ndjson` 的哈希链。
 
-需要继续旧请求的业务范围时，新建 v7 请求，从归档资料中人工选择仍有效的业务依据，并按 v3/v6 重新生成、门禁、评审和确认；不得把归档目录移回活跃区直接续写。契约注册表把这些旧标识登记为“归档证据”，不是“仅回放运行时契约”。
+需要继续旧请求的业务范围时，对目标套件发起新运行，从归档资料中人工选择仍有效的业务依据，并按 v3/v6 重新生成、门禁、评审和确认后并入套件；不得把归档目录移回活跃区直接续写。契约注册表把这些旧标识登记为“归档证据”，不是“仅回放运行时契约”。
+
+套件演进的评审记录与正式决定属于运行档案（`.local/test-runs/`），不进 Git；套件层的正式结论以 design.md 变更记录与 Git 提交信息承载。
 
 ## 5. 候选门禁与评审
 

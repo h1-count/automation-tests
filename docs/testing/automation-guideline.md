@@ -66,7 +66,7 @@ setup → 正式测试 → teardown → 报告
 每次测试任务开始时，主 Agent 必须先完成以下上下文加载，再进入资料输入、受控探索或测试设计：
 
 1. 无条件读取 `.local/testing-memory.md`（如存在），加载当前用户的长期协作与行为偏好。
-2. 根据用户测试需求、目标 URL、资料来源、活跃设计索引或已关联资产确认被测项目；此时不得扫描业务源码来替代需求理解。匹配的活跃 `plan.md` 不存在时，为当前请求创建内部测试设计索引；不得单独请求计划确认。
+2. 根据用户测试需求、目标 URL、资料来源、活跃套件（`testcases/<type>/<project>/suites/<feature>/`）或已关联资产确认被测项目与目标套件；此时不得扫描业务源码来替代需求理解。目标套件不存在时创建新套件；单次运行意图记录在运行档案 `plan.md`，不得单独请求计划确认。
 3. 被测项目已识别时，只读取对应项目测试经验库 `docs/testing/knowledge/<project>-testing-knowledge.md`（如存在）；不得读取或套用其他项目的测试经验。
 4. 用户直接指定的 Word、PDF、原型或附件直接作为本请求来源：读取后在 `plan.md` 的“请求内来源”记录稳定 SRC、可点击路径、章节/页码/字段、用途和一次 SHA-256，不要求预先登记 `sources/manifest.yaml`。只有确需跨请求复用时才晋升全局 manifest。
 5. 需要从仓库补充资料时，在读取 `sources/` 正文前先读取 `sources/manifest.yaml` 和相关受控章节索引；不得以全量打开资料库代替选择。
@@ -88,7 +88,7 @@ setup → 正式测试 → teardown → 报告
 | --- | --- | --- |
 | “清理本地测试数据”等范围不完整表述 | 定位匹配命令并运行 `--dry-run` | 输出将清理/归档的类别，等待用户确认完整范围；不得手工删除目录。 |
 | “完整重置”“清除所有测试数据”“从头测试” | 确认 `reset:full-test-state` 已登记 | 执行 `npm run reset:full-test-state`；它清理本地运行状态并归档活跃测试资产，不删除远端业务数据。 |
-| “归档所有非当前版本请求” | 确认 `archive:noncurrent-requests` 已登记并运行 `--dry-run` | 只归档不满足当前 workflow、plan 与 testcase 契约组合、workflow 已到终态（最后事件为 `WorkflowCompleted/WorkflowCancelled`）且无在途 Activity 租约或运行中 reviewer 绑定的请求及其请求专属测试实现；冲突请求以冲突清单列出，先收口到终态、取消，或确认为无在途回合后删除其可丢弃 runtime 再重试预演。不处理当前请求、运行产物、认证或台账。 |
+| “归档所有非当前版本请求” | 确认 `archive:noncurrent-requests` 已登记并运行 `--dry-run` | 【已停用增量】新模型下套件演进由 Git 历史承载，不再产生新归档；该命令仅保留对旧请求模型遗留目录的一次性迁移用途，日常不得再触发。 |
 | 恢复已登记的本机资源 | 确认资源台账与恢复命令 | 使用 `npm run test-data:recover`；它不是清理命令。 |
 | 用户要求的范围没有对应命令 | 比对命令边界与用户范围 | 报告没有安全匹配命令及最小补充指示；不得用目录扫描或 `rm` 模拟。 |
 
@@ -96,7 +96,7 @@ setup → 正式测试 → teardown → 报告
 
 ### 3.1.2 动态状态与产出
 
-请求级 `testcases/<type>/<project>/<test-request>/workflow-history.ndjson` 是唯一运行事实。`.local/test-task-runtime/<type>/<project>/<test-request>/` 仅保存可丢弃的 claim token、lease、session/reviewer 工具绑定、暂存路径与在途操作引用；宿主长期任务只是外部实时状态，不写入 runtime、history 或计划。删除 runtime 不得改变 Activity、阶段、确认、阻塞或整体结果。`plan.md` 只保存范围、需求依据、正式用户决定、reviewer 结论和发现项，不保存任务表、阶段进度、用例生成进度或 history head。
+运行级 `.local/test-runs/<type>/<project>/<request>/workflow-history.ndjson` 是唯一运行事实（本机运行档案，不进 Git；跨机器恢复等于从套件重新发起运行）。`.local/test-task-runtime/<type>/<project>/<test-request>/` 仅保存可丢弃的 claim token、lease、session/reviewer 工具绑定、暂存路径与在途操作引用；宿主长期任务只是外部实时状态，不写入 runtime、history 或计划。删除 runtime 不得改变 Activity、阶段、确认、阻塞或整体结果。运行档案中的 `plan.md` 只保存运行意图（范围、默认值、请求内来源、正式用户决定、reviewer 结论和发现项），不保存任务表、阶段进度、用例生成进度或 history head；稳定设计资产（cases.md/design.md）在套件目录维护。旧请求模型下 `testcases/<type>/<project>/<test-request>/workflow-history.ndjson` 的既有文件按 legacy 只读回放。
 
 `task:status` 从 history、工作流定义和真实产物即时渲染阶段、完整度、等待项与下一动作。v7 面向用户只投影“用例设计、脚本、执行、报告”四个阶段；v5/v6 继续显示其原六阶段。该视图不新增确认，也不删除或改写底层 Activity、workflow state 和恢复事件。
 
@@ -307,7 +307,7 @@ Web/H5 在 `build` Activity 内按“资格满足时的只读真实页面候选�
 ### 4.2 Agent 输出测试设计索引
 
 <!-- delegates: automation.testcases -->
-设计索引、追溯和正式决定字段只按[用例规范](./testcase-guideline.md)生成，并保存为请求目录中唯一的 `plan.md`。新请求的 `candidate-generation` 一次产出 v3 `plan.md` 与 `testcase-v6-layered` `cases.md`，流程层不得创建计划确认或在 REQ/RULE/case 之间等待用户。Excel 只在 reviewer 收敛后由宿主按需生成，不属于候选事实或工作流历史。
+设计索引、追溯和正式决定字段只按[用例规范](./testcase-guideline.md)生成：运行意图与正式决定行保存为运行档案 `.local/test-runs/<type>/<project>/<request>/plan.md`，稳定设计资产（`cases.md` 用例与 `design.md` 台账）保存在套件目录并随 Git 提交演进。一次运行的 `candidate-generation` 产出运行 `plan.md`、套件 `cases.md` 与 `design.md` 增量，流程层不得创建计划确认或在 REQ/RULE/case 之间等待用户。Excel 只在 reviewer 收敛后由宿主按需生成到运行档案，不属于候选事实或工作流历史。
 <!-- end-delegates -->
 
 ### 4.3 环境处理

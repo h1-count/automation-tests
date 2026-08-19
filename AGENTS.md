@@ -10,7 +10,8 @@
 
 ## 事实所有权与回复门禁
 
-- `plan.md` 是内部测试设计索引，唯一维护范围、需求依据、`REQ → RULE → caseId` 关系、正式用户决定和 reviewer 结论；请求目录中的 `workflow-history.ndjson` 唯一维护 Activity、重试、等待、阻塞、恢复和工作流终态。
+- 测试设计资产按「套件」组织并纳入 Git：`testcases/<type>/<project>/suites/<feature>/cases.md` 唯一维护结构化用例，`design.md` 唯一维护范围、需求依据、`REQ → RULE → caseId` 关系、来源登记与变更记录；套件演进只通过增量修订与 Git 提交，不按请求复制目录。
+- 每次测试运行的状态是本机运行档案：`.local/test-runs/<type>/<project>/<request>/plan.md` 维护本次运行意图与正式用户决定行，同目录 `workflow-history.ndjson` 唯一维护 Activity、重试、等待、阻塞、恢复和工作流终态；二者不进 Git，跨机器恢复等于从套件重新发起运行。
 - `.local/test-task-runtime/` 只保存可丢弃的宿主执行元数据；任务、阶段、整体进度和用例完整度必须从事件与真实产物计算，不能另行写入 `plan.md` 或本机状态文件。
 - 来源登记、测试设计、候选门禁、reviewer、用例确认和历史格式兼容仅按[用例规范](docs/testing/testcase-guideline.md)执行；本文件不定义其版本、步骤或模板。
 - 任务分支、交付终点、宿主生命周期、Activity 推进、执行清单和授权仅按[流程规范](docs/testing/automation-guideline.md)执行；本文件不复述其状态或算法。
@@ -36,7 +37,7 @@
 ## 目录边界
 
 - `sources/`：原始需求、接口、物模型、截图、原型、原始知识资料库及受控章节索引；用 `manifest.yaml` 维护原始资料与项目索引的来源、关联和有效性。
-- `testcases/`：测试设计索引和结构化用例；`tests/`：可执行脚本，分类与用例一致。
+- `testcases/`：测试设计索引和结构化用例，按 `testcases/<type>/<project>/suites/<feature>/` 套件组织（`cases.md` 用例 + `design.md` 设计台账），是纳入 Git 的稳定可复用资产；同一功能的反复测试只增量修订同一套件，不按请求复制目录；`tests/`：可执行脚本，分类与套件一致，纳入 Git 且不随请求归档。
 - `src/actions/`：业务级公共动作；`src/clients/`：协议访问；`src/fixtures/`：测试引用与数据初始化；`src/env/`：环境解析；`src/support/`：断言、轮询、脱敏和清理。
 - `scripts/`：环境检查、数据准备/清理、认证初始化和报告脚本；`artifacts/`：被 Git 忽略的执行产物。
 - `test-assets/`：纳入 Git 的可复用静态测试资产，例如 App 安装包、测试固件和视觉基准；`test-assets/manifest.yaml` 是资产身份、完整性和可选择范围的唯一清单，不属于原始需求资料，也不混入 `sources/manifest.yaml`；不存放运行产物或敏感配置。
@@ -44,11 +45,11 @@
 - `.local/repositories/`：本机被测代码仓库根目录；每个直接子目录为一个候选仓库，不提交测试工程。仓库、Graphify 图谱和源码定位只在用例确认后的 `plan.md` 工程层记录，不得登记到 `sources/manifest.yaml` 或充当业务需求资料。
 - `.local/testing-memory.md`：被 Git 忽略的当前用户长期协作与行为偏好，不记录项目测试经验。
 - `.local/project-knowledge-candidates/`：被 Git 忽略的项目经验候选控制元数据；正文归属、登记和覆盖规则统一见[项目测试经验规范](docs/testing/knowledge/README.md)。
-- `testcases/<type>/<project>/<test-request>/workflow-history.ndjson`：纳入 Git 的请求级运行事件历史，是 Activity 完成、重试、等待、阻塞、恢复和工作流终态的唯一事实源；只保存可回放的脱敏语义事件，不保存凭据、线程标识、claim token、租约或真实用户数据。
+- `.local/test-runs/<type>/<project>/<request>/`：被 Git 忽略的本机运行档案，只保存本次运行意图 `plan.md`、`workflow-history.ndjson`、评审记录与只读评审版产物；`workflow-history.ndjson` 是该次运行 Activity、重试、等待、阻塞、恢复与终态的唯一事实源，只保存可回放的脱敏语义事件，不保存凭据、线程标识、claim token、租约或真实用户数据；跨机器恢复等于从套件重新发起运行。
 - `.local/test-task-runtime/`：被 Git 忽略且可丢弃的本机执行元数据，只保存 claim/fencing、lease、session/reviewer 工具绑定、暂存路径和未收口工具句柄；任何宿主长期任务及其 ID、状态、预算和使用记录只属于对应宿主，不写入此目录、`plan.md` 或 workflow history。删除 runtime 不得改变或丢失业务状态。
 - `.local/test-ledger/`：被 Git 忽略的本机测试数据台账；其创建、复用、清理与恢复规则由 `docs/testing/environment-guideline.md` 定义。
 - `docs/testing/knowledge/<project>-testing-knowledge.md`：纳入 Git 的项目测试经验事实源；完整格式、状态、候选关系与冲突覆盖规则统一见[项目测试经验规范](docs/testing/knowledge/README.md)。
-- `testcases/archive/`：纳入 Git 的只读历史测试证据；请求专属历史脚本统一放在对应归档请求的 `automation/` 子目录，不另建平行归档根。
+- `testcases/archive/`：纳入 Git 的只读历史测试证据（旧请求模型时代的遗留迁移，现已停用归档增量）；新模型下套件演进由 Git 历史天然承载，不再产生新归档；历史脚本保留在对应归档请求的 `automation/` 子目录。
 
 ## 提交信息规范
 
