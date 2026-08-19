@@ -92,3 +92,48 @@
 - 验证条件：下次生成轮的首轮评审不再出现上述可机判类别的发现。
 - 最近更新：2026-08-19T07:44:12.328Z
 <!-- project-experience:6AEFB8B03CB4:end -->
+
+<!-- project-experience:0B6E3865EA05:start -->
+<a id="exp-0b6e3865ea05"></a>
+## 2026-08-19：v7 活动 owned artifacts 发布契约（发布集与部分发布收敛）
+
+- 经验编号：EXP-0B6E3865EA05
+- 适用范围：v7 活动 owned artifacts 发布契约（发布集与部分发布收敛）
+- 证据状态：受控探索已验证
+- 观察：delete-product 首轮 candidate-generation 把 design.md 混入发布集被引擎拒绝（只允许 plan.md+cases.md），且首次失败留下部分发布清单，后续发布进入 requires reconciliation 状态。
+- 判断：v7 各活动 owned artifacts 是固定契约：candidate_generation=plan+case 包、review_resolution=plan、automatic_evolution=plan+全部 case 包；design.md 是套件 Git 资产，不经工作流发布；发布失败可能留下部分清单，盲目重试会继续触发 reconciliation。
+- 当前优先策略：发布前先按活动 kind 核对 owned 产物集（只发布契约内产物）；遇到 requires reconciliation 错误时用 task:manage reconcile --activity <id> --publish <publishId> --evidence <摘要> 收敛，不重试原命令。
+- 证据引用：src/support/task-workflow/workflowManager.ts（owned artifacts 校验）、src/support/task-workflow/artifactPublisher.ts（recover/reconcilePrepared）、src/support/task-workflow/cli/manage.ts（artifact-publish-succeed/reconcile）
+- 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
+- 最近更新：2026-08-19T08:52:02.011Z
+<!-- project-experience:0B6E3865EA05:end -->
+
+<!-- project-experience:1A703C7F925D:start -->
+<a id="exp-1a703c7f925d"></a>
+## 2026-08-19：candidate-gate no_write 用例写动词 lint：否定句也命中
+
+- 经验编号：EXP-1A703C7F925D
+- 适用范围：candidate-gate no_write 用例写动词 lint：否定句也命中
+- 证据状态：受控探索已验证
+- 观察：delete-product 首轮 OPEN-DEL-005 操作文本「记录该状态产品删除入口的呈现事实（不点击删除）」因含「删除」字样被 candidate-gate 以 no_write 写动词阻断，即使语义是否定句。
+- 判断：businessWriteVerb 正则（创建|新增|提交|修改|编辑|更新|删除|上传|写入）无否定感知，操作列出现写动词字面即触发 no_write 阻断；这是确定性契约而非引擎缺陷。
+- 当前优先策略：no_write 用例的操作列编写前自查零写动词（含否定句与引述）；确实需触发写路径的观察统一升级 ephemeral_cleanup 并受执行授权约束，或改用中性措辞。
+- 证据引用：src/support/task-workflow/candidateGate.ts（businessWriteVerb lint）
+- 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
+- 最近更新：2026-08-19T08:52:05.837Z
+<!-- project-experience:1A703C7F925D:end -->
+
+<!-- project-experience:260F23257EEE:start -->
+<a id="exp-260f23257eee"></a>
+## 2026-08-19：v7 单 review 活动工作流演进后重开评审的标准序列
+
+- 经验编号：EXP-260F23257EEE
+- 适用范围：v7 单 review 活动工作流演进后重开评审的标准序列
+- 证据状态：受控探索已验证
+- 观察：delete-product 为 combined-only（无 impact 活动），评审演进后定向批次被解析为 full 模式（requiredActivityIds=全部 review 活动）→ scope 不写 baseBatchId → activateEvolvedReviewBatch 自动激活不触发，review 停在 SUCCEEDED，dispatch 被 reducer requireState(READY/RETRY_WAIT) 拒绝，评审循环断点。
+- 判断：单 reviewer 场景下 v7 自动激活路径（依赖 targeted 批次的 baseBatchId）不可达；activity-invalidate 是公开入口，其语义与自动激活（invalidate succeeded reviewers）等价，可安全完成同一重置。
+- 当前优先策略：演进发布后若 review 活动仍 SUCCEEDED：执行 task:manage activity-invalidate --activity <review-id> --reason "activate_evolved_review_batch:<base-batch>:<reason>" 重置（下游 resolution/evolution/confirmation 一并回 PENDING），再 review-batch-start 新批次（可带 --base-batch/--affected-ref）→ reviewer-dispatch → reviewer-submit。
+- 证据引用：src/support/task-workflow/workflowManager.ts（activateEvolvedReviewBatch/invalidateActivities）、src/support/task-workflow/reviewBatchScope.ts（mode 判定：required=all → full 不写 baseBatchId）、src/support/task-workflow/reducer.ts（ReviewerDispatched requireState）
+- 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
+- 最近更新：2026-08-19T08:52:10.566Z
+<!-- project-experience:260F23257EEE:end -->
