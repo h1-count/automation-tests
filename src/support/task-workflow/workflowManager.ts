@@ -2704,7 +2704,12 @@ export class DurableWorkflowManager {
     }
     let abandonedUnpublishedStaging = false;
     if (unresolvedStaging.length) {
-      if (!activity.definition.publishesArtifacts) {
+      // 正式决定计划发布（callback 类活动）与声明 publishesArtifacts 的活动一样
+      // 会通过 ArtifactPublisher 产生暂存；两者都允许在租约过期后丢弃。
+      const canAbandonStaging = activity.definition.publishesArtifacts
+        || activity.definition.kind === "callback"
+        || activity.definition.kind === "execution_authorization";
+      if (!canAbandonStaging) {
         throw new Error(
           `Activity ${activityId} cannot retry while artifact staging remains unresolved.`
         );
@@ -2725,7 +2730,13 @@ export class DurableWorkflowManager {
       });
       for (const staging of unresolvedStaging) {
         const recovery = await publisher.recover(staging.publishId);
-        if (recovery.state !== "READY_TO_PUBLISH") {
+        // 正式决定计划暂存只含请求 plan.md；RECONCILING 且目标冲突意味着
+        // 更新的 plan 已随后续发布存在，陈旧候选必须丢弃而不是发布。
+        const discardable = recovery.state === "READY_TO_PUBLISH"
+          || (recovery.state === "RECONCILING"
+            && canAbandonStaging
+            && recovery.conflictingTargets.length > 0);
+        if (!discardable) {
           throw new Error(
             `Artifact publication ${staging.publishId} is ${recovery.state}; retry is forbidden until final targets are reconciled.`
           );
