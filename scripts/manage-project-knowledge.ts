@@ -42,7 +42,9 @@ async function main(): Promise<void> {
         process.cwd(),
         project,
         required(args, "--id"),
-        `docs/testing/knowledge/${project}-testing-knowledge.md`,
+        project === "automation-engineering"
+          ? "docs/testing/knowledge/MEMORY.md"
+          : `docs/testing/knowledge/${project}-testing-knowledge.md`,
         evidenceType
       );
       process.stdout.write(`${promoted.promotedKnowledgeRef}\n`);

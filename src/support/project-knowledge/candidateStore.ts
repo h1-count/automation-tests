@@ -161,7 +161,10 @@ export async function promoteCandidate(
 ): Promise<ProjectKnowledgeCandidate> {
   assertProject(project);
   assertSafe(promotedKnowledgeRef, "经验库引用");
-  if (!promotedKnowledgeRef.includes(`docs/testing/knowledge/${project}-testing-knowledge.md`)) {
+  const expectedKnowledgeFile = project === "automation-engineering"
+    ? "docs/testing/knowledge/MEMORY.md"
+    : `docs/testing/knowledge/${project}-testing-knowledge.md`;
+  if (!promotedKnowledgeRef.includes(expectedKnowledgeFile)) {
     throw new Error("经验库引用必须指向同一项目的知识文件。");
   }
   if (!evidenceType) throw new Error("提升项目经验必须提供受控探索或正式执行证据类型。");

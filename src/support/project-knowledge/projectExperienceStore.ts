@@ -77,7 +77,10 @@ export async function upsertProjectExperience(root: string, input: ProjectExperi
     .forEach((value) => assertSafe(value, "项目经验字段"));
 
   const id = experienceId(normalized.project, normalized.scope);
-  const relativePath = `docs/testing/knowledge/${normalized.project}-testing-knowledge.md`;
+  // automation-engineering 是测试工程自身（非被测产品），其经验文件固定为 MEMORY.md。
+  const relativePath = normalized.project === "automation-engineering"
+    ? "docs/testing/knowledge/MEMORY.md"
+    : `docs/testing/knowledge/${normalized.project}-testing-knowledge.md`;
   const path = resolve(root, relativePath);
   await mkdir(dirname(path), { recursive: true });
   let content: string;
