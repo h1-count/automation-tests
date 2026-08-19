@@ -301,6 +301,7 @@ async function atomicInstallBlob(
 export class ReviewInputSnapshotStore {
   readonly workspaceRoot: string;
   readonly requestRoot: string;
+  readonly suiteRoot: string | undefined;
   readonly runtimeStore: RuntimeLeaseStore;
   private readonly blobRoot: string;
 
@@ -310,10 +311,15 @@ export class ReviewInputSnapshotStore {
       workspaceRoot?: string;
       runtimeRoot?: string;
       runtimeStore?: RuntimeLeaseStore;
+      runRoot?: string;
+      suiteRoot?: string;
     } = {}
   ) {
     this.workspaceRoot = resolve(options.workspaceRoot ?? process.cwd());
-    this.requestRoot = resolve(this.workspaceRoot, "testcases", ...requestId.split("/"));
+    this.requestRoot = options.runRoot
+      ? resolve(options.runRoot)
+      : resolve(this.workspaceRoot, "testcases", ...requestId.split("/"));
+    this.suiteRoot = options.suiteRoot;
     const configuredRuntimeRoot = options.runtimeRoot
       ? resolve(options.runtimeRoot)
       : resolve(this.workspaceRoot, ".local/test-task-runtime");
@@ -686,6 +692,19 @@ export class ReviewInputSnapshotStore {
       && /^(?:plan\.md|cases(?:-[a-z0-9][a-z0-9-]*)?\.md)$/.test(requestRelative)
     ) {
       return portableRelative(this.workspaceRoot, absolute);
+    }
+    if (this.suiteRoot) {
+      // Suite-bound design assets (cases.md / design.md) live in the committed
+      // suite directory instead of the run archive.
+      const suiteRelative = portableRelative(this.suiteRoot, absolute);
+      if (
+        suiteRelative
+        && suiteRelative !== ".."
+        && !suiteRelative.startsWith("../")
+        && /^(?:cases(?:-[a-z0-9][a-z0-9-]*)?\.md|design\.md)$/.test(suiteRelative)
+      ) {
+        return portableRelative(this.workspaceRoot, absolute);
+      }
     }
     const workspaceRelative = portableRelative(this.workspaceRoot, absolute);
     const hasHiddenSegment = workspaceRelative

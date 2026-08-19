@@ -407,7 +407,7 @@ async function currentTestcaseReviewExport(
   const model = buildTestcaseReviewModel({
     requestId: manager.requestId,
     plan: await readFile(manager.planPath, "utf8"),
-    cases: await readFile(resolve(manager.requestRoot, "cases.md"), "utf8"),
+    cases: await readFile(manager.designAssetPath("cases.md"), "utf8"),
     callbackSubjectDigest
   });
   return buildTestcaseReviewExport(model);

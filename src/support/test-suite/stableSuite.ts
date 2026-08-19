@@ -1253,9 +1253,9 @@ interface AffectedWorkspacePaths {
 function affectedWorkspacePaths(suiteId: string, runRequestId: string): AffectedWorkspacePaths {
   const [type, project, feature] = suiteId.split("/");
   return {
-    plan: `testcases/${runRequestId}/plan.md`,
+    plan: `.local/test-runs/${runRequestId}/plan.md`,
     stableCasePrefix: `testcases/${type}/${project}/suites/${feature}/`,
-    runCasePrefix: `testcases/${runRequestId}/`,
+    runCasePrefix: `.local/test-runs/${runRequestId}/`,
     stableTestPrefix: `tests/${type}/${project}/suites/${feature}/`,
     runTestPrefix: `tests/${runRequestId}/`
   };

@@ -61,7 +61,10 @@ test("v7 affected rebuild confirms affected cases before build and readiness", a
     "execution-authorization-v4"
   );
   assert.equal(gate.activities["execution-authorization"]?.definition.kind, "execution_authorization");
-  assert.equal(await fileExists(resolve(root, "testcases/web/demo/retest-affected/plan.md")), true);
+  assert.equal(
+    await fileExists(resolve(root, ".local/test-runs/web/demo/retest-affected/plan.md")),
+    true
+  );
   assert.equal(
     await fileExists(resolve(root, "tests/web/demo/retest-affected/registration.formal.spec.ts")),
     true

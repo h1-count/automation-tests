@@ -28,6 +28,14 @@ import {
 import { evaluateTestcasePackageFiles } from "./packageCompleteness.js";
 import { ReviewInputSnapshotStore } from "./reviewInputSnapshot.js";
 import {
+  isCasesPackageName,
+  readSuiteBinding,
+  resolveRunRoot,
+  RunRootMode,
+  suiteDirectoryPath,
+  writeSuiteBinding
+} from "./runRoots.js";
+import {
   assertFormalDecisionAppendOnly,
   assertFormalUserDecision,
   assertRecordedFormalUserDecision,
@@ -256,6 +264,12 @@ export interface InitializeWorkflowInput {
 export interface DurableWorkflowManagerOptions {
   /** Controlled compatibility fixtures only. Public task commands never set this. */
   compatibilityDefinitionVersion?: "v5";
+  /**
+   * Where per-run state lives. Omitted: requests with existing history under
+   * `testcases/<requestId>` keep the legacy root; everything else uses the
+   * local run archive `.local/test-runs/<requestId>`.
+   */
+  runRootMode?: RunRootMode;
 }
 
 export interface ActivityStartResult {
@@ -415,7 +429,12 @@ function safeRelativePath(workspaceRoot: string, path: string): string {
   }
   const rootSegment = rel.split("/", 1)[0] ?? "";
   if (
-    rootSegment.startsWith(".")
+    (
+      rootSegment.startsWith(".")
+      // The local run archive is a legitimate workflow output target for
+      // run-scoped plan.md publications under the suite model.
+      && !rel.startsWith(".local/test-runs/")
+    )
     || rel.startsWith("node_modules/")
     || rel.startsWith("sources/")
     || rel.startsWith("test-assets/")
@@ -454,6 +473,8 @@ export class DurableWorkflowManager {
   readonly requestId: string;
   readonly workspaceRoot: string;
   readonly requestRoot: string;
+  readonly runRootMode: RunRootMode;
+  private suiteRootValue: string | undefined;
   readonly planPath: string;
   readonly historyPath: string;
   readonly history: WorkflowHistoryStore;
@@ -461,6 +482,10 @@ export class DurableWorkflowManager {
   readonly reviewInputs: ReviewInputSnapshotStore;
   private readonly callbackPublicationHandles = new Map<string, RuntimeLeaseHandle>();
   private readonly compatibilityDefinitionVersion?: "v5";
+
+  get suiteRoot(): string | undefined {
+    return this.suiteRootValue;
+  }
 
   constructor(
     requestId: string,
@@ -473,7 +498,17 @@ export class DurableWorkflowManager {
     this.requestId = requestId;
     this.compatibilityDefinitionVersion = options.compatibilityDefinitionVersion;
     this.workspaceRoot = resolve(workspaceRoot);
-    this.requestRoot = resolve(this.workspaceRoot, "testcases", ...requestId.split("/"));
+    const runRoot = resolveRunRoot(
+      this.workspaceRoot,
+      requestId,
+      options.runRootMode
+    );
+    this.requestRoot = runRoot.root;
+    this.runRootMode = runRoot.mode;
+    const binding = readSuiteBinding(this.requestRoot);
+    this.suiteRootValue = binding
+      ? suiteDirectoryPath(this.workspaceRoot, binding.suiteId)
+      : undefined;
     this.planPath = resolve(this.requestRoot, "plan.md");
     this.historyPath = resolve(this.requestRoot, "workflow-history.ndjson");
     this.history = new WorkflowHistoryStore(
@@ -486,8 +521,21 @@ export class DurableWorkflowManager {
     this.runtime = new RuntimeLeaseStore(requestId, resolve(this.workspaceRoot, ".local/test-task-runtime"));
     this.reviewInputs = new ReviewInputSnapshotStore(requestId, {
       workspaceRoot: this.workspaceRoot,
-      runtimeStore: this.runtime
+      runtimeStore: this.runtime,
+      runRoot: this.requestRoot,
+      suiteRoot: this.suiteRoot
     });
+  }
+
+  /**
+   * Design assets bound to a suite live in the suite directory; run-scoped
+   * packages fall back to the run root (legacy layout keeps cases.md there).
+   */
+  designAssetPath(packageName: string): string {
+    if (this.suiteRoot && isCasesPackageName(packageName)) {
+      return resolve(this.suiteRoot, packageName);
+    }
+    return resolve(this.requestRoot, packageName);
   }
 
   exists(): boolean {
@@ -525,6 +573,15 @@ export class DurableWorkflowManager {
           ? resolve(this.workspaceRoot, affectedWorkspace.planPath)
           : this.planPath));
     if (!existsSync(planPath)) throw new Error(`Workflow initialization requires plan.md: ${planPath}`);
+    if (input.suiteId) {
+      // Persist the run→suite binding before any workflow event exists so
+      // every later command resolves design assets from the suite directory.
+      const boundSuiteRoot = suiteDirectoryPath(this.workspaceRoot, input.suiteId);
+      if (this.runRootMode === "local-test-runs") {
+        writeSuiteBinding(this.requestRoot, input.suiteId);
+        this.suiteRootValue = boundSuiteRoot;
+      }
+    }
     const plan = await readFile(planPath, "utf8");
     const planDigest = sha256(plan);
     const definitionInput = {
@@ -678,7 +735,7 @@ export class DurableWorkflowManager {
             activityId: activity.id,
             path: safeRelativePath(
               this.workspaceRoot,
-              resolve(this.requestRoot, packageName)
+              resolve(this.designAssetPath(packageName))
             )
           };
         });
@@ -689,7 +746,7 @@ export class DurableWorkflowManager {
             activityId,
             path: safeRelativePath(
               this.workspaceRoot,
-              resolve(this.requestRoot, packageName)
+              resolve(this.designAssetPath(packageName))
             )
           }))
         : [];
@@ -964,7 +1021,7 @@ export class DurableWorkflowManager {
     }
     const report = evaluateCandidateGate({
       plan: await readFile(this.planPath, "utf8"),
-      cases: await readFile(resolve(this.requestRoot, "cases.md"), "utf8")
+      cases: await readFile(this.designAssetPath("cases.md"), "utf8")
     });
     if (report.issues.length > 0) {
       throw new Error(`Candidate gate failed:\n${report.issues.join("\n")}`);
@@ -3826,7 +3883,7 @@ export class DurableWorkflowManager {
       .map((activity) => {
         const packageName = activity.definition.metadata?.package;
         if (typeof packageName !== "string") throw new Error(`Case activity ${activity.id} has no package binding.`);
-        return resolve(this.requestRoot, packageName);
+        return resolve(this.designAssetPath(packageName));
       });
   }
 
@@ -3870,7 +3927,7 @@ export class DurableWorkflowManager {
       }
       this.assertV7DesignText(
         await readFile(this.planPath, "utf8"),
-        { [packageName]: await readFile(resolve(this.requestRoot, packageName), "utf8") }
+        { [packageName]: await readFile(resolve(this.designAssetPath(packageName)), "utf8") }
       );
       return;
     }
@@ -3884,7 +3941,7 @@ export class DurableWorkflowManager {
       throw new Error("Version-7 case generation has no package binding.");
     }
     this.assertV7DesignText(undefined, {
-      [packageName]: await readFile(resolve(this.requestRoot, packageName), "utf8")
+      [packageName]: await readFile(resolve(this.designAssetPath(packageName)), "utf8")
     });
   }
 
@@ -5197,7 +5254,7 @@ export class DurableWorkflowManager {
         }
         return safeRelativePath(
           this.workspaceRoot,
-          resolve(this.requestRoot, packageName)
+          resolve(this.designAssetPath(packageName))
         );
       });
     let expected: string[] | undefined;
@@ -5210,7 +5267,7 @@ export class DurableWorkflowManager {
       }
       expected = [
         safeRelativePath(this.workspaceRoot, this.planPath),
-        safeRelativePath(this.workspaceRoot, resolve(this.requestRoot, packageName))
+        safeRelativePath(this.workspaceRoot, resolve(this.designAssetPath(packageName)))
       ];
     } else if (kind === "case_generation") {
       const packageName = metadata?.package;
@@ -5218,7 +5275,7 @@ export class DurableWorkflowManager {
         throw new Error("Case generation is missing its package binding.");
       }
       expected = [
-        safeRelativePath(this.workspaceRoot, resolve(this.requestRoot, packageName))
+        safeRelativePath(this.workspaceRoot, resolve(this.designAssetPath(packageName)))
       ];
     } else if (
       kind === "relation_sync"
@@ -5230,7 +5287,7 @@ export class DurableWorkflowManager {
           .filter((value): value is string => typeof value === "string")
           .map((packageName) => safeRelativePath(
             this.workspaceRoot,
-            resolve(this.requestRoot, packageName)
+            resolve(this.designAssetPath(packageName))
           ))
         : packagePaths;
       expected = [
@@ -5532,7 +5589,7 @@ export class DurableWorkflowManager {
       }
       const expectedPath = safeRelativePath(
         this.workspaceRoot,
-        resolve(this.requestRoot, packageName)
+        resolve(this.designAssetPath(packageName))
       );
       expectedPackagePaths.set(activity.id, expectedPath);
       const succeeded = [...events].reverse().find((event) =>
