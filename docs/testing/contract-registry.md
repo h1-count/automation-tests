@@ -48,6 +48,7 @@
 | reviewer 发现与修订证据 | `review-findings-evidence-v1`、`review-revision-evidence-v1` | 无 | 用例规范 | 评审发现和修订证明 |
 | reviewer 输入快照 | `review-input-snapshot-v2`、`review-role-input-v2` | 仅回放：`review-input-snapshot-v1` | 流程规范 | 当前冻结输入与角色投影 |
 | reviewer 策略 | `review-policy-v3` | 仅回放：`review-policy-v1`、`review-policy-v2` | 用例规范 | 当前风险自适应评审策略 |
+| 修订分层 | `revision-tier-v1` | 无 | 用例规范 | 用例集修订影响面分级与确定性收口 |
 | reviewer readiness | `review-readiness-v1`、`reviewer-isolation-proof-v1` | 无 | 流程规范 | reviewer 可派发性与隔离证明 |
 | 规则覆盖 | 无 | 归档证据：`rule-coverage-v1` | 用例规范 | 当前运行时不解析 |
 | 规则设计台账 | `rule-design-ledger-v3` | 归档证据：`rule-design-ledger-v2` | 用例规范 | v3 是当前 RULE 唯一作者台账 |

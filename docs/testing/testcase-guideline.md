@@ -159,7 +159,15 @@ reviewer 收敛后、发起用例确认前，可由宿主表格运行时从标�
 
 资料冲突、未定义预期、复杂条件/状态/角色语义触发 `combined`；写入、权限、安全、设备或结果未知触发 `impact`。数量和模块数不触发 reviewer。
 
-评审速度档（`task:initialize --speed`，缺省推导：`testcase_only` 且不写数据 → `fast`，其余 → `strict`）在上述推导之上封顶评审模式：`fast` 对 no_write 运行把评审模式压为 `deterministic_only`（完全跳过 reviewer，仅确定性门禁）并禁用自动语义演进——语义发现全部作为“需用户裁决”随完整用例集进入一次用例确认；存在有效数据写入时 fast 仅保留 1 名 combined。`balanced` 至多保留 1 名 combined（去掉 impact）。`strict` 不封顶。速度档写入 WorkflowStarted 的 `reviewSpeed`，随请求持久化；确定性门禁（结构、关系、敏感信息、完整度）在任何速度档下都不放宽。
+评审速度档（`task:initialize --speed`，缺省推导：`testcase_only` 且不写数据 → `fast`，其余 → `strict`）在上述推导之上封顶评审模式：`fast` 对 no_write 运行把评审模式压为 `deterministic_only`（完全跳过 reviewer，仅确定性门禁）；语义发现全部作为“需用户裁决”随完整用例集进入一次用例确认，演进活动仅用于应用确定性结构修正（至多一轮）；存在有效数据写入时 fast 仅保留 1 名 combined。`balanced` 至多保留 1 名 combined（去掉 impact）。`strict` 不封顶。速度档写入 WorkflowStarted 的 `reviewSpeed`，随请求持久化；确定性门禁（结构、关系、敏感信息、完整度）在任何速度档下都不放宽。
+
+修订分层（revision tiering）覆盖「已确认用例集发生修订」的场景（用户裁决 `revision_requested`、评审修正落地后的验证轮）：先用 `npm run testcases:revision-tier -- --baseline-cases/--baseline-plan <已被接受的冻结快照> --current-cases/--current-plan <当前>` 分级，再按档走路径：
+
+- **structural**（无任何用例块语义行变化、无台账行集变化；计数/空行/枚举级）：开新批次后以 `reviewer-dispatch/submit --deterministic --classifier-digest <sha> --findings <分级器产物>` 收口——发现文件结论必须为 converged，评审事件记录 `deterministic: true` 与分级器摘要，零 LLM 评审轮，resolution 直接 converged 回用例确认。
+- **scoped**（语义行变化用例块 ≤ 8；台账行集变化必须由新增正式用户决定覆盖——用户裁决已定语义权威，LLM 只承担转录核对）：`--base-batch + --affected-ref` 定向批次，仅受影响用例单轮复审。
+- **substantive**（安全边界/数据策略语义变化、无用户决定覆盖的台账行集变化、语义块 > 8）：完整评审链。
+
+分级的语义行定义：用例块内 `规则：`/`前置条件：`/`差异：` 引用行、步骤数据表行、标题行；台账 caseIds 列随用例集增删的变化不算台账行集变化。同一评审纪元的收敛断路器只解除一次，再次触发必须先刷新纪元（新增正式用户决定或受控来源），引擎显式报错。
 
 `case-review-resolution` 汇总 reviewer 发现项时必须逐项归类，并把分类写入发现项处置字段（固定取值：结构修复 / 语义演进 / 需用户裁决）：
 

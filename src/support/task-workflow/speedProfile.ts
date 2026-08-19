@@ -8,8 +8,9 @@
  *
  * - `fast`: design-only speed. no_write runs skip reviewers entirely
  *   (deterministic gates only); any effective data write still gets one
- *   `combined` reviewer. Automatic semantic evolution is disabled — semantic
- *   findings go straight into the single user confirmation.
+ *   `combined` reviewer. SEMANTIC findings go straight into the single user
+ *   confirmation as decision rows; the (single) evolution cycle may be used
+ *   only to apply deterministic structural fixes.
  * - `balanced`: one `combined` reviewer maximum (impact reviewer dropped
  *   unless… still dropped; writes surface through the combined scope).
  * - `strict`: today's behavior — full role derivation, one evolution cycle.

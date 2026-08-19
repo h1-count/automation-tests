@@ -2614,6 +2614,81 @@ test("reviewer submission requires a distinct running host binding and records o
   }
 });
 
+test("deterministic reviewer closes a structural revision without a host task", async () => {
+  const root = await makeWorkspace();
+  try {
+    const manager = compatibilityManager(root);
+    await manager.initialize({
+      reviewerRoles: ["requirements"],
+      sessionId: "primary-session",
+      targetThreadId: "primary-thread"
+    });
+    await advanceToReviewReady(manager);
+    const batchId = "REV-DETERMINISTIC";
+    const activityId = "case-review-requirements";
+    await manager.startReviewBatch({ batchId });
+
+    await manager.dispatchReviewer({
+      activityId,
+      batchId,
+      role: "requirements",
+      deterministic: { classifierDigest: "a".repeat(64) }
+    });
+
+    const findingsPath = resolve(root, "findings-deterministic.md");
+    await writeFile(findingsPath, [
+      "# Deterministic Reviewer Findings",
+      "",
+      "## 结论",
+      "",
+      "converged",
+      "",
+      "## 发现项",
+      "",
+      "| 无 | — | — | 无 | — |",
+      ""
+    ].join("\n"), "utf8");
+
+    await manager.submitReviewer({
+      activityId,
+      batchId,
+      role: "requirements",
+      planEvidenceRef: manager.planPath,
+      deterministic: { classifierDigest: "a".repeat(64), findingsPath }
+    });
+
+    const submission = (await manager.events())
+      .reverse()
+      .find((event) => event.type === "ReviewerSubmitted");
+    assert.equal(submission?.payload.deterministic, true);
+    assert.equal(submission?.payload.classifierDigest, "a".repeat(64));
+    assert.equal(typeof submission?.payload.findingsDigest, "string");
+    assert.equal(JSON.stringify(submission).includes("deterministic-reviewer"), false);
+
+    const divergentFindings = resolve(root, "findings-divergent.md");
+    await writeFile(divergentFindings, [
+      "# Deterministic Reviewer Findings",
+      "",
+      "## 结论",
+      "",
+      "findings_present",
+      ""
+    ].join("\n"), "utf8");
+    await assert.rejects(
+      manager.submitReviewer({
+        activityId,
+        batchId,
+        role: "requirements",
+        planEvidenceRef: manager.planPath,
+        deterministic: { classifierDigest: "b".repeat(64), findingsPath: divergentFindings }
+      }),
+      /converged/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("resume preserves a durably dispatched reviewer without duplicating its batch", async () => {
   const root = await makeWorkspace();
   try {

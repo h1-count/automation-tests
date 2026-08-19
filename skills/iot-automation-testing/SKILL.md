@@ -36,7 +36,14 @@ npm run task:initialize -- --request <runRequestId> --delivery-target <testcase_
 npm run task:resume -- --request <runRequestId>
 ```
 
-评审速度档 `--speed`（缺省推导：`testcase_only` 且不写数据 → `fast`；其余 → `strict`）：`fast` 对 no_write 运行跳过 reviewer（仅确定性门禁）并禁用自动语义演进，语义发现直接进入用例确认；`balanced` 至多保留 1 名 combined reviewer；`strict` 为完整双角色评审与一轮演进。涉及写入或执行时不要使用 fast。
+评审速度档 `--speed`（缺省推导：`testcase_only` 且不写数据 → `fast`；其余 → `strict`）：`fast` 对 no_write 运行跳过 reviewer（仅确定性门禁）；语义发现直接进入用例确认由用户裁决，演进活动仅用于应用确定性结构修正（至多一轮）；`balanced` 至多保留 1 名 combined reviewer；`strict` 为完整双角色评审与一轮演进。涉及写入或执行时不要使用 fast。
+
+修订分层（revision tiering）：用户裁决/评审修正引发的用例集修订，先用 `npm run testcases:revision-tier` 对照「已被接受的冻结快照」分级，再按档走评审路径，不默认重开完整评审链：
+
+- `structural`（仅格式/计数/枚举级变化）：开新批次后 `reviewer-dispatch/submit --deterministic --classifier-digest <sha> --findings <分级器产物>` 确定性收口（零 LLM 评审轮），resolution 以 converged 结束，直接回用例确认。
+- `scoped`（≤8 个用例块语义行变化；规则台账变化须有新增正式用户决定覆盖）：`--base-batch + --affected-ref` 定向批次，仅受影响用例单轮 LLM 复审。
+- `substantive`（安全边界/数据策略语义、无用户决定覆盖的台账行集变化、>8 用例块）：完整评审链。
+- 同一评审纪元的收敛断路器只解除一次；再次触发必须先刷新纪元（新增正式用户决定或受控来源），引擎会显式报错而非静默失败。
 
 - `direct_execute`：只验证稳定 suite，不重新生成或确认设计；`testcase_only/script_only` 在 `suite-validation` 后完成，`full_run` 才继续 readiness、authorization、run 和 report。
 - `affected_rebuild`：只处理评估给出的 affected 引用，完成定向评审后确认受影响用例，再按交付目标停在用例、`build` 或完整执行终点。全局边界变化回退 `full_replan`。

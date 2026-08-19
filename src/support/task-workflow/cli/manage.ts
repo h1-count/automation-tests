@@ -629,7 +629,7 @@ async function main(): Promise<void> {
     process.stdout.write([
       "Usage: task:manage <command> --request <type/project/request> ...",
       "Reuse: init --delivery-target <testcase_only|script_only|full_run> --suite <type/project/feature> --reuse auto --environment <test|pre> [--profile <profile>], suite-promote --suite <type/project/feature>",
-      "Core: init, resume, activity-start, activity-renew, candidate-gate, activity-succeed, artifact-publish-succeed, activity-fail",
+      "Core: init, resume, activity-start, activity-renew, candidate-gate, activity-succeed, artifact-publish-succeed, activity-invalidate, activity-fail",
       "Waits: callback-request, callback-resolve, callback-reopen, block, resolve, reconcile, suspend",
       "  callback-resolve --callback <id> --resolution <accepted|rejected|revision_requested|cancelled> --plan-source <updated-plan.md>  # required for formal callbacks",
       "Review: review-batch-start, reviewer-dispatch/submit/fail, review-batch-invalidate",
@@ -862,6 +862,19 @@ async function main(): Promise<void> {
       outcome: option(args, "--outcome")
     });
     output(args, view, `Activity ${activityId} 产物已原子发布并提交成功。`);
+    return;
+  }
+
+  if (command === "activity-invalidate") {
+    const activityIds = options(args, "--activity");
+    if (!activityIds.length) {
+      throw new Error("activity-invalidate requires at least one --activity <id>.");
+    }
+    const view = await manager.invalidateActivities({
+      activityIds,
+      reason: required(args, "--reason")
+    });
+    output(args, view, `已失效活动：${activityIds.join("、")}；工作流状态：${view.workflowState}`);
     return;
   }
 
@@ -1883,13 +1896,22 @@ async function main(): Promise<void> {
     if (option(args, "--input-digest")) {
       throw new Error("reviewer-dispatch derives inputDigest from the frozen batch; do not pass --input-digest.");
     }
+    const deterministicDispatch = option(args, "--deterministic");
     const view = await manager.dispatchReviewer({
       activityId,
       batchId,
       role,
-      agentTaskId: required(args, "--agent-task")
+      ...(deterministicDispatch
+        ? { deterministic: { classifierDigest: required(args, "--classifier-digest") } }
+        : { agentTaskId: required(args, "--agent-task") })
     });
-    output(args, view, `Reviewer ${activityId} 已派发。`);
+    output(
+      args,
+      view,
+      deterministicDispatch
+        ? `确定性评审已派发（${activityId}，structural 档）。`
+        : `Reviewer ${activityId} 已派发。`
+    );
     return;
   }
 
@@ -1906,14 +1928,28 @@ async function main(): Promise<void> {
       throw new Error("reviewer-submit reads the evidence digest itself; do not pass --plan-evidence-digest.");
     }
     const role = option(args, "--role") ?? String(activity.definition.metadata?.role ?? "reviewer");
+    const deterministicSubmit = option(args, "--deterministic");
     const view = await manager.submitReviewer({
       activityId,
       batchId,
       role,
       planEvidenceRef: evidencePath,
-      agentTaskId: required(args, "--agent-task")
+      ...(deterministicSubmit
+        ? {
+          deterministic: {
+            classifierDigest: required(args, "--classifier-digest"),
+            findingsPath: required(args, "--findings")
+          }
+        }
+        : { agentTaskId: required(args, "--agent-task") })
     });
-    output(args, view, `Reviewer ${activityId} 的正式 plan.md 证据已提交。`);
+    output(
+      args,
+      view,
+      deterministicSubmit
+        ? `确定性评审已收口（${activityId}，structural 档）。`
+        : `Reviewer ${activityId} 的正式 plan.md 证据已提交。`
+    );
     return;
   }
 

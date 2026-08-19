@@ -68,6 +68,14 @@ export function reviewerBindingId(activityId: string, role: string, batchId: str
   return `${batchId}:${activityId}:${role}`;
 }
 
+/**
+ * 修订分层 structural 档的确定性评审员哨兵标识：无宿主任务，按活动+批次唯一，
+ * 天然满足评审任务隔离断言（不等于主会话标识）。
+ */
+export function deterministicReviewerTaskId(activityId: string, batchId: string): string {
+  return `deterministic-reviewer/${batchId}/${activityId}`;
+}
+
 export function reviewBatchStarted(
   events: readonly WorkflowEvent[],
   batchId: string
@@ -238,6 +246,8 @@ export interface ReviewLifecycleEventInput {
   readinessWarnings?: string[];
   roleInputDigests?: Record<string, string>;
   isolationProofVersion?: typeof REVIEWER_ISOLATION_PROOF_VERSION;
+  /** 修订分层 structural 档标记：该评审由确定性分级器收口，非隔离 LLM 评审员。 */
+  deterministic?: { classifierDigest: string };
 }
 
 function assertDigest(value: string | undefined, name: string): void {
@@ -343,6 +353,12 @@ export function prepareReviewLifecycleEvent(
     ...(input.roleInputDigests ? { roleInputDigests: input.roleInputDigests } : {}),
     ...(input.isolationProofVersion
       ? { isolationProofVersion: input.isolationProofVersion }
+      : {}),
+    ...(input.deterministic
+      ? {
+        deterministic: true,
+        classifierDigest: input.deterministic.classifierDigest
+      }
       : {})
   };
   if (input.type === "ReviewerDispatched") {

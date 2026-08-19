@@ -73,6 +73,7 @@ import {
   REVIEWER_ISOLATION_PROOF_VERSION,
   ReviewInputDriftError,
   reviewerBindingId,
+  deterministicReviewerTaskId,
   rotatedReviewBatchId,
   verifyOrRepairReviewSnapshot
 } from "./reviewLifecycle.js";
@@ -969,14 +970,6 @@ export class DurableWorkflowManager {
     if (!activity) throw new Error(`Unknown workflow activity: ${activityId}`);
     if (activity.definition.kind === "complete") {
       throw new Error("Workflow completion must be recorded with task:manage complete.");
-    }
-    if (
-      activityId === "case-review-evolution"
-      && await this.reviewSpeed() === "fast"
-    ) {
-      throw new Error(
-        "fast 评审速度档已禁用自动语义演进：语义发现随完整用例集进入用户确认（case-review-resolution 以 converged 收口）。"
-      );
     }
     if (activity.state === "RUNNING") {
       const existing = await this.currentLease(activityId);
@@ -3417,6 +3410,23 @@ export class DurableWorkflowManager {
       : Number.POSITIVE_INFINITY;
     if (semanticEvolutionCycle > maxSemanticCycles) {
       const blockerId = `review-convergence-failed-${reviewEpochDigest.slice(0, 12)}`;
+      const priorRaise = [...events].reverse().find((event) =>
+        event.type === "BlockerRaised" && event.payload.blockerId === blockerId
+      );
+      if (priorRaise) {
+        const resolvedAfter = events.some((event) =>
+          event.type === "BlockerResolved"
+          && event.payload.blockerId === blockerId
+          && event.seq > priorRaise.seq
+        );
+        // 同 identity 的 BlockerRaised 已存在时，append 会按幂等键静默去重并
+        // 让调用方误以为批次已开始；必须显式失败。
+        throw new Error(
+          resolvedAfter
+            ? `Review epoch ${reviewEpochDigest.slice(0, 12)} 已再次超出语义演进上限 ${maxSemanticCycles}；该纪元的收敛断路器只解除一次，请先刷新评审纪元（新增正式用户决定或受控来源）再开启定向批次。`
+            : `Blocker ${blockerId} 生效中：本评审纪元的语义演进超过 ${maxSemanticCycles} 轮，请先以正式决定解除该 blocker。`
+        );
+      }
       await this.append(
         "BlockerRaised",
         "system",
@@ -3584,9 +3594,14 @@ export class DurableWorkflowManager {
     activityId: string;
     batchId: string;
     role: string;
-    agentTaskId: string;
+    agentTaskId?: string;
+    /** 修订分层 structural 档：确定性分级器替代隔离评审员。 */
+    deterministic?: { classifierDigest: string };
   }): Promise<ReviewLifecycleView> {
-    await this.runtime.assertReviewerTaskIsIsolated(input.agentTaskId);
+    const agentTaskId = input.deterministic
+      ? deterministicReviewerTaskId(input.activityId, input.batchId)
+      : input.agentTaskId ?? "";
+    await this.runtime.assertReviewerTaskIsIsolated(agentTaskId);
     const events = await this.events();
     this.assertReviewActivityInBatchScope(events, input.batchId, input.activityId);
     let inputDigest: string;
@@ -3617,7 +3632,7 @@ export class DurableWorkflowManager {
       try {
         await this.bindReviewerRuntime({
           ...input,
-          agentTaskId: input.agentTaskId,
+          agentTaskId,
           status: "running"
         });
         return { ...(await this.gate()), runtimeBinding: "bound" };
@@ -3631,14 +3646,17 @@ export class DurableWorkflowManager {
       activityId: input.activityId,
       batchId: input.batchId,
       role: input.role,
-      inputDigest
+      inputDigest,
+      ...(input.deterministic
+        ? { deterministic: { classifierDigest: input.deterministic.classifierDigest } }
+        : {})
     });
     try {
       // Runtime handles are disposable. A binding failure must not turn a
       // durable dispatch into a false failure; resume will repair it.
       await this.bindReviewerRuntime({
         ...input,
-        agentTaskId: input.agentTaskId,
+        agentTaskId,
         status: "running"
       });
       return { ...view, runtimeBinding: "bound" };
@@ -3653,8 +3671,21 @@ export class DurableWorkflowManager {
     batchId: string;
     role: string;
     planEvidenceRef?: string;
-    agentTaskId: string;
+    agentTaskId?: string;
+    /** 修订分层 structural 档：须提供 converged 发现文件与分级器摘要。 */
+    deterministic?: { classifierDigest: string; findingsPath: string };
   }): Promise<ReviewLifecycleView> {
+    if (input.deterministic) {
+      const findingsText = await readFile(input.deterministic.findingsPath, "utf8");
+      if (!/^##\s+结论\s*$/mu.test(findingsText) || !/^\s*converged\s*$/mu.test(findingsText)) {
+        throw new Error(
+          "Deterministic reviewer requires a findings file whose 结论 section is converged; non-structural revisions must use an isolated reviewer."
+        );
+      }
+    }
+    const agentTaskId = input.deterministic
+      ? deterministicReviewerTaskId(input.activityId, input.batchId)
+      : input.agentTaskId ?? "";
     const events = await this.events();
     this.assertReviewActivityInBatchScope(events, input.batchId, input.activityId);
     let inputDigest: string;
@@ -3674,7 +3705,7 @@ export class DurableWorkflowManager {
       activityId: input.activityId,
       batchId: input.batchId,
       role: input.role,
-      agentTaskId: input.agentTaskId,
+      agentTaskId,
       status: "running"
     });
     const view = await this.appendValidatedReviewLifecycleEvent({
@@ -3685,12 +3716,18 @@ export class DurableWorkflowManager {
       inputDigest,
       planEvidenceRef: evidenceRef,
       planEvidenceDigest: evidenceDigest,
+      ...(input.deterministic
+        ? {
+          deterministic: { classifierDigest: input.deterministic.classifierDigest },
+          findingsDigest: sha256(await readFile(input.deterministic.findingsPath))
+        }
+        : {}),
       isolationProofVersion: REVIEWER_ISOLATION_PROOF_VERSION
     });
     try {
       await this.bindReviewerRuntime({
         ...input,
-        agentTaskId: input.agentTaskId,
+        agentTaskId,
         status: "completed"
       });
       return { ...view, runtimeBinding: "bound" };
@@ -5557,9 +5594,18 @@ export class DurableWorkflowManager {
    * already a strict, read-only relation projection. */
   private async assertRelationProjectionCurrent(): Promise<void> {
     const plan = await readFile(this.planPath, "utf8");
-    const files = Object.fromEntries(await Promise.all((await readdir(this.requestRoot))
-      .filter((name) => /^cases-[a-z0-9][a-z0-9-]*\.md$/.test(name))
-      .map(async (name) => [name, await readFile(resolve(this.requestRoot, name), "utf8")] as const)));
+    const caseRoots = this.suiteRoot
+      ? [this.requestRoot, this.suiteRoot]
+      : [this.requestRoot];
+    const files: Record<string, string> = {};
+    for (const root of caseRoots) {
+      const entries = await readdir(root).catch(() => [] as string[]);
+      for (const name of entries.filter((entry) => isCasesPackageName(entry))) {
+        if (files[name] === undefined) {
+          files[name] = await readFile(resolve(root, name), "utf8");
+        }
+      }
+    }
     this.assertRelationProjection(plan, files);
   }
 
@@ -5590,7 +5636,7 @@ export class DurableWorkflowManager {
       const filename = basename(artifact.targetPath);
       const content = Buffer.from(artifact.content).toString("utf8");
       if (filename === "plan.md") plan = content;
-      else if (/^cases-[a-z0-9][a-z0-9-]*\.md$/.test(filename)) files[filename] = content;
+      else if (filename === "cases.md" || /^cases-[a-z0-9][a-z0-9-]*\.md$/.test(filename)) files[filename] = content;
       else throw new Error(`Relation validation received an unexpected artifact: ${artifact.targetPath}`);
     }
     if (!plan) throw new Error("Relationship synchronization must stage plan.md.");
@@ -5612,7 +5658,7 @@ export class DurableWorkflowManager {
         throw new Error(`Case package activity ${activity.id} is not complete.`);
       }
       const packageName = activity.definition.metadata?.package;
-      if (typeof packageName !== "string" || !/^cases-[a-z0-9][a-z0-9-]*\.md$/.test(packageName)) {
+      if (typeof packageName !== "string" || !isCasesPackageName(packageName)) {
         throw new Error(`Case package ${activity.id} has an invalid package filename.`);
       }
       const expectedPath = safeRelativePath(
