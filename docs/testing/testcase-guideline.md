@@ -211,7 +211,7 @@ v7 没有独立计划确认。候选集通过门禁并完成适用评审后，�
 
 用例确认 `accepted` 后，必须从套件 `cases.md` 派生用户侧交付 Excel，作为用例交付的固定组成（与 Git 事实源并行，非替代）：
 
-- 产物路径：`outputs/<request>/` 目录下（如 `outputs/web-open-platform-login-register-20260820-r2/`），文件名 `<套件业务名>测试用例.xlsx`；不提交 Git，不写 workflow history，不属于候选生成或评审事实；
+- 产物路径：`outputs/<request>/` 目录下（request 取请求标识本身，如 `outputs/login-register-20260820-r2/`），文件名 `<套件业务名>测试用例.xlsx`；不提交 Git，不写 workflow history，不属于候选生成或评审事实；
 - 双工作表固定结构：
   - 「用例总览」列：`模块、用例编号、用例标题、优先级、风险、规则、前置条件、数据策略 / 来源`；
   - 「步骤明细」列：`用例编号、数据编号、步骤、操作、测试数据、预期结果`；
