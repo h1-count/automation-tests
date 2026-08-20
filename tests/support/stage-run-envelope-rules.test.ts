@@ -953,7 +953,7 @@ test("host lifecycle remains external and unavailable capability degrades honest
     automationGuideline,
     /宿主长期任务能力缺失或调用失败时[\s\S]*不得声称能力已启用[\s\S]*显式 `task:resume` 推进/
   );
-  assert.match(docsIndex, /v7 复用分支与生命周期、Activity、callback、恢复、Gate/);
+  assert.match(docsIndex, /v7 复用分支与生命周期（含交付目标首轮确认）、Activity、callback、恢复、Gate/);
 
   for (const [name, document] of [
     ["AGENTS", agents],

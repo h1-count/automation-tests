@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import ExcelJS from "exceljs";
 import {
   assertTestcaseReviewExportCurrent,
   buildTestcaseReviewExport,
@@ -128,6 +129,49 @@ test("workbook receipt must match digests, counts, sheets, previews, and workboo
     exported,
     workbookSha256
   }), /three required sheets/u);
+});
+
+test("workbook builder generates a publishable workbook end to end without a host spreadsheet runtime", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "testcase-review-build-"));
+  try {
+    const exported = buildTestcaseReviewExport(reviewModel(3, 2));
+    const modelPath = resolve(root, "model.json");
+    await writeFile(modelPath, JSON.stringify(exported), "utf8");
+    const outputPath = resolve(root, "cases-review.xlsx");
+    const previewDir = resolve(root, "previews");
+    const receiptPath = resolve(root, "receipt.json");
+    const result = spawnSync(process.execPath, [
+      builderPath,
+      "--model", modelPath,
+      "--output", outputPath,
+      "--preview-dir", previewDir,
+      "--receipt", receiptPath
+    ], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    const workbookSha256FromBytes = createHash("sha256")
+      .update(await readFile(outputPath))
+      .digest("hex");
+    const receipt = validateTestcaseReviewWorkbookReceipt({
+      receipt: JSON.parse(await readFile(receiptPath, "utf8")),
+      exported,
+      workbookSha256: workbookSha256FromBytes
+    });
+    assert.deepEqual(receipt.statistics, { moduleCount: 1, caseCount: 3, executionRowCount: 4 });
+    assert.equal(receipt.formulaErrorCount, 0);
+    for (const preview of receipt.previews) {
+      const previewPath = resolve(dirname(receiptPath), preview.path);
+      const previewDigest = createHash("sha256").update(await readFile(previewPath)).digest("hex");
+      assert.equal(previewDigest, preview.sha256, `preview digest mismatch for ${preview.sheet}`);
+      assert.ok((await readFile(previewPath)).byteLength > 0, `preview is empty for ${preview.sheet}`);
+    }
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(outputPath);
+    assert.equal(workbook.getWorksheet("说明")!.rowCount, 18);
+    assert.equal(workbook.getWorksheet("用例索引")!.rowCount, 4);
+    assert.equal(workbook.getWorksheet("用例详情")!.rowCount, 5);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("workbook builder derives formulas and merge boundaries from any testcase count", async () => {

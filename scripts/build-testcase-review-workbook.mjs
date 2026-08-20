@@ -135,13 +135,6 @@ export function buildWorkbookLayout(exported) {
   };
 }
 
-function formulaErrorCount(ndjson) {
-  const errorPattern = /#REF!|#DIV\/0!|#VALUE!|#NAME\?|#N\/A/u;
-  return ndjson.split(/\r?\n/u).filter((line) =>
-    line.trim() && !line.includes('"searchTerm"') && errorPattern.test(line)
-  ).length;
-}
-
 function executionRowHeight(executionRow) {
   const lineCounts = [
     Math.ceil((executionRow.action?.length ?? 0) / 30),
@@ -158,77 +151,151 @@ async function writeJsonAtomic(target, value) {
   await fs.rename(temporary, target);
 }
 
+function cellFormulaText(cell) {
+  const value = cell ? cell.value : null;
+  if (value && typeof value === "object" && typeof value.formula === "string") {
+    return `=${value.formula}`;
+  }
+  if (typeof value === "string" && value.startsWith("=")) return value;
+  return "";
+}
+
+/** 确定性公式审计：替代原表格运行时的渲染错误扫描（§4.3「公式错误数」）。 */
+function auditStatisticsFormulas(model, layout, formulaCells) {
+  const errors = [];
+  const expectedFormulas = layout.statisticsFormulas;
+  if (formulaCells.length !== expectedFormulas.length) {
+    errors.push(`统计公式单元格数量不一致：${formulaCells.length} vs ${expectedFormulas.length}。`);
+  }
+  formulaCells.forEach((cell, index) => {
+    const actual = cellFormulaText(cell);
+    if (actual !== expectedFormulas[index]) {
+      errors.push(`统计公式第 ${index + 1} 项与确定性生成结果不一致：${actual || "(缺失)"}`);
+    }
+  });
+  const indexRows = model.indexRows;
+  const recomputed = {
+    caseCount: indexRows.filter((row) => row.caseId && row.caseId.trim()).length,
+    p0Count: indexRows.filter((row) => row.priority === "P0").length,
+    highRiskCount: indexRows.filter((row) => row.risk === "高").length,
+  };
+  if (recomputed.caseCount !== indexRows.length) {
+    errors.push("用例索引存在空用例编号，COUNTA 统计口径不成立。");
+  }
+  if (indexRows.some((row) => !row.priority || !row.risk)) {
+    errors.push("用例索引存在空优先级或空风险，COUNTIF 统计口径不成立。");
+  }
+  if (recomputed.p0Count !== model.statistics.p0Count) {
+    errors.push(`P0 统计与模型不一致：公式口径 ${recomputed.p0Count}，模型 ${model.statistics.p0Count}。`);
+  }
+  if (recomputed.highRiskCount !== model.statistics.highRiskCount) {
+    errors.push(`高风险统计与模型不一致：公式口径 ${recomputed.highRiskCount}，模型 ${model.statistics.highRiskCount}。`);
+  }
+  return errors;
+}
+
+/** 从落盘后的工作簿生成逐表确定性文本预览（发布边界摘要校验的输入）。 */
+function renderSheetPreview(sheet) {
+  const lines = [`# ${sheet.name} · 确定性文本预览`, `# 行数：${sheet.rowCount}`];
+  for (let rowNumber = 1; rowNumber <= sheet.rowCount; rowNumber += 1) {
+    const row = sheet.getRow(rowNumber);
+    const cells = [];
+    for (let columnNumber = 1; columnNumber <= row.cellCount; columnNumber += 1) {
+      const cell = row.getCell(columnNumber);
+      const formula = cellFormulaText(cell);
+      if (formula) {
+        cells.push(formula);
+      } else {
+        const value = cell.value;
+        const text = value === null || value === undefined
+          ? ""
+          : String(value).replace(/\r?\n/gu, "\\n");
+        cells.push(text);
+      }
+    }
+    while (cells.length > 0 && cells[cells.length - 1] === "") cells.pop();
+    lines.push(`${rowNumber}\t${cells.join("\t")}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
-  const { SpreadsheetFile, Workbook } = await import("@oai/artifact-tool");
+  const exceljsModule = await import("exceljs");
+  const ExcelJS = exceljsModule.default ?? exceljsModule;
   const { model } = exported;
   const layout = buildWorkbookLayout(exported);
-  const workbook = Workbook.create();
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "automation-tests 用例评审工作簿";
   const colors = {
-    navy: "#16324F",
-    teal: "#0F766E",
-    paleBlue: "#EAF2F8",
-    paleTeal: "#E8F5F2",
-    paleYellow: "#FFF4CC",
-    paleRed: "#FDECEC",
-    gray: "#F3F5F7",
-    line: "#CBD5E1",
-    text: "#1F2937",
-    muted: "#64748B",
-    white: "#FFFFFF",
+    navy: "FF16324F",
+    teal: "FF0F766E",
+    paleBlue: "FFEAF2F8",
+    paleTeal: "FFE8F5F2",
+    paleYellow: "FFFFF4CC",
+    paleRed: "FFFDECEC",
+    gray: "FFF3F5F7",
+    line: "FFCBD5E1",
+    text: "FF1F2937",
+    muted: "FF64748B",
+    white: "FFFFFFFF",
   };
-  const font = { name: "Microsoft YaHei", size: 10, color: colors.text };
-  const border = { preset: "all", style: "thin", color: colors.line };
+  const font = { name: "Microsoft YaHei", size: 10, color: { argb: colors.text } };
+  const border = {
+    top: { style: "thin", color: { argb: colors.line } },
+    left: { style: "thin", color: { argb: colors.line } },
+    bottom: { style: "thin", color: { argb: colors.line } },
+    right: { style: "thin", color: { argb: colors.line } },
+  };
+  const mediumNavy = { style: "medium", color: { argb: colors.navy } };
 
-  function setColumnWidths(sheet, widths) {
-    widths.forEach((width, index) => {
-      sheet.getRangeByIndexes(0, index, 1, 1).format.columnWidth = width;
+  const styleHeader = (row, fill) => {
+    row.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } };
+      cell.font = { ...font, bold: true, color: { argb: colors.white } };
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      cell.border = border;
     });
-  }
-
-  function styleBase(sheet) {
-    sheet.showGridLines = false;
-    const used = sheet.getUsedRange();
-    if (used) used.format.verticalAlignment = "center";
-  }
-
-  function styleHeader(range, fill = colors.navy) {
-    range.format = {
-      fill,
-      font: { ...font, bold: true, color: colors.white },
-      horizontalAlignment: "center",
-      verticalAlignment: "center",
-      wrapText: true,
-      borders: border,
-    };
-    range.format.rowHeight = 28;
-  }
-
-  function styleBody(range) {
-    range.format = { font, verticalAlignment: "center", wrapText: true, borders: border };
-  }
-
-  const infoSheet = workbook.worksheets.add("说明");
-  const indexSheet = workbook.worksheets.add("用例索引");
-  const detailSheet = workbook.worksheets.add("用例详情");
-
-  infoSheet.getRange("A1:E1").merge();
-  infoSheet.getRange("A1").values = [[`${model.title} · 只读评审版`]];
-  infoSheet.getRange("A1:E1").format = {
-    fill: colors.navy,
-    font: { name: "Microsoft YaHei", size: 16, bold: true, color: colors.white },
-    horizontalAlignment: "left",
-    verticalAlignment: "center",
+    row.height = 28;
   };
-  infoSheet.getRange("A1:E1").format.rowHeight = 34;
-  infoSheet.getRange("A2:E2").merge();
-  infoSheet.getRange("A2").values = [["只读评审版，以 cases.md 为准；请勿将本文件中的人工修改导回正式用例。"]];
-  infoSheet.getRange("A2:E2").format = {
-    fill: colors.paleYellow,
-    font: { ...font, bold: true, color: "#7C5700" },
-    wrapText: true,
+  const styleBody = (row) => {
+    row.eachCell((cell) => {
+      cell.font = font;
+      cell.alignment = { vertical: "middle", wrapText: true };
+      cell.border = border;
+    });
   };
-  infoSheet.getRange("A2:E2").format.rowHeight = 30;
-  infoSheet.getRange("A4:B10").values = [
+  const setWidths = (sheet, widths) => {
+    widths.forEach((width, index) => {
+      sheet.getColumn(index + 1).width = width;
+    });
+  };
+
+  const infoSheet = workbook.addWorksheet(sheetNames[0]);
+  const indexSheet = workbook.addWorksheet(sheetNames[1]);
+  const detailSheet = workbook.addWorksheet(sheetNames[2]);
+
+  // 说明
+  infoSheet.columns = [{ width: 18 }, { width: 76 }, { width: 16 }, { width: 16 }, { width: 16 }];
+  const titleRow = infoSheet.addRow([`${model.title} · 只读评审版`]);
+  infoSheet.mergeCells(titleRow.number, 1, titleRow.number, 5);
+  const titleCell = titleRow.getCell(1);
+  titleCell.font = { name: "Microsoft YaHei", size: 16, bold: true, color: { argb: colors.white } };
+  titleCell.alignment = { horizontal: "left", vertical: "middle" };
+  for (let column = 1; column <= 5; column += 1) {
+    titleRow.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.navy } };
+  }
+  titleRow.height = 34;
+  const noteRow = infoSheet.addRow([
+    "只读评审版，以 cases.md 为准；请勿将本文件中的人工修改导回正式用例。"
+  ]);
+  infoSheet.mergeCells(noteRow.number, 1, noteRow.number, 5);
+  const noteCell = noteRow.getCell(1);
+  noteCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.paleYellow } };
+  noteCell.font = { ...font, bold: true, color: { argb: "FF7C5700" } };
+  noteCell.alignment = { wrapText: true, vertical: "middle" };
+  noteRow.height = 30;
+  infoSheet.addRow([]);
+  const metaRows = [
     ["请求编号", model.requestId],
     ["格式版本", model.formatVersion],
     ["测试类型", model.defaults.testType],
@@ -237,52 +304,79 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
     ["确认摘要", model.callbackSubjectDigest],
     ["用例语义摘要", model.semanticDigest],
   ];
-  infoSheet.getRange("A4:A10").format = { fill: colors.gray, font: { ...font, bold: true }, borders: border };
-  infoSheet.getRange("B4:B10").format = { font, wrapText: true, borders: border };
-  infoSheet.getRange("A12:B12").values = [["统计项", "当前值"]];
-  styleHeader(infoSheet.getRange("A12:B12"), colors.teal);
-  infoSheet.getRange("A13:A15").values = [["用例总数"], ["P0 用例"], ["高风险用例"]];
-  infoSheet.getRange("B13:B15").formulas = layout.statisticsFormulas.map((formula) => [formula]);
-  styleBody(infoSheet.getRange("A13:B15"));
-  infoSheet.getRange("A17:E17").merge();
-  infoSheet.getRange("A17").values = [["使用方式：先在“用例索引”筛选范围，再进入“用例详情”连续查看模块、用例、步骤和参数数据。"]];
-  infoSheet.getRange("A17:E17").format = { fill: colors.paleBlue, font: { ...font, color: colors.navy }, wrapText: true };
-  infoSheet.getRange("A17:E17").format.rowHeight = 30;
-  infoSheet.getRange("A18:E18").merge();
-  infoSheet.getRange("A18").values = [["颜色说明：索引斑马纹只用于阅读；P0 在优先级列标绿，高风险在风险列标红。"]];
-  infoSheet.getRange("A18:E18").format = { fill: colors.gray, font: { ...font, color: colors.muted }, wrapText: true };
-  infoSheet.getRange("A18:E18").format.rowHeight = 30;
-  setColumnWidths(infoSheet, [18, 76, 16, 16, 16]);
-  styleBase(infoSheet);
-  infoSheet.freezePanes.freezeRows(2);
-
-  indexSheet.getRange("A1:E1").values = [["模块", "用例编号", "用例标题", "优先级", "风险"]];
-  indexSheet.getRange(`A2:E${layout.indexLastRow}`).values = model.indexRows.map((row) => [
-    row.module, row.caseId, row.title, row.priority, row.risk,
+  metaRows.forEach(([label, value]) => {
+    const row = infoSheet.addRow([label, value]);
+    row.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.gray } };
+    row.getCell(1).font = { ...font, bold: true };
+    row.getCell(1).border = border;
+    row.getCell(2).font = font;
+    row.getCell(2).alignment = { wrapText: true, vertical: "middle" };
+    row.getCell(2).border = border;
+  });
+  infoSheet.addRow([]);
+  const statsHeader = infoSheet.addRow(["统计项", "当前值"]);
+  styleHeader(statsHeader, colors.teal);
+  const statisticsLabels = ["用例总数", "P0 用例", "高风险用例"];
+  const statsRows = infoSheet.addRows(layout.statisticsFormulas.map((formula, index) => [
+    statisticsLabels[index],
+    { formula: formula.slice(1) },
+  ]));
+  statsRows.forEach((row) => styleBody(row));
+  infoSheet.addRow([]);
+  const usageRow = infoSheet.addRow([
+    "使用方式：先在“用例索引”筛选范围，再进入“用例详情”连续查看模块、用例、步骤和参数数据。"
   ]);
-  styleHeader(indexSheet.getRange("A1:E1"));
-  styleBody(indexSheet.getRange(`A2:E${layout.indexLastRow}`));
-  indexSheet.getRange(`A2:E${layout.indexLastRow}`).format.rowHeight = 25;
-  indexSheet.getRange(`D2:E${layout.indexLastRow}`).format.horizontalAlignment = "center";
-  setColumnWidths(indexSheet, [22, 24, 46, 12, 12]);
-  indexSheet.freezePanes.freezeRows(1);
-  const indexTable = indexSheet.tables.add(`A1:E${layout.indexLastRow}`, true, "TestcaseIndexTable");
-  indexTable.style = "TableStyleMedium2";
-  indexTable.showFilterButton = true;
-  indexSheet.getRange(`D2:D${layout.indexLastRow}`).conditionalFormats.add("expression", {
-    formula: "$D2=\"P0\"",
-    format: { fill: colors.paleTeal, font: { bold: true, color: colors.teal } },
-  });
-  indexSheet.getRange(`E2:E${layout.indexLastRow}`).conditionalFormats.add("expression", {
-    formula: "$E2=\"高\"",
-    format: { fill: colors.paleRed, font: { bold: true, color: "#991B1B" } },
-  });
-  styleBase(indexSheet);
+  infoSheet.mergeCells(usageRow.number, 1, usageRow.number, 5);
+  const usageCell = usageRow.getCell(1);
+  usageCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.paleBlue } };
+  usageCell.font = { ...font, color: { argb: colors.navy } };
+  usageCell.alignment = { wrapText: true, vertical: "middle" };
+  usageRow.height = 30;
+  const legendRow = infoSheet.addRow([
+    "颜色说明：索引斑马纹只用于阅读；P0 在优先级列标绿，高风险在风险列标红。"
+  ]);
+  infoSheet.mergeCells(legendRow.number, 1, legendRow.number, 5);
+  const legendCell = legendRow.getCell(1);
+  legendCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.gray } };
+  legendCell.font = { ...font, color: { argb: colors.muted } };
+  legendCell.alignment = { wrapText: true, vertical: "middle" };
+  legendRow.height = 30;
+  infoSheet.views = [{ state: "frozen", ySplit: 2 }];
+  infoSheet.properties.showGridLines = false;
 
-  detailSheet.getRange("A1:J1").values = [[
+  // 用例索引
+  const indexHeader = indexSheet.addRow(["模块", "用例编号", "用例标题", "优先级", "风险"]);
+  styleHeader(indexHeader, colors.navy);
+  model.indexRows.forEach((entry, position) => {
+    const row = indexSheet.addRow([entry.module, entry.caseId, entry.title, entry.priority, entry.risk]);
+    styleBody(row);
+    row.height = 25;
+    row.getCell(4).alignment = { horizontal: "center", vertical: "middle" };
+    row.getCell(5).alignment = { horizontal: "center", vertical: "middle" };
+    if (position % 2 === 1) {
+      for (let column = 1; column <= 5; column += 1) {
+        row.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.gray } };
+      }
+    }
+    if (entry.priority === "P0") {
+      row.getCell(4).fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.paleTeal } };
+      row.getCell(4).font = { ...font, bold: true, color: { argb: colors.teal } };
+    }
+    if (entry.risk === "高") {
+      row.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.paleRed } };
+      row.getCell(5).font = { ...font, bold: true, color: { argb: "FF991B1B" } };
+    }
+  });
+  indexSheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: layout.indexLastRow, column: 5 } };
+  setWidths(indexSheet, [22, 24, 46, 12, 12]);
+  indexSheet.views = [{ state: "frozen", ySplit: 1 }];
+  indexSheet.properties.showGridLines = false;
+
+  // 用例详情
+  const detailHeader = detailSheet.addRow([
     "模块", "用例", "优先级", "风险", "RULE / 差异", "前置条件", "数据编号", "步骤 / 操作", "测试数据", "预期结果",
-  ]];
-  styleHeader(detailSheet.getRange("A1:J1"));
+  ]);
+  styleHeader(detailHeader, colors.navy);
   let detailRow = 2;
   for (const module of model.modules) {
     const moduleStart = detailRow;
@@ -293,11 +387,11 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
         ? `${testcase.ruleIds.join("、")}\n差异：${testcase.differences.join("；")}`
         : testcase.ruleIds.join("、");
       let previousDataId;
-      const rows = testcase.executionRows.map((executionRow, index) => {
+      testcase.executionRows.forEach((executionRow, index) => {
         const dataId = executionRow.dataId ?? "—";
         const startsDataGroup = dataId !== previousDataId;
         previousDataId = dataId;
-        return [
+        const row = detailSheet.addRow([
           index === 0 && caseStart === moduleStart ? module.name : null,
           index === 0 ? `${testcase.caseId}\n${testcase.title}` : null,
           index === 0 ? testcase.priority : null,
@@ -308,12 +402,16 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
           `${executionRow.stepIndex}. ${executionRow.action}`,
           executionRow.data,
           executionRow.expected,
-        ];
+        ]);
+        styleBody(row);
+        row.getCell(7).alignment = { horizontal: "center", vertical: "middle" };
+        for (const column of [8, 9, 10]) {
+          row.getCell(column).alignment = { horizontal: "left", vertical: "top", wrapText: true };
+        }
+        row.height = executionRowHeight(executionRow);
       });
-      detailSheet.getRange(`A${caseStart}:J${caseEnd}`).values = rows;
-      styleBody(detailSheet.getRange(`A${caseStart}:J${caseEnd}`));
-      for (const column of ["B", "C", "D", "E", "F"]) {
-        if (caseEnd > caseStart) detailSheet.getRange(`${column}${caseStart}:${column}${caseEnd}`).merge();
+      for (const column of [2, 3, 4, 5, 6]) {
+        if (caseEnd > caseStart) detailSheet.mergeCells(caseStart, column, caseEnd, column);
       }
       let groupStart = caseStart;
       let activeDataId = testcase.executionRows[0].dataId ?? "—";
@@ -321,101 +419,142 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
         const currentDataId = executionRow.dataId ?? "—";
         const absoluteRow = caseStart + index;
         if (currentDataId !== activeDataId) {
-          if (absoluteRow - 1 > groupStart) detailSheet.getRange(`G${groupStart}:G${absoluteRow - 1}`).merge();
+          if (absoluteRow - 1 > groupStart) detailSheet.mergeCells(groupStart, 7, absoluteRow - 1, 7);
           groupStart = absoluteRow;
           activeDataId = currentDataId;
         }
       });
-      if (caseEnd > groupStart) detailSheet.getRange(`G${groupStart}:G${caseEnd}`).merge();
-      detailSheet.getRange(`B${caseStart}:B${caseEnd}`).format = {
-        fill: colors.paleBlue, font: { ...font, bold: true, color: colors.navy },
-        horizontalAlignment: "left", verticalAlignment: "top", wrapText: true, borders: border,
+      if (caseEnd > groupStart) detailSheet.mergeCells(groupStart, 7, caseEnd, 7);
+      const caseIdentity = (column, fill, bold, color) => {
+        for (let row = caseStart; row <= caseEnd; row += 1) {
+          const cell = detailSheet.getCell(row, column);
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } };
+          cell.font = { ...font, bold, color: { argb: color } };
+        }
       };
-      detailSheet.getRange(`C${caseStart}:C${caseEnd}`).format = {
-        fill: testcase.priority === "P0" ? colors.paleTeal : colors.gray,
-        font: { ...font, bold: testcase.priority === "P0", color: testcase.priority === "P0" ? colors.teal : colors.text },
-        horizontalAlignment: "center", verticalAlignment: "center", wrapText: true, borders: border,
-      };
-      detailSheet.getRange(`D${caseStart}:D${caseEnd}`).format = {
-        fill: testcase.risk === "高" ? colors.paleRed : colors.gray,
-        font: { ...font, bold: testcase.risk === "高", color: testcase.risk === "高" ? "#991B1B" : colors.text },
-        horizontalAlignment: "center", verticalAlignment: "center", wrapText: true, borders: border,
-      };
-      for (const column of ["E", "F"]) {
-        detailSheet.getRange(`${column}${caseStart}:${column}${caseEnd}`).format = {
-          fill: column === "E" ? colors.gray : colors.white,
-          font: column === "E" ? { ...font, color: colors.muted } : font,
-          verticalAlignment: "top", wrapText: true, borders: border,
-        };
+      caseIdentity(2, colors.paleBlue, true, colors.navy);
+      detailSheet.getCell(caseStart, 2).alignment = { horizontal: "left", vertical: "top", wrapText: true };
+      caseIdentity(
+        3,
+        testcase.priority === "P0" ? colors.paleTeal : colors.gray,
+        testcase.priority === "P0",
+        testcase.priority === "P0" ? colors.teal : colors.text,
+      );
+      caseIdentity(
+        4,
+        testcase.risk === "高" ? colors.paleRed : colors.gray,
+        testcase.risk === "高",
+        testcase.risk === "高" ? "FF991B1B" : colors.text,
+      );
+      for (let row = caseStart; row <= caseEnd; row += 1) {
+        const ruleCell = detailSheet.getCell(row, 5);
+        ruleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.gray } };
+        ruleCell.font = { ...font, color: { argb: colors.muted } };
+        ruleCell.alignment = { vertical: "top", wrapText: true };
+        const preCell = detailSheet.getCell(row, 6);
+        preCell.alignment = { vertical: "top", wrapText: true };
       }
-      detailSheet.getRange(`G${caseStart}:G${caseEnd}`).format.horizontalAlignment = "center";
-      detailSheet.getRange(`A${caseStart}:J${caseStart}`).format.borders = { top: { style: "medium", color: colors.navy } };
-      testcase.executionRows.forEach((executionRow, index) => {
-        detailSheet.getRange(`A${caseStart + index}:J${caseStart + index}`).format.rowHeight = executionRowHeight(executionRow);
-      });
+      for (let column = 1; column <= 10; column += 1) {
+        detailSheet.getCell(caseStart, column).border = { ...border, top: mediumNavy };
+      }
       detailRow = caseEnd + 1;
     }
     const moduleEnd = detailRow - 1;
-    if (moduleEnd > moduleStart) detailSheet.getRange(`A${moduleStart}:A${moduleEnd}`).merge();
-    detailSheet.getRange(`A${moduleStart}:A${moduleEnd}`).format = {
-      fill: colors.navy,
-      font: { name: "Microsoft YaHei", size: 12, bold: true, color: colors.white },
-      horizontalAlignment: "center", verticalAlignment: "center", wrapText: true,
-      borders: { preset: "outside", style: "medium", color: colors.navy },
-    };
-    detailSheet.getRange(`A${moduleEnd}:J${moduleEnd}`).format.borders = { bottom: { style: "medium", color: colors.navy } };
+    if (moduleEnd > moduleStart) detailSheet.mergeCells(moduleStart, 1, moduleEnd, 1);
+    for (let row = moduleStart; row <= moduleEnd; row += 1) {
+      const cell = detailSheet.getCell(row, 1);
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.navy } };
+      cell.font = { name: "Microsoft YaHei", size: 12, bold: true, color: { argb: colors.white } };
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    }
+    for (let column = 1; column <= 10; column += 1) {
+      detailSheet.getCell(moduleEnd, column).border = { ...border, bottom: mediumNavy };
+    }
   }
-  setColumnWidths(detailSheet, [16, 31, 10, 10, 26, 32, 11, 34, 30, 44]);
-  detailSheet.getRange(`H2:J${layout.detailLastRow}`).format.horizontalAlignment = "left";
-  styleBase(detailSheet);
-  detailSheet.freezePanes.freezeRows(1);
-  detailSheet.freezePanes.freezeColumns(2);
+  setWidths(detailSheet, [16, 31, 10, 10, 26, 32, 11, 34, 30, 44]);
+  detailSheet.views = [{ state: "frozen", xSplit: 2, ySplit: 1 }];
+  detailSheet.properties.showGridLines = false;
 
-  const summary = await workbook.inspect({
-    kind: "workbook,sheet,table", maxChars: 5000, tableMaxRows: 5, tableMaxCols: 5, tableMaxCellChars: 100,
-  });
-  for (const sheetName of sheetNames) {
-    if (!summary.ndjson.includes(sheetName)) throw new Error(`Workbook inspection is missing sheet ${sheetName}.`);
-  }
-  for (const sheetName of sheetNames) {
-    const sheet = workbook.worksheets.getItem(sheetName);
-    const usedRange = sheet.getUsedRange();
-    if (!usedRange) throw new Error(`Workbook sheet ${sheetName} is empty.`);
-    await workbook.inspect({
-      kind: "region", sheetId: sheetName, range: usedRange.address,
-      maxChars: 3000, tableMaxRows: 12, tableMaxCols: 10, tableMaxCellChars: 120,
-    });
-  }
-  const errors = await workbook.inspect({
-    kind: "match",
-    searchTerm: "#REF!|#DIV/0!|#VALUE!|#NAME\\?|#N/A",
-    options: { useRegex: true, maxResults: 300 },
-    summary: "final formula error scan",
-  });
-  const detectedFormulaErrors = formulaErrorCount(errors.ndjson);
-  if (detectedFormulaErrors !== 0) {
-    throw new Error(`Workbook formula scan found ${detectedFormulaErrors} error record(s).`);
+  // 写入前公式审计：统计公式必须与确定性生成结果和模型统计一致。
+  const formulaCells = statsRows.map((row) => row.getCell(2));
+  const formulaAuditErrors = auditStatisticsFormulas(model, layout, formulaCells);
+  if (formulaAuditErrors.length > 0) {
+    throw new Error(`Workbook formula audit failed: ${formulaAuditErrors.join("；")}`);
   }
 
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await workbook.xlsx.writeFile(outputPath);
+
+  // 落盘后关键区域复核：从真实文件字节重新读取，校验工作表、行数与首行内容。
+  const reread = new ExcelJS.Workbook();
+  await reread.xlsx.readFile(outputPath);
+  for (const sheetName of sheetNames) {
+    const sheet = reread.getWorksheet(sheetName);
+    if (!sheet) throw new Error(`Workbook inspection is missing sheet ${sheetName}.`);
+    if (!sheet.rowCount || sheet.rowCount < 1) throw new Error(`Workbook sheet ${sheetName} is empty.`);
+  }
+  const rereadInfo = reread.getWorksheet(sheetNames[0]);
+  const rereadTitle = rereadInfo.getCell(1, 1).value;
+  if (rereadTitle !== `${model.title} · 只读评审版`) {
+    throw new Error(`Workbook title region mismatch: ${String(rereadTitle)}`);
+  }
+  const rereadIndex = reread.getWorksheet(sheetNames[1]);
+  if (rereadIndex.rowCount !== layout.indexLastRow) {
+    throw new Error(`Workbook index row count mismatch: ${rereadIndex.rowCount} vs ${layout.indexLastRow}.`);
+  }
+  const firstIndexRow = model.indexRows[0];
+  if (
+    rereadIndex.getCell(2, 1).value !== firstIndexRow.module
+    || rereadIndex.getCell(2, 2).value !== firstIndexRow.caseId
+    || rereadIndex.getCell(2, 3).value !== firstIndexRow.title
+  ) {
+    throw new Error("Workbook index first data row mismatch.");
+  }
+  const rereadDetail = reread.getWorksheet(sheetNames[2]);
+  if (rereadDetail.rowCount !== layout.detailLastRow) {
+    throw new Error(`Workbook detail row count mismatch: ${rereadDetail.rowCount} vs ${layout.detailLastRow}.`);
+  }
+  const detailHeaderCells = [];
+  for (let column = 1; column <= 10; column += 1) {
+    detailHeaderCells.push(rereadDetail.getCell(1, column).value);
+  }
+  const expectedDetailHeader = [
+    "模块", "用例", "优先级", "风险", "RULE / 差异", "前置条件", "数据编号", "步骤 / 操作", "测试数据", "预期结果",
+  ];
+  if (JSON.stringify(detailHeaderCells) !== JSON.stringify(expectedDetailHeader)) {
+    throw new Error("Workbook detail header mismatch.");
+  }
+  const firstCase = model.modules[0].cases[0];
+  const firstExecutionText = `${firstCase.executionRows[0].stepIndex}. ${firstCase.executionRows[0].action}`;
+  if (rereadDetail.getCell(2, 8).value !== firstExecutionText) {
+    throw new Error("Workbook detail first execution row mismatch.");
+  }
+  const rereadFormulaAudit = auditStatisticsFormulas(model, layout, [
+    rereadInfo.getCell(13, 2),
+    rereadInfo.getCell(14, 2),
+    rereadInfo.getCell(15, 2),
+  ]);
+  if (rereadFormulaAudit.length > 0) {
+    throw new Error(`Workbook formula audit failed after write: ${rereadFormulaAudit.join("；")}`);
+  }
+
+  // 逐表确定性文本预览：从落盘文件派生，作为发布边界摘要校验的输入。
   await fs.rm(previewDir, { recursive: true, force: true });
   await fs.mkdir(previewDir, { recursive: true });
   const previews = [];
   for (const sheetName of sheetNames) {
-    const preview = await workbook.render({ sheetName, autoCrop: "all", scale: 1, format: "png" });
-    const previewPath = path.join(previewDir, `${sheetName}.png`);
-    const bytes = new Uint8Array(await preview.arrayBuffer());
-    if (bytes.byteLength === 0) throw new Error(`Workbook preview is empty for ${sheetName}.`);
-    await fs.writeFile(previewPath, bytes);
+    const sheet = reread.getWorksheet(sheetName);
+    const previewText = renderSheetPreview(sheet);
+    if (!previewText.trim()) throw new Error(`Workbook preview is empty for ${sheetName}.`);
+    const previewPath = path.join(previewDir, `${sheetName}.md`);
+    await fs.writeFile(previewPath, previewText, "utf8");
     previews.push({
       sheet: sheetName,
       path: path.relative(path.dirname(receiptPath), previewPath),
-      sha256: sha256(bytes),
+      sha256: sha256(previewText),
     });
   }
 
-  await fs.mkdir(path.dirname(outputPath), { recursive: true });
-  const exportedWorkbook = await SpreadsheetFile.exportXlsx(workbook);
-  await exportedWorkbook.save(outputPath);
   const workbookBytes = await fs.readFile(outputPath);
   const receipt = {
     schema: receiptSchema,
@@ -425,11 +564,10 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
     workbookSha256: sha256(workbookBytes),
     sheets: sheetNames,
     statistics: layout.statistics,
-    formulaErrorCount: detectedFormulaErrors,
+    formulaErrorCount: 0,
     previews,
   };
   await writeJsonAtomic(receiptPath, receipt);
-  await fs.rm(`${outputPath}.inspect.ndjson`, { force: true });
   return receipt;
 }
 
