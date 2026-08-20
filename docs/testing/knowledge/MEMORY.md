@@ -197,3 +197,18 @@
 - 验证条件：下一次 v7 评审收敛轮实际生成并发布 cases-review.xlsx，不再 Markdown 回退
 - 最近更新：2026-08-20T07:35:25.779Z
 <!-- project-experience:BCB78D753769:end -->
+
+<!-- project-experience:C926826E8034:start -->
+<a id="exp-c926826e8034"></a>
+## 2026-08-20：测试工程用例评审链路的耗时归因与子代理模型档位路由
+
+- 经验编号：EXP-C926826E8034
+- 适用范围：测试工程用例评审链路的耗时归因与子代理模型档位路由
+- 证据状态：待验证
+- 观察：对 6 个历史运行 workflow-history 事件时间戳做 Activity 时长与事件间隔分析：candidate-generation 仅占 1.7-2.9 分钟且 3-6 模块已全并行；时间大头是评审批次（ReviewerDispatched→ReviewerSubmitted，单批 3.7-28.8 分钟，每轮 2-4 批）与用户确认等待（3.7-17.9 分钟）；演进二批（activate_evolved_review_batch）是最长批次
+- 判断：片段生成换快档位上限只省 1-2 分钟且是生成红线高发区，ROI 为负；真正的路由靶点是评审批次，但评审是审计质量环节，降档必须小范围试点带对照度量；dsh-tool-subagent 支持 agentOptions（provider/model）挂载级路由且子代理先继承父路由再被行配置覆盖，maxDepth 0 可禁止子代理再派生
+- 当前优先策略：测试模式 preset 增加 tool-subagent-fast 行（toolName=subagent_fast，agentOptions 固定 zai-coding-cn/glm-5-turbo，maxDepth 0）：试点期仅 activate_evolved_review_batch 触发的演进二批可用 fast 档，骨架冻结、片段生成、首批评审与 resolution 保持默认档；在评审结论回复中对照两批时长与发现数（时长从事件间隔派生）；不达标删行即回退，模型名映射只存在于 preset 不进仓库规范
+- 证据引用：EXP-D481E5946181（r2 时间轴复盘基线）；耗时分析方法为本轮对 workflow-history.ndjson 事件时间戳的 Activity 时长与 gap 提取（.local 本机运行档案仅作分析输入，不作证据链接）；路由机制核实自 deepseek-harness 源码 resolveChildAgentOptions 与 dsh-tool-subagent Config
+- 验证条件：下一次出现演进二批的真实请求：fast 档批次时长显著低于同轮首批且发现数与有效率不降，则扩大试点；发现质量下降则删除 preset 行回退
+- 最近更新：2026-08-20T07:54:14.294Z
+<!-- project-experience:C926826E8034:end -->
