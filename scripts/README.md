@@ -12,6 +12,7 @@
 | 架构与职责 | `npm run check:architecture` |
 | 规则设计 | `npm run check:rule-design -- <套件 design.md>` |
 | 用例关系 | `npm run testcases:sync-relations -- <暂存套件目录>`、`npm run testcases:sync-relations -- --check <最终套件目录>` |
+| 交付 Excel | `npx tsx scripts/export-testcase-delivery-xlsx.ts --cases <cases.md> --design <design.md> --request <type/project/request> --output outputs/<request>/<套件业务名>测试用例.xlsx` |
 | 资料索引 | `npm run check:knowledge-index`、`npm run knowledge:search -- ...` |
 | 项目经验 | `npm run knowledge:manage -- candidate-add --project <project> --scope <scope> --observation <observation> --judgment <judgment> --strategy <strategy> --evidence <ref> --validation <condition>`；验证后使用 `candidate-promote` |
 | 稳定套件 | `npm run test:suite:assess -- ...`、`npm run test:suite:status -- ...` |
