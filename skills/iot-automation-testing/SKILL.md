@@ -97,9 +97,9 @@ npm run check:architecture
 | 2 | **规则边界完整性** | 上限/下限/必填/排除子句是否齐全（如「≤6 字符」「非必填」「上线后不支持删除」）；子句未建模或验证依赖环境前提 → 登记歧义/排除并弱化断言至可证明范围 | 边界不清晰（F-03 类） |
 | 3 | **状态机完整性** | 每个状态的入口/可观察行为/可执行操作是否明说（如各开发状态操作列按钮、可删除性）；缺失 → 中性表述 + 执行前真实页面确认 | 状态证据缺失（F-05 类） |
 | 4 | **写入/后置行为** | 创建/删除/修改的后置状态（列表移除、搜索不可见、时间刷新）是否需求明说；属合理推导的 → 登记推导口径 | 推导后验未登记（F-04 类） |
-| 5 | **可机判项自检** | no_write 用例操作列零写动词（含否定句与引述）；必填字段关联参数化用例含空值行；来源 SHA 与追溯完整 | 覆盖缺口/策略矛盾（F-02 类） |
+| 5 | **可机判项自检** | no_write 用例操作列零写动词（含否定句与引述）；必填字段关联参数化用例含空值行；来源 SHA 与追溯完整。写动词×no_write 与必填空值行已由 candidate-gate lint 强制（阻断/warning），此处为生成时预自查，使门禁一次通过 | 覆盖缺口/策略矛盾（F-02 类） |
 
-检查结果落盘到 `plan.md`「需求歧义与未定义预期」节与套件 `design.md`（两者逐字一致）；对照发现的矛盾必须原文引用两侧段落。
+检查结果落盘到 `plan.md`「需求歧义与未定义预期」节与套件 `design.md`（两者逐字一致）；对照发现的矛盾必须原文引用两侧段落。`plan.md` 需求索引表为每条 `REQ` 记录来源段落定位（章节+段落编号），供 reviewer 快速定位原文、减少通读成本。
 
 reviewer 收敛后，若 gate 允许生成 Excel 评审版且宿主具有 Spreadsheets 运行时，则依次运行 `task:manage testcase-review-prepare --output <temp-model.json>`、`scripts/build-testcase-review-workbook.mjs --model <temp-model.json> --output <staged.xlsx> --preview-dir <temp-previews> --receipt <temp-receipt.json>`，完成规范要求的视觉检查后，再运行 `task:manage testcase-review-publish --model <temp-model.json> --workbook <staged.xlsx> --receipt <temp-receipt.json> --output <运行档案目录>/cases-review.xlsx`。工作簿结构、校验、发布和失败回退契约统一读取[用例规范 §4.3](../../docs/testing/testcase-guideline.md#43-excel-只读评审版)。
 
