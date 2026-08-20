@@ -182,3 +182,18 @@
 - 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
 - 最近更新：2026-08-20T02:10:40.696Z
 <!-- project-experience:8930A9E44C21:end -->
+
+<!-- project-experience:BCB78D753769:start -->
+<a id="exp-bcb78d753769"></a>
+## 2026-08-20：测试工程 §4.3 用例评审工作簿生成依赖与预览契约
+
+- 经验编号：EXP-BCB78D753769
+- 适用范围：测试工程 §4.3 用例评审工作簿生成依赖与预览契约
+- 证据状态：待验证
+- 观察：build-testcase-review-workbook.mjs 依赖的 @oai/artifact-tool（宿主表格运行时）在本机与 npm 均不可得，历史所有运行均未生成 cases-review.xlsx（静默走 Markdown 回退），§4.3 强制评审界面实际从未落地
+- 判断：评审工作簿的可契约部分（三表版式、统计公式、合并、回执、发布校验）全部可由 exceljs 确定性生成；真正依赖表格运行时的只有 PNG 渲染预览，可用逐表确定性文本预览（进 digest 链）等价满足「缺少预览或摘要不一致视为失败」的门禁
+- 当前优先策略：直接运行 node scripts/build-testcase-review-workbook.mjs（exceljs 为 devDependency）；预览为逐表 .md 文本导出；公式正确性由确定性公式审计（生成串精确匹配 + 模型统计交叉核对）替代渲染错误扫描；Univer 导入可实时求值公式作视觉复核
+- 证据引用：commit ff538d0；tests/support/testcase-review-workbook.test.ts 端到端测试（无宿主表格运行时生成可发布工作簿）
+- 验证条件：下一次 v7 评审收敛轮实际生成并发布 cases-review.xlsx，不再 Markdown 回退
+- 最近更新：2026-08-20T07:35:25.779Z
+<!-- project-experience:BCB78D753769:end -->
