@@ -167,3 +167,18 @@
 - 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
 - 最近更新：2026-08-20T01:22:17.918Z
 <!-- project-experience:97D550F7E7F1:end -->
+
+<!-- project-experience:8930A9E44C21:start -->
+<a id="exp-8930a9e44c21"></a>
+## 2026-08-20：同路径产物发布与 plan 共有节同步的踩坑序列
+
+- 经验编号：EXP-8930A9E44C21
+- 适用范围：同路径产物发布与 plan 共有节同步的踩坑序列
+- 证据状态：受控探索已验证
+- 观察：本轮连续踩三类发布坑：①artifact-publish-succeed 将运行档案 plan.md 以同路径 source/target 发布时，prepare 判定 target 已 matched →『部分产物集』进入 reconciliation_required（两次，靠 task:manage reconcile 收口）；②从套件 design.md 提取共有节写入运行档案 plan.md 后，来源相对链接层级（4 层 vs 5 层）未适配 → 评审批次启动被『Reviewer input must be…controlled source』拒绝（两次）；③callback-resolve 的决定行比对基准是磁盘 plan.md：预先把决定行写入磁盘再用同文件作为 --plan-source 会因『未恰好追加一行』被拒；且决定行的 subjectDigest 必须用 CallbackRequested 事件的规范摘要（6359af…），不能写 callbackId。
+- 判断：三类坑均源于『同一文件的 in-place 语义』：引擎的原子发布/快照比对都以磁盘当前内容为基准，同路径发布与预写内容都会破坏『待变更』语义；相对路径层级是位置属性，跨目录复制共有节必须重算。
+- 当前优先策略：①运行档案 plan.md 不以同路径 source/target 进发布集——plan 变更走对应活动的 --plan-source 或发布后再改共有节外的自由节；②从套件目录复制含来源链接的节到 .local/test-runs/<type>/<project>/<request>/ 时按目录深度统一重算相对层数（套件目录 4 层 → 运行档案 5 层）；③callback-resolve 前：磁盘 plan.md 保持无决定行，构建 candidate=磁盘+一行（subjectDigest 取 CallbackRequested 事件值）作为 --plan-source。
+- 证据引用：workflow-history.ndjson（login-register-20260820 与 -r2：ArtifactDriftDetected/批次拒绝/决定行拒绝事件序列）、findings 文件、本回复处置过程
+- 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
+- 最近更新：2026-08-20T02:10:40.696Z
+<!-- project-experience:8930A9E44C21:end -->
