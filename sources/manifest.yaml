@@ -52,6 +52,7 @@ materials:
         path: open-platform/需求/产品接入系统功能需求说明.docx
         sha256: 5e429d9900d04c8c277c734700c9dd9373da5db99a03d27ee9e856dc0c92a5b4
         superseded_at: 2026-08-21
+        superseded_in_commit: de4f8fa
   - id: apartment-lock-command-report
     type: device-protocol
     path: _shared/设备协议/公寓锁指令下发上报.txt
