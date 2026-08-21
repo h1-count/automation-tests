@@ -604,3 +604,16 @@ materials:
       - platform-overview
     status: active
     notes: 开放平台管理系统导航结构：驾驶舱、AIoT项目管理、产品管理（总览/配置/类目/品类/固件升级）、模板管理（功能库/产品功能模板/消息模板）、模组配置、采购管理、审核管理（申请授权码/设备测试/产品上线/消息推送/自动化场景）、客户管理、系统管理；APP运营模块已划除。
+  - id: centralized-platform-launch-requirement-v2
+    type: requirement
+    path: open-platform/需求/集中管理平台上线需求—2.0
+    sha256: 8417456af69838d74abe392dd5f2a993e3b6c5edd8cbd92dbfc9c71cee604686
+    source: user-provided
+    source_version: "2.0"
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - centralized-interaction-management-platform
+      - function-definition
+    status: active
+    notes: 集中管理平台上线需求 2.0：功能库添加/编辑/删除事件与方法规则（标识符唯一校验、输出参数取值范围限定品类属性、事件被产品功能模板关联不可删）。
