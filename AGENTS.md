@@ -45,6 +45,7 @@
 - `.local/repositories/`：本机被测代码仓库根目录；每个直接子目录为一个候选仓库，不提交测试工程。仓库、Graphify 图谱和源码定位只在用例确认后的 `plan.md` 工程层记录，不得登记到 `sources/manifest.yaml` 或充当业务需求资料。
 - `.local/USER-PREFERENCES.md`：被 Git 忽略的当前用户长期协作与行为偏好，不记录项目测试经验。
 - `.local/project-knowledge-candidates/`：被 Git 忽略的项目经验候选控制元数据；正文归属、登记和覆盖规则统一见[项目测试经验规范](docs/testing/knowledge/README.md)。
+- `.local/upload-inbox/`：被 Git 忽略的上传摄取待审队列与已处理决策；只保存暂存路径引用、内容哈希与分类建议，不复制文件正文或敏感数据；登记与换版规则统一见 [sources/README.md](sources/README.md)。
 - `.local/test-runs/<type>/<project>/<request>/`：被 Git 忽略的本机运行档案，只保存本次运行意图 `plan.md`、`workflow-history.ndjson`、评审记录与只读评审版产物；`workflow-history.ndjson` 是该次运行 Activity、重试、等待、阻塞、恢复与终态的唯一事实源，只保存可回放的脱敏语义事件，不保存凭据、线程标识、claim token、租约或真实用户数据；跨机器恢复等于从套件重新发起运行。
 - `.local/test-task-runtime/`：被 Git 忽略且可丢弃的本机执行元数据，只保存 claim/fencing、lease、session/reviewer 工具绑定、暂存路径和未收口工具句柄；任何宿主长期任务及其 ID、状态、预算和使用记录只属于对应宿主，不写入此目录、`plan.md` 或 workflow history。删除 runtime 不得改变或丢失业务状态。
 - `.local/test-ledger/`：被 Git 忽略的本机测试数据台账；其创建、复用、清理与恢复规则由 `docs/testing/environment-guideline.md` 定义。

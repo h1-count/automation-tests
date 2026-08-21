@@ -14,6 +14,23 @@
 
 代码仓库位置统一由 `.local/repositories/` 作为根目录，并只在用例确认后的 `plan.md`“工程层：代码定位与自动化设计”记录仓库、分支/提交、Graphify 图谱和源码定位依据。代码不是业务需求资料，不能写入 `manifest.yaml` 或作为用例需求基线。
 
+## 版本管理与上传摄取
+
+上传的文档落在会话暂存区（`.dsh-filess/session-*/`），不会自动进入本目录或 Git。摄取流水线（`npm run sources:ingest`）在会话开始时扫描暂存区，按内容 SHA-256 与文件名规约对每份文件分类，写入待审队列 `.local/upload-inbox/pending.json` 并向用户报告；**登记、换版与忽略都只在用户确认后**由 `apply` 子命令执行，禁止自动晋升。判定规则：
+
+| 分类 | 判定 | 处置 |
+| --- | --- | --- |
+| duplicate | 哈希与某 active 材料一致 | no-op，仅告知 |
+| new-version-candidate | 文件名规约匹配某材料但哈希不同 | 必须由用户 `--supersedes` 指认后换版 |
+| ambiguous | 文件名与多份材料相近 | 必须由用户指认（`--supersedes` 或 `--force-new`） |
+| new-material-candidate | 无匹配 | 默认按请求内来源使用；跨请求复用才晋升登记 |
+| not-source-candidate | 本工程评审工作簿等产物 | 建议忽略 |
+| belongs-to-test-assets | 安装包/固件二进制 | 转投 `test-assets/manifest.yaml` |
+
+一次性附件按[流程规范 §3.1 第 4 条](../docs/testing/automation-guideline.md#31-测试上下文加载)默认作为请求内来源，不强制登记；晋升登记时元数据未知项必须显式 `unknown`/空列表，不得默认适用。文本类文件自动做敏感初筛（命中即拒绝登记、要求人工复核），二进制文档标记 manual-review。
+
+**版本链与旧版本处置**：材料身份由 `id` 承载，永不被覆盖重用；当前版唯一存放于工作区 `path`。换版时旧版本的 `version`、`path`、`sha256`、`superseded_at`、`superseded_in_commit` 沉入该材料的 `version_history`，旧文件内容不删除——由 Git 历史承载（`git log`/`git show` 回溯），每次换版是一次显式提交。同名换版直接覆盖当前路径；换名换版新增文件并移除旧路径。覆盖 `covered_material_ids` 命中该材料的 `knowledge_indexes` 登记自动置 `stale`，重新提取审核前不得继续作为需求依据。仅当某旧版需要在本测试周期频繁对照阅读时，才允许把它显式复制到版本旁路目录（如 `sources/_versions/<id>/`）并登记说明，用完即清。`check:knowledge-index` 会校验 active 材料的材料级 `sha256` 与实际内容一致，哈希漂移即失败。
+
 | 子目录 | 存放内容 |
 | --- | --- |
 | `requirements/` | 需求文档、产品说明、研发设计说明；也可存放随需求交付的原型包。 |
