@@ -1,0 +1,161 @@
+{
+  "schemaVersion": "stable-test-suite-manifest-v2",
+  "tier": "design",
+  "suiteId": "web/open-platform/login-register",
+  "designLedger": {
+    "path": "testcases/web/open-platform/suites/login-register/design.md",
+    "digest": "d935d0c9d6e8da4a925f744520080b7ea955e1b3888d99ec95c271a98b30dafe"
+  },
+  "casePackages": [
+    {
+      "path": "testcases/web/open-platform/suites/login-register/cases.md",
+      "digest": "31bbf619187a84e338a4b680463f2a527985a074d93a625557c7e61682ce7713"
+    }
+  ],
+  "caseIds": [
+    "OPEN-LOGIN-001",
+    "OPEN-LOGIN-002",
+    "OPEN-LOGIN-003",
+    "OPEN-LOGIN-004",
+    "OPEN-LOGIN-005",
+    "OPEN-NAV-001",
+    "OPEN-NAV-002",
+    "OPEN-REG-001",
+    "OPEN-REG-002",
+    "OPEN-REG-003",
+    "OPEN-REG-004",
+    "OPEN-REG-005",
+    "OPEN-REG-006",
+    "OPEN-REG-007",
+    "OPEN-REG-008",
+    "OPEN-REG-009",
+    "OPEN-REG-010",
+    "OPEN-REG-011",
+    "OPEN-REG-012",
+    "OPEN-REG-013",
+    "OPEN-REG-014",
+    "OPEN-REG-018"
+  ],
+  "profiles": {
+    "full_feature": [
+      "OPEN-LOGIN-001",
+      "OPEN-LOGIN-002",
+      "OPEN-LOGIN-003",
+      "OPEN-LOGIN-004",
+      "OPEN-LOGIN-005",
+      "OPEN-NAV-001",
+      "OPEN-NAV-002",
+      "OPEN-REG-001",
+      "OPEN-REG-002",
+      "OPEN-REG-003",
+      "OPEN-REG-004",
+      "OPEN-REG-005",
+      "OPEN-REG-006",
+      "OPEN-REG-007",
+      "OPEN-REG-008",
+      "OPEN-REG-009",
+      "OPEN-REG-010",
+      "OPEN-REG-011",
+      "OPEN-REG-012",
+      "OPEN-REG-013",
+      "OPEN-REG-014",
+      "OPEN-REG-018"
+    ],
+    "smoke": [
+      "OPEN-LOGIN-001",
+      "OPEN-LOGIN-002",
+      "OPEN-LOGIN-003",
+      "OPEN-NAV-001",
+      "OPEN-NAV-002",
+      "OPEN-REG-001",
+      "OPEN-REG-004",
+      "OPEN-REG-007",
+      "OPEN-REG-011",
+      "OPEN-REG-012",
+      "OPEN-REG-013",
+      "OPEN-REG-014"
+    ],
+    "failed_or_blocked": []
+  },
+  "sourceRegistry": [
+    {
+      "sourceId": "SRC-ACCESS-001",
+      "digest": "64ed64b7e3c1c133d30c660ebb9eb5de5af1aed385d18e481ba18ee7b582d00b",
+      "sourcePaths": [
+        "sources/requirements/open-platform/AIoT平台项目.docx"
+      ],
+      "fileDigests": [
+        {
+          "path": "sources/requirements/open-platform/AIoT平台项目.docx",
+          "digest": "64ed64b7e3c1c133d30c660ebb9eb5de5af1aed385d18e481ba18ee7b582d00b"
+        }
+      ]
+    },
+    {
+      "sourceId": "SRC-HELP-001",
+      "digest": "4473657d25751ae2ac06b03c1abea533749cf07353dde1d0c2daa350423e038e",
+      "sourcePaths": [
+        "sources/knowledge-base/open-platform/iot平台帮助文档.pdf"
+      ],
+      "fileDigests": [
+        {
+          "path": "sources/knowledge-base/open-platform/iot平台帮助文档.pdf",
+          "digest": "4473657d25751ae2ac06b03c1abea533749cf07353dde1d0c2daa350423e038e"
+        }
+      ]
+    },
+    {
+      "sourceId": "SRC-PROTOTYPE-001",
+      "digest": "8ce1373f5a4e9d73c2156eec667e124a8d1421e48c2bdfb185c9fd8fa546e79c",
+      "sourcePaths": [
+        "sources/prototypes/open-platform/files/登录页面/data.js",
+        "sources/prototypes/open-platform/images/注册页面/u235.png",
+        "sources/prototypes/open-platform/登录页面.html"
+      ],
+      "fileDigests": [
+        {
+          "path": "sources/prototypes/open-platform/登录页面.html",
+          "digest": "8ce1373f5a4e9d73c2156eec667e124a8d1421e48c2bdfb185c9fd8fa546e79c"
+        },
+        {
+          "path": "sources/prototypes/open-platform/files/登录页面/data.js",
+          "digest": "1d69294b8cc8741422c2dbb78838a72b99ffdd00cca5b02f90120d9d62f9abab"
+        },
+        {
+          "path": "sources/prototypes/open-platform/images/注册页面/u235.png",
+          "digest": "55282ebc7ab7932c25c0106163c05814d5fc99bee09cd5c5df89fdafac56f57e"
+        }
+      ]
+    },
+    {
+      "sourceId": "SRC-PROTOTYPE-002",
+      "digest": "b65ff8a0e437e4f979af719efc42bf4665c9d75eb5c2d72a391c5d19cce2cd52",
+      "sourcePaths": [
+        "sources/prototypes/open-platform/files/注册页面/data.js",
+        "sources/prototypes/open-platform/注册页面.html"
+      ],
+      "fileDigests": [
+        {
+          "path": "sources/prototypes/open-platform/注册页面.html",
+          "digest": "b65ff8a0e437e4f979af719efc42bf4665c9d75eb5c2d72a391c5d19cce2cd52"
+        },
+        {
+          "path": "sources/prototypes/open-platform/files/注册页面/data.js",
+          "digest": "955dec6c44573247f9cbc75d136ab47e17db38bea2778496f681cc64abb3f1b2"
+        }
+      ]
+    }
+  ],
+  "allowedEnvironments": [
+    "test",
+    "pre"
+  ],
+  "suiteVersion": "5cdbf32dc1e43300be32a375e5c1ed09f9db2e21ab78971dee0efc38e735f8b4",
+  "status": "stable",
+  "sourceRequestId": "web/open-platform/login-register-20260820-r3",
+  "acceptance": {
+    "workflowHeadDigest": "62fecf677a2f93cefbd75f16f8d08fea4e99fc2d21a763583327b9303173eed6",
+    "confirmationDigest": "2b80821fb91594da8a8e340e845cb0f894df5e38853d0790af28303b509176c3",
+    "acceptedAt": "2026-08-21T02:28:43.791Z"
+  }
+}
