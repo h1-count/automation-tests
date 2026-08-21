@@ -160,6 +160,7 @@ test("registered design suite with zero drift selects design_reconfirm", async (
     workspaceRoot: harness.root
   });
   assert.equal(result.created, true);
+  assert.equal(result.manifest.schemaVersion, "stable-test-suite-manifest-v2");
   const assessment = await assessStableTestSuite({
     suiteId,
     environment: "test",

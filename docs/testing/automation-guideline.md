@@ -147,7 +147,7 @@ Activity 状态仅由事件归约为 `PENDING`、`READY`、`RUNNING`、`SUCCEEDE
 
 v7 的第一个业务事实是确定性复用评估：先区分长期 `suiteId/suiteVersion` 与本轮 `runRequestId`，再从稳定 manifest、当前文件摘要、精确脚本依赖闭包、Oracle、selector/API 契约、静态资产、权限和数据策略派生 `direct_execute`、`affected_rebuild` 或 `full_replan`，调用方不得手填结论、digest、caseIds 或脚本路径。目标 build 只变化而契约语义不变时仍可直接复用；Provider、账号、设备或远端数据不可用只影响 readiness。
 
-稳定套件注册分两层（`stable-test-suite-manifest-v2`）：`execution` 层冻结正式执行证据（entryScripts、scriptClosure、formal manifest），只可能由 `full_run` 晋升产出；`design` 层只冻结设计证据（design.md、cases-*.md、来源登记 SRC→SHA-256 与最后接受的用例确认），面向 `testcase_only` 终态请求。设计层注册入口 `npm run test:suite:register-design -- --suite <type/project/feature> --from-request <type/project/request>` 从该请求 `workflow-history.ndjson` 验证 `case-confirmation` 已被用户 `accepted` 且工作流终态完成，不满足即拒绝；注册产物 `suite.manifest.json` 纳入 Git 随套件演进。
+稳定套件注册分两层（`stable-test-suite-manifest-v2`）：`execution` 层冻结正式执行证据（entryScripts、scriptClosure、formal manifest），只可能由 `full_run` 晋升产出；`design` 层只冻结设计证据（design.md、cases.md、来源登记 SRC→SHA-256 与最后接受的用例确认），面向 `testcase_only` 终态请求；manifest 的 casePackages 列表兼容历史 cases-*.md 包名，仅为旧请求 history 回放保留。设计层注册入口 `npm run test:suite:register-design -- --suite <type/project/feature> --from-request <type/project/request>` 从该请求 `workflow-history.ndjson` 验证 `case-confirmation` 已被用户 `accepted` 且工作流终态完成，不满足即拒绝；注册产物 `suite.manifest.json` 纳入 Git 随套件演进。
 
 v7 分支固定为：
 
@@ -156,7 +156,7 @@ v7 分支固定为：
 - `affected_rebuild → impact-location → targeted-evolution → targeted-review → case-confirmation → build → readiness → authorization → run → report`：来源 SHA 漂移时按设计层台账 `SRC → RULE → caseIds` 闭包（或执行层 `impactMap`）证明受影响引用后派生；
 - `full_replan` 进入完整设计分支。
 
-直接分支只引用 suite manifest，不复制或重新生成设计；定向分支只处理 `impactMap` 证明的受影响引用。全局范围、环境、数据写入或安全边界变化，以及映射不完整，必须回退 `full_replan`。设计层还有两条回退：来源登记与台账无法解析出完整 `SRC → RULE → caseIds` 闭包时回退 `full_replan`（映射不完整）；套件资产（design.md/cases-*.md）摘要与注册不一致时回退 `full_replan`（越轨修改，必须全量复验）。
+直接分支只引用 suite manifest，不复制或重新生成设计；定向分支只处理 `impactMap` 证明的受影响引用。全局范围、环境、数据写入或安全边界变化，以及映射不完整，必须回退 `full_replan`。设计层还有两条回退：来源登记与台账无法解析出完整 `SRC → RULE → caseIds` 闭包时回退 `full_replan`（映射不完整）；套件资产（design.md/cases.md）摘要与注册不一致时回退 `full_replan`（越轨修改，必须全量复验）。
 
 `npm run test:suite:assess -- --suite <type/project/feature> --environment <test|pre> [--profile <profile>]` 只读输出评估；`task:initialize -- --request <new-run> --delivery-target <target> --suite <suiteId> --reuse auto --environment <test|pre>` 会重算同一评估，不接受外部摘要或结论。直接分支只执行到选定终点；`full_run` 直接分支启动 readiness 后使用 `task:manage suite-readiness-publish --request <new-run> --claim <lease> --environment <test|pre>`。`no_write + test/pre + 完全匹配` 由 `policy_auto_no_write` 为本轮生成 `execution-authorization-v5`，其他写入、OTP、上传、提交、设备动作或提权仍须本轮新确认。设计复用不复用旧授权、正式记录、能力有效期、数据台账、cleanup 结论或报告。
 
@@ -164,7 +164,7 @@ v7 分支固定为：
 
 #### 完整设计分支、Activity 命令与恢复
 
-v7 `full_replan` 的用户可见设计交互固定为：“读取资料 → 自动生成完整候选用例集 → 自动门禁与评审 → 一次用例确认”。新 v3 内部使用 `source-selection → candidate-generation → candidate-gate → 可选 reviewer/一次自动演进 → case-confirmation`；旧 v2 history 仍按原图回放。`case-confirmation` 前不得创建其他 callback、请求用户发送“继续”或分批确认 REQ、RULE、计划或用例包。
+v7 `full_replan` 的用户可见设计交互固定为：“读取资料 → 自动生成完整候选用例集 → 自动门禁与评审 → 一次用例确认”。新 v3 内部使用 `source-selection → candidate-generation → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`；旧 v2 history 仍按原图回放。`case-confirmation` 前不得创建其他 callback、请求用户发送“继续”或分批确认 REQ、RULE、计划或用例包。
 
 `build` 的产物是完整、可审查的候选脚本，不是环境可执行性证明。部署版本、运行时 selector、OTP、fixture/provider、资源预算和实际 cleanup 能力只由 `readiness` 决定 runnable/deferred，不得反向删除有源码依据的候选实现。
 
@@ -310,7 +310,7 @@ Web/H5 在 `build` Activity 内按“资格满足时的只读真实页面候选�
 ### 4.2 Agent 输出测试设计索引
 
 <!-- delegates: automation.testcases -->
-设计索引、追溯和正式决定字段只按[用例规范](./testcase-guideline.md)生成：运行意图与正式决定行保存为运行档案 `.local/test-runs/<type>/<project>/<request>/plan.md`，稳定设计资产（`cases.md` 用例与 `design.md` 台账）保存在套件目录并随 Git 提交演进。一次运行的 `candidate-generation` 产出运行 `plan.md`、套件 `cases.md` 与 `design.md` 增量，流程层不得创建计划确认或在 REQ/RULE/case 之间等待用户。Excel 只在 reviewer 收敛后由宿主按需生成到运行档案，不属于候选事实或工作流历史。
+设计索引、追溯和正式决定字段只按[用例规范](./testcase-guideline.md)生成：运行意图与正式决定行保存为运行档案 `.local/test-runs/<type>/<project>/<request>/plan.md`，稳定设计资产（`cases.md` 用例与 `design.md` 台账）保存在套件目录并随 Git 提交演进。一次运行的 `candidate-generation` 产出运行 `plan.md`、套件 `cases.md` 与 `design.md` 增量，流程层不得创建计划确认或在 REQ/RULE/case 之间等待用户。Excel 评审版由宿主在 reviewer 收敛后、用例确认前按用例规范 §4.3 强制生成并发布到运行档案，不属于候选事实或工作流历史。
 <!-- end-delegates -->
 
 ### 4.3 环境处理

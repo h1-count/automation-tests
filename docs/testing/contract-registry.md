@@ -58,7 +58,7 @@
 | selector 证据 | `selector-contract-evidence-v1`、`selector-evidence-cache-v1` | 无 | 定位规范 | selector 契约与缓存证据 |
 | selector 修复 | `selector-repair-context-v1`、`selector-repair-incident-v1`、`selector-repair-reopen-v1` | 无 | 定位规范 | 定位漂移修复链路 |
 | 来源契约证据 | `source-contract-evidence-v3` | 仅回放：`source-contract-evidence-v1` | 流程规范 | 当前正式来源契约证据 |
-| 稳定套件 | `stable-test-suite-manifest-v1`、`test-suite-reuse-assessment-v1` | 无 | 流程规范 | 稳定套件与复用评估 |
+| 稳定套件 | `stable-test-suite-manifest-v1`、`stable-test-suite-manifest-v2`、`test-suite-reuse-assessment-v1` | 无 | 流程规范 | v1 冻结 execution 层证据，v2 冻结 design 层证据，同族互斥；评估契约用于复用判定 |
 | 测试设计索引 | `test-design-index-v3` | 归档证据：`test-design-index-v2` | 用例规范 | 当前内部设计索引 |
 | workflow 定义与事件 | `test-workflow-definition-v1`、`test-workflow-event-v1` | 无 | 流程规范 | Durable Workflow 定义与事件 |
 | workflow runtime | `test-workflow-runtime-v2` | 仅回放：`test-workflow-runtime-v1` | 流程规范 | 当前可丢弃宿主绑定结构 |

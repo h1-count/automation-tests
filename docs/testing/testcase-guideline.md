@@ -40,7 +40,7 @@ Activity、重试、等待、完整度和终态只来自 `workflow-history.ndjso
 
 ### 2.2 来源登记
 
-用户直接指定的 Word、PDF、原型或附件可直接登记为请求内来源（记录在运行档案 plan.md，供该次运行引用），不要求预先写入 `sources/manifest.yaml`。每份实际引用的来源计算一次 SHA-256，并记录：
+用户直接指定的 Word、PDF、原型或附件可直接按 `request-local-source-v1` 登记为请求内来源（记录在运行档案 plan.md，供该次运行引用），不要求预先写入 `sources/manifest.yaml`。每份实际引用的来源计算一次 SHA-256，并记录：
 
 - 稳定 `SRC-<模块>-<序号>`；
 - 可点击路径、章节/页码/字段和用途；
@@ -50,7 +50,7 @@ Activity、重试、等待、完整度和终态只来自 `workflow-history.ndjso
 
 ## 3. 生成提示卡
 
-模型先按资料拆业务模块和子模块，再为真实规则选择设计方法：
+生成约束遵循 `candidate-generation-policy-v1`：模型先按资料拆业务模块和子模块，再为真实规则选择设计方法：
 
 - 明确上下限、格式或枚举：等价类和边界值；
 - 多条件决定结果：判定表；
@@ -122,7 +122,7 @@ RULE 台账每行固定为：
 
 ### 4.3 Excel 只读评审版
 
-reviewer 收敛后、发起用例确认前，**必须**由登记的确定性生成脚本（`scripts/build-testcase-review-workbook.mjs`，exceljs 实现）从标准化评审模型生成 `cases-review.xlsx`，作为每轮用例确认的用户审核界面（确认后 `accepted` 的用户侧交付 Excel 见 §7.1）：
+reviewer 收敛后、发起用例确认前，**必须**由登记的确定性生成脚本（`scripts/build-testcase-review-workbook.mjs`，exceljs 实现）从标准化评审模型（`testcase-review-model-v1`）生成 `cases-review.xlsx`，作为每轮用例确认的用户审核界面（确认后 `accepted` 的用户侧交付 Excel 见 §7.1）：
 
 - 一致性不变量：Excel 永远是 `cases.md` 当时的确定性投影，单向生成、禁止反向导入；`cases.md` 任何演进（revision_requested 后的修订、新一轮 reviewer 收敛）后、再次发起用例确认前，必须重新生成并重新发布 `cases-review.xlsx`，禁止向用户呈现与当前 `cases.md` 不一致的评审 Excel，也不得复用上一轮的旧文件；
 
@@ -168,7 +168,7 @@ reviewer 收敛后、发起用例确认前，**必须**由登记的确定性生�
 
 评审速度档（`task:initialize --speed`，缺省推导：`testcase_only` 且不写数据 → `fast`，其余 → `strict`）在上述推导之上封顶评审模式：`fast` 对 no_write 运行把评审模式压为 `deterministic_only`（完全跳过 reviewer，仅确定性门禁）；语义发现全部作为“需用户裁决”随完整用例集进入一次用例确认，演进活动仅用于应用确定性结构修正（至多一轮）；存在有效数据写入时 fast 仅保留 1 名 combined。`balanced` 至多保留 1 名 combined（去掉 impact）。`strict` 不封顶。速度档写入 WorkflowStarted 的 `reviewSpeed`，随请求持久化；确定性门禁（结构、关系、敏感信息、完整度）在任何速度档下都不放宽。
 
-修订分层（revision tiering）覆盖「已确认用例集发生修订」的场景（用户裁决 `revision_requested`、评审修正落地后的验证轮）：先用 `npm run testcases:revision-tier -- --baseline-cases/--baseline-plan <已被接受的冻结快照> --current-cases/--current-plan <当前>` 分级，再按档走路径：
+修订分层（revision tiering，`revision-tier-v1`）覆盖「已确认用例集发生修订」的场景（用户裁决 `revision_requested`、评审修正落地后的验证轮）：先用 `npm run testcases:revision-tier -- --baseline-cases/--baseline-plan <已被接受的冻结快照> --current-cases/--current-plan <当前>` 分级，再按档走路径：
 
 - **structural**（无任何用例块语义行变化、无台账行集变化；计数/空行/枚举级）：开新批次后以 `reviewer-dispatch/submit --deterministic --classifier-digest <sha> --findings <分级器产物>` 收口——发现文件结论必须为 converged，评审事件记录 `deterministic: true` 与分级器摘要，零 LLM 评审轮，resolution 直接 converged 回用例确认。
 - **scoped**（语义行变化用例块 ≤ 8；台账行集变化必须由新增正式用户决定覆盖——用户裁决已定语义权威，LLM 只承担转录核对）：`--base-batch + --affected-ref` 定向批次，仅受影响用例单轮复审。
@@ -178,7 +178,7 @@ reviewer 收敛后、发起用例确认前，**必须**由登记的确定性生�
 
 评审产物与生成结构不变量（引擎强制，2026-08-19 起）：
 
-- **评审发现文件契约**：任何 `reviewer-submit`（含 LLM 隔离评审员）必须带 `--findings`；文件骨架为「## 结论」（converged/findings_present 枚举）+「## 发现项」（findings_present 时必须为非空表）。引擎校验骨架并把 findingsDigest 与 conclusion 写入 ReviewerSubmitted 事件——评审轮结束后发现文件缺失或结论非法不再产生整轮返工。
+- **评审发现文件契约（`review-findings-evidence-v1`）**：任何 `reviewer-submit`（含 LLM 隔离评审员）必须带 `--findings`；文件骨架为「## 结论」（converged/findings_present 枚举）+「## 发现项」（findings_present 时必须为非空表）。引擎校验骨架并把 findingsDigest 与 conclusion 写入 ReviewerSubmitted 事件——评审轮结束后发现文件缺失或结论非法不再产生整轮返工。
 - **派生区唯一作者**：cases.md 统计行与快速索引由 `projectTestcaseV6DerivedView` 从用例体确定性生成，禁止手写。candidate-gate 与一切用例包发布边界（含评审演进修订）都会执行重投影等价校验，漂移（陈旧计数、索引与正文模块错位）确定性拒绝。结构修复用 `npm run testcases:reproject -- <cases.md>`（`--dry-run` 预览；按原始快速索引的模块声明归位正文块，产物必须通过结构校验才落盘）。
 - **覆盖 lint**：no_write 用例操作列含业务写动词（创建/新增/提交/修改/编辑/更新/删除/上传/写入）为阻断 issue——需要写动作的步骤必须拆分为 ephemeral_cleanup 用例并受执行授权约束；RULE 台账「条件/输入」声明必填但关联参数化用例无空值数据行为 warning，交 reviewer/用户裁决。
 - **歧义前置**：plan.md 必须含「## 需求歧义与未定义预期」节（无歧义显式写「无」）；每条歧义登记冲突的 REQ 对、资料出处与建议默认口径，在 plan 确认回调一次裁决——不在评审后才升级为用户裁决。
@@ -191,11 +191,11 @@ reviewer 收敛后、发起用例确认前，**必须**由登记的确定性生�
 
 reviewer 仍提交结构类发现时，视为 §3.2 生成红线泄漏：resolution 在评审记录登记告警，并在同一轮确定性修正中一并消除，不得留待下一批次重复发现同类问题。
 
-最多自动修订一轮。修订后仍有非结构语义问题时，与完整用例一起进入用户确认；结构、关系和敏感信息问题继续阻断。lean reviewer 首次失败记录告警后可继续确认；strict reviewer 允许一次重试，再失败则阻止进入执行。
+最多自动修订一轮（修订证据按 `review-revision-evidence-v1` 登记）。修订后仍有非结构语义问题时，与完整用例一起进入用户确认；结构、关系和敏感信息问题继续阻断。lean reviewer 首次失败记录告警后可继续确认；strict reviewer 允许一次重试，再失败则阻止进入执行。
 
 ## 6. 风险升级与数据词汇
 
-默认 `lean`。出现以下任一事实时自动升级 `strict`：生产、真实或归属未知数据、批量/不可逆操作、权限提升、安全挑战、OTP、设备控制、结果未知，或影响通过判定的来源冲突/未定义验收。strict case 必须能从文件默认值、RULE 来源、差异字段和风险派生得到完整的有效治理值。
+reviewer 语义风险按 `case-review-risk-v2` 评估，默认 `lean`。出现以下任一事实时自动升级 `strict`：生产、真实或归属未知数据、批量/不可逆操作、权限提升、安全挑战、OTP、设备控制、结果未知，或影响通过判定的来源冲突/未定义验收。strict case 必须能从文件默认值、RULE 来源、差异字段和风险派生得到完整的有效治理值。
 
 新资产的数据策略只允许：`no_write / ephemeral_cleanup / reusable_fixture / tracked_residual`。`managed_cleanup` 仅供历史回放。普通 test 环境的 `ephemeral_cleanup` 仍使用精简 case 结构，但必须经 impact reviewer、readiness 和独立执行清单确认。
 
@@ -222,6 +222,5 @@ v7 没有独立计划确认。候选集通过门禁并完成适用评审后，�
 - 人工修改后的 Excel 禁止导回正式用例（与 §4.3 只读原则一致）；
 - 与 §4.3 的关系：§4.3 是每轮确认前的强制用户审核界面（`cases-review.xlsx`，确定性生成脚本 + 回执管道，随 cases.md 演进逐轮再生成）；本节是确认后的强制用户交付（交付版三表投影）。两者互不替代；
 - 交付收尾时将该 xlsx 列入产物清单与用户可见产物输出；
-- `.univer` 预览副本（交付惯例）：生成交付 xlsx 后，用 `univer_new` + `univer_import` 在同目录创建同名 `.univer` 副本并标记 ready，供会话内 Univer 卡片带样式预览（右侧面板 xlsx 预览不渲染样式属插件已知限制）；样式经 Univer 导入引擎保真（styleUsedRanges 全覆盖）；
-- 回流规则：`.univer` 副本与交付 xlsx 同为只读派生物，其中任何编辑（含会话内 Univer 编辑）不得回流 xlsx 或 `cases.md`；用户在预览中发现问题按评审意见处理——更新 `cases.md` → 重新运行交付脚本 → 重新导入 `.univer`；
-- `univer_export` 可将 `.univer` 的 Sheet Unit 导出为真实 xlsx（样式保留，已验证往返一致），但仅作临时导出用途，不得作为正式交付物（绕过 `cases.md` 确定性投影与脚本回执核对）。
+- `.univer` 预览副本（交付惯例）：生成交付 xlsx 后，用 `univer_new` + `univer_import` 在同目录创建同名 `.univer` 副本并标记 ready，仅用于会话内带样式只读预览；
+- 回流规则：`.univer` 副本与交付 xlsx 同为只读派生物，任何编辑（含会话内编辑）不得回流 xlsx 或 `cases.md`；预览中发现问题按评审意见处理——更新 `cases.md` → 重新运行交付脚本 → 重新导入 `.univer`；`univer_export` 导出的 xlsx 仅作临时用途，不得作为正式交付物（绕过 `cases.md` 确定性投影与脚本回执核对）。
