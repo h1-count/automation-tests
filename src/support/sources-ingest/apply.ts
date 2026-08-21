@@ -258,7 +258,7 @@ export function applyPendingItem(options: ApplyOptions): ApplyResult {
   if (loaded.materials.some((material) => material.id === materialId)) {
     throw new Error(`资料编号已存在：${materialId}；请通过 --material-id 指定其他编号。`);
   }
-  const targetDir = options.targetDir ?? item.suggestion.targetDir ?? "requirements";
+  const targetDir = options.targetDir ?? item.suggestion.targetDir ?? "需求";
   const { target } = uniqueTargetPath(sourcesRoot, targetDir, item.file.fileName, item.file.sha256);
   const relativeTarget = target.slice(sourcesRoot.length + 1);
   const projects = options.projects ?? [];

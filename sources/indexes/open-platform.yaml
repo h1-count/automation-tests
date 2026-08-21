@@ -3,634 +3,1048 @@ project: open-platform
 index_status: reviewed
 documents:
   - material_id: product-access-system-requirement
-    source_path: requirements/open-platform/产品接入系统功能需求说明 .docx
+    source_path: open-platform/需求/产品接入系统功能需求说明.docx
     source_sha256: 5e429d9900d04c8c277c734700c9dd9373da5db99a03d27ee9e856dc0c92a5b4
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: product-access-lifecycle
         title: 产品接入开发流程与状态
-        locator: { heading: 产品开发流程 }
-        topics: [product-development, product-lifecycle]
-        keywords: [创建产品, 基础配置, 功能定义, 设备开发, 产品测试, 上线]
+        locator:
+          heading: 产品开发流程
+        topics:
+          - product-development
+          - product-lifecycle
+        keywords:
+          - 创建产品
+          - 基础配置
+          - 功能定义
+          - 设备开发
+          - 产品测试
+          - 上线
         summary: 产品接入流程、开发状态、模块完成条件与操作限制。
         content_type: text-and-table
         visual_read_required: false
       - section_id: product-access-create
         title: 创建产品
-        locator: { heading: 创建产品 P0 }
-        topics: [product-development, product-creation]
-        keywords: [产品品类, 智能化方式, 产品名称, 产品型号, product model]
+        locator:
+          heading: 创建产品 P0
+        topics:
+          - product-development
+          - product-creation
+        keywords:
+          - 产品品类
+          - 智能化方式
+          - 产品名称
+          - 产品型号
+          - product model
         summary: 创建产品的三步流程、字段规则、开发方式和产品 model 组成。
         content_type: text-and-table
         visual_read_required: false
       - section_id: product-access-basic-configuration
         title: 基础配置
-        locator: { heading: 基础配置P0 }
-        topics: [product-development, basic-configuration]
-        keywords: [配网方式, 企业品牌, 拟物图, 配网文案]
+        locator:
+          heading: 基础配置P0
+        topics:
+          - product-development
+          - basic-configuration
+        keywords:
+          - 配网方式
+          - 企业品牌
+          - 拟物图
+          - 配网文案
         summary: 产品基础配置的固定字段、可编辑范围与图片要求。
         content_type: text-and-image
         visual_read_required: true
   - material_id: aiot-platform-project-document
-    source_path: requirements/open-platform/AIoT平台项目.docx
+    source_path: open-platform/需求/AIoT平台项目.docx
     source_sha256: 64ed64b7e3c1c133d30c660ebb9eb5de5af1aed385d18e481ba18ee7b582d00b
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: platform-home-and-registration
         title: 官网、注册与登录
-        locator: { heading: 官网改造 }
-        topics: [platform-home, account-registration, account-login]
-        keywords: [官网, 注册, 登录, 企业名称, 企业标识, 营业执照]
+        locator:
+          heading: 官网改造
+        topics:
+          - platform-home
+          - account-registration
+          - account-login
+        keywords:
+          - 官网
+          - 注册
+          - 登录
+          - 企业名称
+          - 企业标识
+          - 营业执照
         summary: 官网导航、企业注册字段校验、唯一性提示和手机号密码登录。
         content_type: text-and-image
         visual_read_required: true
       - section_id: console-account-and-enterprise
         title: 控制台、账号中心与企业成员
-        locator: { heading: AIoT控制台 }
-        topics: [account-management, enterprise-membership, system-permission]
-        keywords: [账号中心, 所属企业, 成员管理, 管理员, 系统权限]
+        locator:
+          heading: AIoT控制台
+        topics:
+          - account-management
+          - enterprise-membership
+          - system-permission
+        keywords:
+          - 账号中心
+          - 所属企业
+          - 成员管理
+          - 管理员
+          - 系统权限
         summary: 控制台入口、账号资料、企业成员、管理员移交和菜单级系统权限。
         content_type: text-and-table
         visual_read_required: false
       - section_id: platform-work-order
         title: 文档中心与工单支持
-        locator: { heading: 工单支持 }
-        topics: [work-order]
-        keywords: [工单, 待处理, 待验收, 新增工单, 附件]
+        locator:
+          heading: 工单支持
+        topics:
+          - work-order
+        keywords:
+          - 工单
+          - 待处理
+          - 待验收
+          - 新增工单
+          - 附件
         summary: 工单状态、筛选、分页、新建字段和附件约束。
         content_type: text-and-table
         visual_read_required: false
   - material_id: open-platform-technical-solution
-    source_path: requirements/open-platform/开放平台技术方案.docx
+    source_path: open-platform/需求/开放平台技术方案.docx
     source_sha256: 60788b0e59dbc00680533c1ddc5ae5f108afc8d26ee901e8a73ace0b4d8a1ed0
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: gateway-routing-architecture
         title: 网关路由与服务拆分
-        locator: { heading: 网关路由配置 }
-        topics: [platform-architecture, gateway-routing]
-        keywords: [网关, 路由, API, 设备接入, 运营平台]
+        locator:
+          heading: 网关路由配置
+        topics:
+          - platform-architecture
+          - gateway-routing
+        keywords:
+          - 网关
+          - 路由
+          - API
+          - 设备接入
+          - 运营平台
         summary: 开放平台网关路由、服务拆分和路径边界设计。
         content_type: text-and-image
         visual_read_required: true
       - section_id: service-platform-authorization
         title: 服务平台授权与云云服务
-        locator: { heading: 服务平台 }
-        topics: [api-authorization, cloud-integration]
-        keywords: [API授权, 流量额度, 消息回调, 云云接入]
+        locator:
+          heading: 服务平台
+        topics:
+          - api-authorization
+          - cloud-integration
+        keywords:
+          - API授权
+          - 流量额度
+          - 消息回调
+          - 云云接入
         summary: 服务平台 API 授权、调用额度、回调与云云服务流程；凭据字段仅可脱敏引用。
         content_type: text-and-table
         visual_read_required: false
   - material_id: open-platform-interface-document
-    source_path: requirements/open-platform/开放平台接口文档.docx
+    source_path: open-platform/接口/开放平台接口文档.docx
     source_sha256: 56b7f5bbcd0d02f4283df910f434780dce9c76ab8c3b42d245ab98409a8dc0b3
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: product-development-api
         title: 产品开发接口
-        locator: { heading: 产品开发 }
-        topics: [product-development, product-creation, api]
-        keywords: [产品分类, 创建产品, 产品列表, 通讯协议, 配网方式]
+        locator:
+          heading: 产品开发
+        topics:
+          - product-development
+          - product-creation
+          - api
+        keywords:
+          - 产品分类
+          - 创建产品
+          - 产品列表
+          - 通讯协议
+          - 配网方式
         summary: 产品分类、产品创建和产品开发列表接口及字段约束。
         content_type: text-and-table
         visual_read_required: false
       - section_id: product-module-api-catalog
         title: 产品模块接口目录
-        locator: { heading: 接口文档 }
-        topics: [product-development, function-definition, api]
-        keywords: [功能定义, 授权码, 固件, 云云接入, 高级配置, 产品测试]
+        locator:
+          heading: 接口文档
+        topics:
+          - product-development
+          - function-definition
+          - api
+        keywords:
+          - 功能定义
+          - 授权码
+          - 固件
+          - 云云接入
+          - 高级配置
+          - 产品测试
         summary: 产品开发模块接口的责任目录与覆盖范围。
         content_type: text-and-table
         visual_read_required: false
   - material_id: centralized-interaction-management-platform
-    source_path: requirements/open-platform/集中交互管理平台.docx
+    source_path: open-platform/需求/集中交互管理平台.docx
     source_sha256: 1150ad24284308c21ccc3c77e25057b019e7a1c9bc4ed9aa558bb7eeb96b9c02
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: backend-module-procurement
         title: 后台模组采购管理
-        locator: { heading: 采购管理 }
-        topics: [operation-backend, module-procurement]
-        keywords: [集中管理平台, 运营平台, 模组采购, 发货, 订单]
+        locator:
+          heading: 采购管理
+        topics:
+          - operation-backend
+          - module-procurement
+        keywords:
+          - 集中管理平台
+          - 运营平台
+          - 模组采购
+          - 发货
+          - 订单
         summary: 开放平台后台的模组采购列表、发货、删除、统计和订单详情接口。
         content_type: text-and-table
         visual_read_required: false
       - section_id: backend-audit-management
         title: 后台审核管理
-        locator: { heading: 审核管理 }
-        topics: [operation-backend, audit-management]
-        keywords: [授权码审核, 设备测试审核, 审核状态, 审批]
+        locator:
+          heading: 审核管理
+        topics:
+          - operation-backend
+          - audit-management
+        keywords:
+          - 授权码审核
+          - 设备测试审核
+          - 审核状态
+          - 审批
         summary: 开放平台后台的授权码申请和设备测试审核流程与接口。
         content_type: text-and-table
         visual_read_required: false
   - material_id: open-platform-axure-prototype
-    source_path: prototypes/open-platform
+    source_path: open-platform/原型包
     source_sha256: 0c21f0f7c472d2fd0cf712201c46cfd584ec5607cfe6a4b01d778c5243bc08e6
     extraction: structured-html
     visual_review: on-demand
     sections:
       - section_id: prototype-platform-home
         title: 官网首页
-        locator: { page: 官网首页.html }
-        topics: [platform-home, navigation]
-        keywords: [官网首页, 控制台, 服务支持, 文档中心, 登录, 注册]
+        locator:
+          page: 官网首页.html
+        topics:
+          - platform-home
+          - navigation
+        keywords:
+          - 官网首页
+          - 控制台
+          - 服务支持
+          - 文档中心
+          - 登录
+          - 注册
         summary: 开放平台官网首页及主要导航入口原型。
         content_type: text-and-image
         visual_read_required: true
       - section_id: prototype-account-login
         title: 登录页面
-        locator: { page: 登录页面.html }
-        topics: [account-login]
-        keywords: [登录页面, 手机号, 密码, 忘记密码, 验证码]
+        locator:
+          page: 登录页面.html
+        topics:
+          - account-login
+        keywords:
+          - 登录页面
+          - 手机号
+          - 密码
+          - 忘记密码
+          - 验证码
         summary: 账号登录、密码找回与错误提示相关原型。
         content_type: text-and-image
         visual_read_required: true
       - section_id: prototype-account-registration
         title: 注册页面
-        locator: { page: 注册页面.html }
-        topics: [account-registration]
-        keywords: [注册页面, 企业名称, 企业标识, 营业执照, 验证码]
+        locator:
+          page: 注册页面.html
+        topics:
+          - account-registration
+        keywords:
+          - 注册页面
+          - 企业名称
+          - 企业标识
+          - 营业执照
+          - 验证码
         summary: 企业账号注册字段、协议确认与提交入口原型。
         content_type: text-and-image
         visual_read_required: true
       - section_id: prototype-console
         title: 控制台
-        locator: { page: 控制台.html }
-        topics: [console, platform-overview]
-        keywords: [控制台, 产品开发, 数据概览, 导航, 快捷入口]
+        locator:
+          page: 控制台.html
+        topics:
+          - console
+          - platform-overview
+        keywords:
+          - 控制台
+          - 产品开发
+          - 数据概览
+          - 导航
+          - 快捷入口
         summary: 开放平台控制台首页与产品开发等业务入口原型。
         content_type: text-and-image
         visual_read_required: true
       - section_id: prototype-user-center
         title: 用户中心
-        locator: { page: 用户中心.html }
-        topics: [account-management]
-        keywords: [用户中心, 账号资料, 手机号, 修改密码, 实名认证]
+        locator:
+          page: 用户中心.html
+        topics:
+          - account-management
+        keywords:
+          - 用户中心
+          - 账号资料
+          - 手机号
+          - 修改密码
+          - 实名认证
         summary: 用户资料、安全设置与账号相关操作原型。
         content_type: text-and-image
         visual_read_required: true
       - section_id: prototype-enterprise-center
         title: 企业中心
-        locator: { page: 企业中心——新.html }
-        topics: [enterprise-membership, system-permission]
-        keywords: [企业中心, 企业成员, 管理员, 所属企业, 权限]
+        locator:
+          page: 企业中心——新.html
+        topics:
+          - enterprise-membership
+          - system-permission
+        keywords:
+          - 企业中心
+          - 企业成员
+          - 管理员
+          - 所属企业
+          - 权限
         summary: 企业资料、成员管理、管理员和权限相关原型。
         content_type: text-and-image
         visual_read_required: true
       - section_id: prototype-service-support
         title: 服务支持与技术工单
-        locator: { page: 服务支持.html }
-        topics: [service-support, work-order]
-        keywords: [服务支持, 技术工单, 新建工单, 工单状态, 工单详情]
+        locator:
+          page: 服务支持.html
+        topics:
+          - service-support
+          - work-order
+        keywords:
+          - 服务支持
+          - 技术工单
+          - 新建工单
+          - 工单状态
+          - 工单详情
         summary: 技术工单列表、新建、详情和状态展示原型。
         content_type: text-and-image
         visual_read_required: true
       - section_id: prototype-document-center
         title: 文档中心
-        locator: { page: 文档中心.html }
-        topics: [documentation]
-        keywords: [文档中心, 开发文档, API文档, 搜索, 分类]
+        locator:
+          page: 文档中心.html
+        topics:
+          - documentation
+        keywords:
+          - 文档中心
+          - 开发文档
+          - API文档
+          - 搜索
+          - 分类
         summary: 开放平台文档浏览、分类与检索入口原型。
         content_type: text-and-image
         visual_read_required: true
       - section_id: prototype-consultation
         title: 立即咨询
-        locator: { page: 立即咨询.html }
-        topics: [service-support, consultation]
-        keywords: [立即咨询, 联系方式, 留言, 咨询]
+        locator:
+          page: 立即咨询.html
+        topics:
+          - service-support
+          - consultation
+        keywords:
+          - 立即咨询
+          - 联系方式
+          - 留言
+          - 咨询
         summary: 用户提交咨询信息的页面原型。
         content_type: text-and-image
         visual_read_required: true
   - material_id: openapi-document
-    source_path: knowledge-base/open-platform/API接口文档/OpenAPI .docx
+    source_path: open-platform/接口/OpenAPI.docx
     source_sha256: 01a571f996cab6b00f143a8ecc7a8a88bc961553a4998600fccd53a3f6f99758
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: openapi-overview
         title: OpenAPI 接口总览
-        locator: { heading: OpenAPI }
-        topics: [api, openapi]
-        keywords: [接口, 请求, 响应, 鉴权]
+        locator:
+          heading: OpenAPI
+        topics:
+          - api
+          - openapi
+        keywords:
+          - 接口
+          - 请求
+          - 响应
+          - 鉴权
         summary: 开放平台接口总览与通用调用约定。
         content_type: text-and-table
         visual_read_required: false
   - material_id: cloud-cloud-api-document
-    source_path: knowledge-base/open-platform/API接口文档/云云api.docx
+    source_path: open-platform/接口/云云api.docx
     source_sha256: 7702208236d1c9993c0482d75c87a1727f4e0c76c7bf3a08dc0a59b86774d5f0
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: cloud-device-command
         title: 云云设备下行指令
-        locator: { heading: 设备下行指令 }
-        topics: [cloud-integration, device-control, api]
-        keywords: [下行指令, controlType, 绑定, 属性控制, 执行方法]
+        locator:
+          heading: 设备下行指令
+        topics:
+          - cloud-integration
+          - device-control
+          - api
+        keywords:
+          - 下行指令
+          - controlType
+          - 绑定
+          - 属性控制
+          - 执行方法
         summary: 云云设备绑定、解绑、属性控制和方法执行的统一消息接口。
         content_type: text-and-table
         visual_read_required: false
       - section_id: cloud-scene-command
         title: 云云场景控制
-        locator: { heading: 场景 }
-        topics: [cloud-integration, scene, api]
-        keywords: [场景创建, 场景删除, 场景修改, 多控]
+        locator:
+          heading: 场景
+        topics:
+          - cloud-integration
+          - scene
+          - api
+        keywords:
+          - 场景创建
+          - 场景删除
+          - 场景修改
+          - 多控
         summary: 云云场景及多控操作的控制类型和请求约定。
         content_type: text-and-table
         visual_read_required: false
   - material_id: smart-lock-api-document
-    source_path: knowledge-base/open-platform/API接口文档/智能门锁 API.docx
+    source_path: open-platform/接口/智能门锁 API.docx
     source_sha256: c6a1f87d60c54d97d324062e96e45f1067139225ca9f7116f50e9925f50044f5
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: smart-lock-api-overview
         title: 智能门锁接口
-        locator: { heading: 智能门锁 API }
-        topics: [smart-lock, api]
-        keywords: [门锁, 设备控制, 接口]
+        locator:
+          heading: 智能门锁 API
+        topics:
+          - smart-lock
+          - api
+        keywords:
+          - 门锁
+          - 设备控制
+          - 接口
         summary: 智能门锁相关平台接口资料。
         content_type: text-and-table
         visual_read_required: false
   - material_id: industry-saas-api-document
-    source_path: knowledge-base/open-platform/API接口文档/行业saas api.docx
+    source_path: open-platform/接口/行业saas api.docx
     source_sha256: aeaad2572b863f15a6f06e4ab8d51e9f7207af83ba23816ccb7a710c7d39095a
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: saas-api-overview
         title: 行业 SaaS 接口
-        locator: { heading: 行业saas api }
-        topics: [saas, api]
-        keywords: [SaaS, 行业接口, 服务调用]
+        locator:
+          heading: 行业saas api
+        topics:
+          - saas
+          - api
+        keywords:
+          - SaaS
+          - 行业接口
+          - 服务调用
         summary: 行业 SaaS 服务接口资料。
         content_type: text-and-table
         visual_read_required: false
   - material_id: iot-platform-help
-    source_path: knowledge-base/open-platform/iot平台帮助文档.pdf
+    source_path: open-platform/平台文档/iot平台帮助文档.pdf
     source_sha256: 4473657d25751ae2ac06b03c1abea533749cf07353dde1d0c2daa350423e038e
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: platform-overview
         title: 平台介绍与服务范围
-        locator: { pages: 1-8 }
-        topics: [platform-overview]
-        keywords: [平台介绍, 服务范围, 合作方式, 私有化部署]
+        locator:
+          pages: 1-8
+        topics:
+          - platform-overview
+        keywords:
+          - 平台介绍
+          - 服务范围
+          - 合作方式
+          - 私有化部署
         summary: 平台定位、服务能力与合作方式说明。
         content_type: text-and-image
         visual_read_required: false
       - section_id: account-registration-faq
         title: 平台账号注册与登录 FAQ
-        locator: { pages: 9-15 }
-        topics: [account-registration, account-login]
-        keywords: [注册, 登录, 企业名称, 账号, 验证码]
+        locator:
+          pages: 9-15
+        topics:
+          - account-registration
+          - account-login
+        keywords:
+          - 注册
+          - 登录
+          - 企业名称
+          - 账号
+          - 验证码
         summary: 企业账号注册入口、已注册企业提示和账号体系常见问题。
         content_type: text-and-image
         visual_read_required: true
       - section_id: enterprise-membership-faq
         title: 企业成员与授权账号 FAQ
-        locator: { pages: 15-18 }
-        topics: [enterprise-membership, authorization-account]
-        keywords: [企业成员, 加入企业, 退出企业, 授权账号, 管理员]
+        locator:
+          pages: 15-18
+        topics:
+          - enterprise-membership
+          - authorization-account
+        keywords:
+          - 企业成员
+          - 加入企业
+          - 退出企业
+          - 授权账号
+          - 管理员
         summary: 企业成员加入、退出、管理员移交和授权账号数量规则。
         content_type: text-and-image
         visual_read_required: true
       - section_id: product-development-faq
         title: 产品开发与产品 model FAQ
-        locator: { pages: 19-30 }
-        topics: [product-development, product-model]
-        keywords: [产品开发, 产品model, 产品创建, 品类]
+        locator:
+          pages: 19-30
+        topics:
+          - product-development
+          - product-model
+        keywords:
+          - 产品开发
+          - 产品model
+          - 产品创建
+          - 品类
         summary: 产品 model 含义和产品开发常见问题。
         content_type: text-and-image
         visual_read_required: false
       - section_id: product-configuration-faq
         title: 创建产品、基础配置与功能定义
-        locator: { pages: 30-55 }
-        topics: [product-development, product-creation, basic-configuration, function-definition]
-        keywords: [创建产品, 基础配置, 功能定义, 物模型]
+        locator:
+          pages: 30-55
+        topics:
+          - product-development
+          - product-creation
+          - basic-configuration
+          - function-definition
+        keywords:
+          - 创建产品
+          - 基础配置
+          - 功能定义
+          - 物模型
         summary: 产品创建、基础配置和功能定义的流程入口与常见问题。
         content_type: text-and-image
         visual_read_required: true
   - material_id: cloud-bridge-protocol-conversion-guide
-    source_path: knowledge-base/open-platform/云云接入bridge协议转换操作指南.pdf
+    source_path: open-platform/平台文档/云云接入bridge协议转换操作指南.pdf
     source_sha256: 3d8d58a37603bb1d758dbfb3e7cb79bc50fdae453660001ddac2f335b08074f8
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: bridge-conversion
         title: 云云 Bridge 协议转换
-        locator: { pages: 1-44 }
-        topics: [cloud-integration, protocol-conversion]
-        keywords: [bridge, 协议转换, 云云接入]
+        locator:
+          pages: 1-44
+        topics:
+          - cloud-integration
+          - protocol-conversion
+        keywords:
+          - bridge
+          - 协议转换
+          - 云云接入
         summary: 云云接入 Bridge 协议转换流程与配置说明。
         content_type: text-and-image
         visual_read_required: true
   - material_id: iot-service-development-introduction
-    source_path: knowledge-base/open-platform/平台文档中心/IOT服务开发/IoT服务开发介绍.docx
+    source_path: open-platform/平台文档/IoT服务开发介绍.docx
     source_sha256: 292643946f697061c8defe0937d84d8e991631cc5bc2be9c2173506feda1baa1
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: iot-service-overview
         title: IoT 服务开发介绍
-        locator: { heading: IoT服务开发介绍 }
-        topics: [iot-service-development]
-        keywords: [IoT服务, 服务开发, API, SDK]
+        locator:
+          heading: IoT服务开发介绍
+        topics:
+          - iot-service-development
+        keywords:
+          - IoT服务
+          - 服务开发
+          - API
+          - SDK
         summary: IoT 服务系统定位与服务开发入口。
         content_type: text-and-table
         visual_read_required: false
   - material_id: product-development-detail
-    source_path: knowledge-base/open-platform/平台文档中心/产品开发/产品开发详解.docx
+    source_path: open-platform/平台文档/产品开发详解.docx
     source_sha256: 01272848433fe5b7d8f10bef17446a2713a52d674e1e7fe45228efd8eb23703b
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: product-development-flow
         title: 产品开发流程
-        locator: { heading: 产品开发详解 }
-        topics: [product-development]
-        keywords: [产品开发, 开发流程, 产品状态]
+        locator:
+          heading: 产品开发详解
+        topics:
+          - product-development
+        keywords:
+          - 产品开发
+          - 开发流程
+          - 产品状态
         summary: 产品从创建、定义、开发到测试上线的流程说明。
         content_type: text-and-image
         visual_read_required: true
   - material_id: product-test-and-launch
-    source_path: knowledge-base/open-platform/平台文档中心/产品开发/产品测试与上线.docx
+    source_path: open-platform/平台文档/产品测试与上线.docx
     source_sha256: 8cb9f8ea34ffedf6bf8bd1ee4b83e46a01bf39cfde9adb571c32e8a92a1e59f3
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: product-testing
         title: 产品测试
-        locator: { heading: 产品测试 }
-        topics: [product-testing]
-        keywords: [产品测试, 自测, 实验室]
+        locator:
+          heading: 产品测试
+        topics:
+          - product-testing
+        keywords:
+          - 产品测试
+          - 自测
+          - 实验室
         summary: 产品测试前置条件、测试流程与受控边界。
         content_type: text-and-image
         visual_read_required: true
       - section_id: product-launch
         title: 产品上线
-        locator: { heading: 上线 }
-        topics: [product-launch]
-        keywords: [上线, 发布, 认证]
+        locator:
+          heading: 上线
+        topics:
+          - product-launch
+        keywords:
+          - 上线
+          - 发布
+          - 认证
         summary: 产品上线申请与状态要求。
         content_type: text-and-image
         visual_read_required: true
   - material_id: function-definition-detail
-    source_path: knowledge-base/open-platform/平台文档中心/产品开发/功能定义详解.docx
+    source_path: open-platform/平台文档/功能定义详解.docx
     source_sha256: 7396976fdbef79df9d2e804233087e5259ec639b3c99c077971965b25c8e3929
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: function-model
         title: 功能模板与物模型
-        locator: { heading: 功能定义 }
-        topics: [product-development, function-definition, product-model]
-        keywords: [功能模板, 物模型, 属性, 事件, 方法]
+        locator:
+          heading: 功能定义
+        topics:
+          - product-development
+          - function-definition
+          - product-model
+        keywords:
+          - 功能模板
+          - 物模型
+          - 属性
+          - 事件
+          - 方法
         summary: 功能模板选择与属性、事件、方法的定义规则。
         content_type: text-and-image
         visual_read_required: true
   - material_id: product-development-center
-    source_path: knowledge-base/open-platform/平台文档中心/产品开发/平台文档中心-产品开发.docx
+    source_path: open-platform/平台文档/平台文档中心-产品开发.docx
     source_sha256: 33016ef04173d1abbc236b767406d42ae2b2579cb07db06b65bae41e7f035bbc
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: product-center-navigation
         title: 产品开发中心入口
-        locator: { heading: 产品开发 }
-        topics: [product-development]
-        keywords: [产品开发中心, 入口, 产品管理]
+        locator:
+          heading: 产品开发
+        topics:
+          - product-development
+        keywords:
+          - 产品开发中心
+          - 入口
+          - 产品管理
         summary: 产品开发中心模块入口和导航说明。
         content_type: text-and-image
         visual_read_required: true
   - material_id: authorization-code-management
-    source_path: knowledge-base/open-platform/平台文档中心/产品开发/授权码管理.docx
+    source_path: open-platform/平台文档/授权码管理.docx
     source_sha256: 5ae6b7ee7d7561aba1fcf39b15bbfbc465a723a5a6a6529612de510f577dc92a
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: authorization-code
         title: 产品授权码管理
-        locator: { heading: 授权码管理 }
-        topics: [authorization-code]
-        keywords: [授权码, 产品凭证, 设备开发]
+        locator:
+          heading: 授权码管理
+        topics:
+          - authorization-code
+        keywords:
+          - 授权码
+          - 产品凭证
+          - 设备开发
         summary: 产品授权码的可见入口、使用前置条件和安全边界。
         content_type: text-and-image
         visual_read_required: true
   - material_id: hardware-module-introduction
-    source_path: knowledge-base/open-platform/平台文档中心/产品开发/硬件模组介绍.docx
+    source_path: open-platform/平台文档/硬件模组介绍.docx
     source_sha256: ea20d64d7a1101a8a9ced839b5ec3d468114620d5511ff811103fc8ef662b86b
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: hardware-module-selection
         title: 硬件模组选择
-        locator: { heading: 硬件模组介绍 }
-        topics: [hardware-module, product-development]
-        keywords: [硬件模组, Wi-Fi, BLE, ESP32, 模组选型]
+        locator:
+          heading: 硬件模组介绍
+        topics:
+          - hardware-module
+          - product-development
+        keywords:
+          - 硬件模组
+          - Wi-Fi
+          - BLE
+          - ESP32
+          - 模组选型
         summary: 硬件模组类型、适用范围和选型信息。
         content_type: text-and-table
         visual_read_required: false
   - material_id: device-development-detail
-    source_path: knowledge-base/open-platform/平台文档中心/产品开发/设备开发详解.docx
+    source_path: open-platform/平台文档/设备开发详解.docx
     source_sha256: bbe1d57e303d26f0902c49b89fceca8c57d0ec5a32be1d2f9c6716bb94a870f7
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: device-development
         title: 设备开发
-        locator: { heading: 设备开发 }
-        topics: [device-development]
-        keywords: [设备开发, MQTT, 设备注册, 固件]
+        locator:
+          heading: 设备开发
+        topics:
+          - device-development
+        keywords:
+          - 设备开发
+          - MQTT
+          - 设备注册
+          - 固件
         summary: 设备开发资料、注册、调试与固件相关入口。
         content_type: text-and-image
         visual_read_required: true
   - material_id: advanced-configuration
-    source_path: knowledge-base/open-platform/平台文档中心/产品开发/高级配置.docx
+    source_path: open-platform/平台文档/高级配置.docx
     source_sha256: 58755d54805bf5dcbbca536777ac731ea9767a0991afc60e1e369298a2904955
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: scene-automation
         title: 场景联动配置
-        locator: { heading: 场景联动配置 }
-        topics: [advanced-configuration, scene]
-        keywords: [场景联动, 触发条件, 执行动作, 自动化]
+        locator:
+          heading: 场景联动配置
+        topics:
+          - advanced-configuration
+          - scene
+        keywords:
+          - 场景联动
+          - 触发条件
+          - 执行动作
+          - 自动化
         summary: 标准与自定义自动化、触发条件、执行动作及上线状态。
         content_type: text-and-table
         visual_read_required: false
       - section_id: message-push
         title: 消息推送配置
-        locator: { heading: 消息推送配置 }
-        topics: [advanced-configuration, message-push]
-        keywords: [消息推送, 告警通知, 推送间隔, 审核]
+        locator:
+          heading: 消息推送配置
+        topics:
+          - advanced-configuration
+          - message-push
+        keywords:
+          - 消息推送
+          - 告警通知
+          - 推送间隔
+          - 审核
         summary: 标准与自定义消息推送、触发条件和审核规则。
         content_type: text-and-table
         visual_read_required: false
   - material_id: operation-management
-    source_path: knowledge-base/open-platform/平台文档中心/产品运营/运营管理.docx
+    source_path: open-platform/平台文档/运营管理.docx
     source_sha256: c7db2fad98c87b1f1676ab94012eb20afaf30e8eb21c095c35fd1bfe5ee3400f
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: device-management
         title: 设备管理
-        locator: { heading: 设备管理 }
-        topics: [operation-management, device-management]
-        keywords: [设备管理, 在线, 离线, 激活时间]
+        locator:
+          heading: 设备管理
+        topics:
+          - operation-management
+          - device-management
+        keywords:
+          - 设备管理
+          - 在线
+          - 离线
+          - 激活时间
         summary: 设备总览、状态监控、筛选字段和激活信息。
         content_type: text-and-table
         visual_read_required: false
       - section_id: firmware-upgrade
         title: 固件升级管理
-        locator: { heading: 固件升级管理 }
-        topics: [operation-management, firmware-upgrade]
-        keywords: [固件升级, OTA, 升级任务, 重试]
+        locator:
+          heading: 固件升级管理
+        topics:
+          - operation-management
+          - firmware-upgrade
+        keywords:
+          - 固件升级
+          - OTA
+          - 升级任务
+          - 重试
         summary: 固件版本、升级任务、执行条件和结果查看。
         content_type: text-and-table
         visual_read_required: false
       - section_id: device-log
         title: 设备日志查询
-        locator: { heading: 设备日志查询 }
-        topics: [operation-management, device-log]
-        keywords: [设备日志, 上下行日志, 在离线日志, 操作日志]
+        locator:
+          heading: 设备日志查询
+        topics:
+          - operation-management
+          - device-log
+        keywords:
+          - 设备日志
+          - 上下行日志
+          - 在离线日志
+          - 操作日志
         summary: 设备数据交互、状态和操作日志的查询范围。
         content_type: text-and-table
         visual_read_required: false
   - material_id: value-added-services
-    source_path: knowledge-base/open-platform/平台文档中心/增值服务/增值服务.docx
+    source_path: open-platform/平台文档/增值服务.docx
     source_sha256: d6d903367595bba6137fefebf2bade723d73a505c13bb2a1ad0fe379af3d7709
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: control-panel-customization
         title: 中控屏定制服务
-        locator: { heading: 中控屏定制服务 }
-        topics: [value-added-services, control-panel]
-        keywords: [中控屏, 定制, 语音, 大模型]
+        locator:
+          heading: 中控屏定制服务
+        topics:
+          - value-added-services
+          - control-panel
+        keywords:
+          - 中控屏
+          - 定制
+          - 语音
+          - 大模型
         summary: 中控屏界面、语音和功能定制服务范围。
         content_type: text-and-table
         visual_read_required: false
       - section_id: hardware-integration-service
         title: 硬件代接入服务
-        locator: { heading: 硬件代接入服务 }
-        topics: [value-added-services, hardware-integration]
-        keywords: [硬件代接入, 固件开发, 认证测试, 量产]
+        locator:
+          heading: 硬件代接入服务
+        topics:
+          - value-added-services
+          - hardware-integration
+        keywords:
+          - 硬件代接入
+          - 固件开发
+          - 认证测试
+          - 量产
         summary: 硬件代开发服务内容、流程和适用场景。
         content_type: text-and-table
         visual_read_required: false
   - material_id: platform-overview-core-value
-    source_path: knowledge-base/open-platform/平台文档中心/平台介绍/平台概览与核心价值.docx
+    source_path: open-platform/平台文档/平台概览与核心价值.docx
     source_sha256: d75db02468b9135586ae9c609b7b2ac586b3a91210bbe851905385f553b002c4
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: platform-core-value
         title: 平台概览与核心价值
-        locator: { heading: 平台概览与核心价值 }
-        topics: [platform-overview]
-        keywords: [核心价值, 一体化平台, 设备智能化, 生态互联]
+        locator:
+          heading: 平台概览与核心价值
+        topics:
+          - platform-overview
+        keywords:
+          - 核心价值
+          - 一体化平台
+          - 设备智能化
+          - 生态互联
         summary: 平台定位、价值主张与设备智能化能力。
         content_type: text-and-table
         visual_read_required: false
       - section_id: platform-service-range
         title: 服务范围与目标客户
-        locator: { heading: 服务范围与目标客户 }
-        topics: [platform-overview, service-range]
-        keywords: [设备厂商, 品牌商, 集成商, 硬件零售商]
+        locator:
+          heading: 服务范围与目标客户
+        topics:
+          - platform-overview
+          - service-range
+        keywords:
+          - 设备厂商
+          - 品牌商
+          - 集成商
+          - 硬件零售商
         summary: 目标客户和平台服务范围。
         content_type: text-and-table
         visual_read_required: false
   - material_id: pre-integration-preparation
-    source_path: knowledge-base/open-platform/平台文档中心/接入前备/接入前备.docx
+    source_path: open-platform/平台文档/接入前备.docx
     source_sha256: 668466a5d6185706bbac2b32672ea59134037aa48edce9ba832360dfa982201c
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: enterprise-registration
         title: 企业账号申请与注册
-        locator: { heading: 申请与注册流程 }
-        topics: [account-registration]
-        keywords: [企业注册, 营业执照, 企业管理员, 审核]
+        locator:
+          heading: 申请与注册流程
+        topics:
+          - account-registration
+        keywords:
+          - 企业注册
+          - 营业执照
+          - 企业管理员
+          - 审核
         summary: 企业账号注册字段、审核流程和成员加入前置条件。
         content_type: text-and-table
         visual_read_required: false
       - section_id: system-permission
         title: 系统权限说明
-        locator: { heading: 系统权限说明 }
-        topics: [system-permission]
-        keywords: [系统权限, 产品接入系统, 产品运营系统, 产品服务系统]
+        locator:
+          heading: 系统权限说明
+        topics:
+          - system-permission
+        keywords:
+          - 系统权限
+          - 产品接入系统
+          - 产品运营系统
+          - 产品服务系统
         summary: 三个子系统的独立权限、申请流程和变更规则。
         content_type: text-and-table
         visual_read_required: false
       - section_id: enterprise-member-management
         title: 企业成员管理
-        locator: { heading: 企业成员管理 }
-        topics: [enterprise-membership]
-        keywords: [企业成员, 邀请, 管理员, 企业组]
+        locator:
+          heading: 企业成员管理
+        topics:
+          - enterprise-membership
+        keywords:
+          - 企业成员
+          - 邀请
+          - 管理员
+          - 企业组
         summary: 企业成员邀请、角色与企业组管理规则。
         content_type: text-and-table
         visual_read_required: false
   - material_id: platform-access-authorization
-    source_path: knowledge-base/open-platform/平台获取接口授权方式.pdf
+    source_path: open-platform/平台文档/平台获取接口授权方式.pdf
     source_sha256: f41a7158c211b2791830c57430a3be7e5a070ea864eb02f53f6d6a436d9a8531
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: api-authorization-flow
         title: 接口授权流程
-        locator: { pages: 1-6 }
-        topics: [api-authorization]
-        keywords: [签名, 授权码, token, 刷新]
+        locator:
+          pages: 1-6
+        topics:
+          - api-authorization
+        keywords:
+          - 签名
+          - 授权码
+          - token
+          - 刷新
         summary: 接口签名、授权码获取、访问令牌获取与刷新流程。
         content_type: text-and-table
         visual_read_required: false
   - material_id: platform-development-guide
-    source_path: knowledge-base/open-platform/开发指南/开发指南.docx
+    source_path: open-platform/平台文档/开发指南.docx
     source_sha256: e176a96482617567111a8081eaad93ed84acf671aa4f84685b6f312c3c03da1e
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: api-request-header
         title: API 公共请求头与请求结构
-        locator: { heading: API 开发 }
-        topics: [development-guide, api]
-        keywords: [请求头, appKey, signature, nonce, timestamp]
+        locator:
+          heading: API 开发
+        topics:
+          - development-guide
+          - api
+        keywords:
+          - 请求头
+          - appKey
+          - signature
+          - nonce
+          - timestamp
         summary: API 公共请求头和请求结构约定。
         content_type: text-and-table
         visual_read_required: false
       - section_id: api-authorization-guide
         title: API 授权方式
-        locator: { heading: 授权方式 }
-        topics: [development-guide, api-authorization]
-        keywords: [授权, 签名, 访问令牌]
+        locator:
+          heading: 授权方式
+        topics:
+          - development-guide
+          - api-authorization
+        keywords:
+          - 授权
+          - 签名
+          - 访问令牌
         summary: 开发指南中的接口授权方式说明。
         content_type: text-and-table
         visual_read_required: false
   - material_id: device-callback-message-document
-    source_path: knowledge-base/open-platform/开发指南/设备回调消息文档.docx
+    source_path: open-platform/平台文档/设备回调消息文档.docx
     source_sha256: eb965fcf03d02a6fea463d20fd19eefb88912bfddd00146b8fb5b6baa186fe3c
     extraction: native-text
     visual_review: on-demand
     sections:
       - section_id: device-ack-callback
         title: 设备 ACK 回调
-        locator: { heading: 设备 ACK 消息上报 }
-        topics: [device-callback, api]
-        keywords: [ACK, 回调, 消息上报, 签名]
+        locator:
+          heading: 设备 ACK 消息上报
+        topics:
+          - device-callback
+          - api
+        keywords:
+          - ACK
+          - 回调
+          - 消息上报
+          - 签名
         summary: 设备 ACK 消息的推送头和消息体字段。
         content_type: text-and-table
         visual_read_required: false
       - section_id: device-bind-callback
         title: 设备绑定回调
-        locator: { heading: 设备绑定消息上报 }
-        topics: [device-callback, api]
-        keywords: [设备绑定, 回调, 消息上报]
+        locator:
+          heading: 设备绑定消息上报
+        topics:
+          - device-callback
+          - api
+        keywords:
+          - 设备绑定
+          - 回调
+          - 消息上报
         summary: 设备绑定相关回调消息定义。
         content_type: text-and-table
         visual_read_required: false

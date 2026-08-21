@@ -139,10 +139,10 @@
 
 <!-- project-experience:E4D0B1EA7582:start -->
 <a id="exp-e4d0b1ea7582"></a>
-## 2026-08-17：开放平台 Web 用例设计中，以 Axure 整页设计图（如 `sources/prototypes/open-platform/images/注册页面/u235.png`，manifest `open-platform-axure-prototype`）为唯一来源的页面结构类断言
+## 2026-08-17：开放平台 Web 用例设计中，以 Axure 整页设计图（如 `sources/open-platform/原型包/images/注册页面/u235.png`，manifest `open-platform-axure-prototype`）为唯一来源的页面结构类断言
 
 - 经验编号：EXP-E4D0B1EA7582
-- 适用范围：开放平台 Web 用例设计中，以 Axure 整页设计图（如 `sources/prototypes/open-platform/images/注册页面/u235.png`，manifest `open-platform-axure-prototype`）为唯一来源的页面结构类断言
+- 适用范围：开放平台 Web 用例设计中，以 Axure 整页设计图（如 `sources/open-platform/原型包/images/注册页面/u235.png`，manifest `open-platform-axure-prototype`）为唯一来源的页面结构类断言
 - 证据状态：待验证
 - 观察：同一张登录页整页设计图，主 Agent 与两名隔离 reviewer 的独立读图结论在“默认登录方式、切换入口文字、是否存在‘立即注册’文案”上冲突；正式评审裁定按多读者一致版本修正，且真实本地 dev 页面经验（EXP-633C0F015724）显示实现与原型也可能不一致。
 - 判断：单一读图结论不足以作为断言事实；原型与实现的默认态和文案可能存在差异，从设计图直接编造具体文案会形成资料外断言。

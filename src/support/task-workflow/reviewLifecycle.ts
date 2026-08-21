@@ -412,8 +412,8 @@ export function reviewBatchInvalidationInputDigest(input: {
 /** Purely extracts controlled source references from formal Markdown. IO and
  * allowlist enforcement remain with the facade/snapshot store. */
 export function referencedControlledSources(plan: string): string[] {
-  const sourceReference = "(?:\\.\\.\\/)*sources\\/(?:manifest\\.yaml|indexes\\/[a-z0-9][a-z0-9-]*\\.ya?ml|(?:requirements|prototypes|knowledge-base)\\/[^\\s)`]+)";
-  const linkReference = "(?:\\.\\.\\/)*sources\\/(?:manifest\\.yaml|indexes\\/[a-z0-9][a-z0-9-]*\\.ya?ml|(?:requirements|prototypes|knowledge-base)\\/[^)>]+?)";
+  const sourceReference = "(?:\\.\\.\\/)*sources\\/(?:manifest\\.yaml|indexes\\/[a-z0-9][a-z0-9-]*\\.ya?ml|(?!indexes\\/)[^\\s)`]+\\/[^\\s)`]+)";
+  const linkReference = "(?:\\.\\.\\/)*sources\\/(?:manifest\\.yaml|indexes\\/[a-z0-9][a-z0-9-]*\\.ya?ml|(?!indexes\\/)[^)>]+?\\/[^)>]+?)";
   const linkPattern = new RegExp("\\]\\(\\s*(?:<)?(" + linkReference + ")(?:>)?\\s*\\)", "g");
   const plainPattern = new RegExp("(?:`|\\b)(" + sourceReference + ")", "g");
   const linkMatches = [...plan.matchAll(linkPattern)];

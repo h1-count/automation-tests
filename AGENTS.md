@@ -36,7 +36,7 @@
 
 ## 目录边界
 
-- `sources/`：原始需求、接口、物模型、截图、原型、原始知识资料库及受控章节索引；用 `manifest.yaml` 维护原始资料与项目索引的来源、关联和有效性。
+- `sources/`：按项目组织的原始资料（`<项目>/<类别>/`，跨项目共享资料在 `_shared/`）及受控章节索引；用 `manifest.yaml` 维护原始资料与项目索引的来源、关联和有效性。
 - `testcases/`：测试设计索引和结构化用例，按 `testcases/<type>/<project>/suites/<feature>/` 套件组织（`cases.md` 用例 + `design.md` 设计台账），是纳入 Git 的稳定可复用资产；同一功能的反复测试只增量修订同一套件，不按请求复制目录；`tests/`：可执行脚本，分类与套件一致，纳入 Git 且不随请求归档。
 - `src/actions/`：业务级公共动作；`src/clients/`：协议访问；`src/fixtures/`：测试引用与数据初始化；`src/env/`：环境解析；`src/support/`：断言、轮询、脱敏和清理。
 - `scripts/`：环境检查、数据准备/清理、认证初始化和报告脚本；`artifacts/`：被 Git 忽略的执行产物。

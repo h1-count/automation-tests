@@ -85,12 +85,12 @@ const SENSITIVE_PATTERNS: RegExp[] = [
 const NOT_SOURCE_PATTERNS: RegExp[] = [/cases-review/i, /review-workbook/i, /测试用例$/];
 
 const TYPE_BY_NAME_HINT: Array<{ pattern: RegExp; type: string; dir: string }> = [
-  { pattern: /接口|api|openapi|云端|回调/i, type: "api-documentation", dir: "api-docs" },
-  { pattern: /协议|protocol|蓝牙|ble|mqtt/i, type: "device-protocol", dir: "knowledge-base/device-protocol" },
-  { pattern: /原型|prototype|axure/i, type: "prototype", dir: "prototypes" },
-  { pattern: /需求|规格|prd/i, type: "requirement", dir: "requirements" },
-  { pattern: /平台|帮助|中心|指南|guide|help/i, type: "platform-documentation", dir: "knowledge-base" },
-  { pattern: /物模型|topic|payload/i, type: "integration-guide", dir: "iot-models" }
+  { pattern: /接口|api|openapi|云端|回调/i, type: "api-documentation", dir: "接口" },
+  { pattern: /协议|protocol|蓝牙|ble|mqtt/i, type: "device-protocol", dir: "_shared/设备协议" },
+  { pattern: /原型|prototype|axure/i, type: "prototype", dir: "原型包" },
+  { pattern: /需求|规格|prd/i, type: "requirement", dir: "需求" },
+  { pattern: /平台|帮助|中心|指南|guide|help/i, type: "platform-documentation", dir: "平台文档" },
+  { pattern: /物模型|topic|payload/i, type: "integration-guide", dir: "物模型" }
 ];
 
 function inboxDir(options: ScanOptions = {}): string {

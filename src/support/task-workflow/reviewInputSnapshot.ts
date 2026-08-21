@@ -715,7 +715,7 @@ export class ReviewInputSnapshotStore {
       && (
         workspaceRelative === "sources/manifest.yaml"
         || /^sources\/indexes\/[a-z0-9][a-z0-9-]*\.ya?ml$/.test(workspaceRelative)
-        || /^sources\/(?:requirements|prototypes|knowledge-base)\/[^/]+\/.+/.test(workspaceRelative)
+        || /^sources\/(?!indexes\/|README)[^/]+\/.+/.test(workspaceRelative)
       )
     ) {
       return workspaceRelative;
