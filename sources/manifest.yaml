@@ -631,3 +631,16 @@ materials:
       - scene-linkage
     status: active
     notes: 集中管理平台上线需求 3.0：场景联动审核（待审核/审核纪录两态、产品状态同步、同产品新申请覆盖展示、筛选与列表字段）；集中交互管理平台.docx 引用的需求源之一。
+  - id: centralized-platform-launch-requirement-v4
+    type: requirement
+    path: open-platform/需求/集中管理平台上线需求—4.0
+    sha256: 4a49017d1c3fcced122fb9d36776e057d3d832ad8710b6971e7360bf73154b6d
+    source: user-provided
+    source_version: "4.0"
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - centralized-interaction-management-platform
+      - data-cockpit
+    status: active
+    notes: 集中管理平台上线需求 4.0：AIoT驾驶舱（原数据中心模块改名）：设备接入/合作企业/接入品牌/接入趋势图、设备激活分析、统计时区与更新时间规则。
