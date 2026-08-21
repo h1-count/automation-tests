@@ -3,9 +3,21 @@ knowledge_indexes:
   - id: open-platform-knowledge-index
     project: open-platform
     path: indexes/open-platform.yaml
-    status: stale
+    status: reviewed
     updated_at: 2026-08-21
     covered_material_ids:
+      - cloud-bridge-bug-verification
+      - cloud-bridge-optimization-requirement
+      - cloud-bridge-frontend-config-requirement
+      - open-platform-launch-requirement
+      - open-platform-weekly-release-log
+      - open-platform-management-system-navigation
+      - centralized-platform-launch-requirement-v2
+      - centralized-platform-launch-requirement-v3
+      - centralized-platform-launch-requirement-v4
+      - centralized-platform-maintenance-module-requirement
+      - product-access-launch-requirement-v3
+      - open-platform-ticket-system-requirement
       - openapi-document
       - cloud-cloud-api-document
       - smart-lock-api-document

@@ -3,8 +3,8 @@ project: open-platform
 index_status: reviewed
 documents:
   - material_id: product-access-system-requirement
-    source_path: open-platform/需求/产品接入系统功能需求说明.docx
-    source_sha256: 5e429d9900d04c8c277c734700c9dd9373da5db99a03d27ee9e856dc0c92a5b4
+    source_path: open-platform/需求/产品接入系统功能需求说明
+    source_sha256: 19f0e6801735e60d7e864ff55136b8fefd0c4308516a5f60035b3551be97e681
     extraction: native-text
     visual_review: on-demand
     sections:
@@ -1139,3 +1139,494 @@ documents:
         summary: 设备绑定相关回调消息定义。
         content_type: text-and-table
         visual_read_required: false
+  - material_id: cloud-bridge-bug-verification
+    source_path: "open-platform/需求/云云bridgeBug"
+    source_sha256: 3da915b09dd833d1dd8aa6c7b8fd9d5940439d8f1e3bdef37b897635964d8650
+    extraction: native-text
+    visual_review: on-demand
+    sections:
+      - section_id: bridge-bug-verification-list
+        title: "云云bridge功能验证清单"
+        locator:
+          heading: "云云bridge部分"
+        topics:
+          - cloud-integration
+          - verification
+        keywords:
+          - "参数表达式查重"
+          - "Toast提示"
+          - "弹窗样式"
+          - "提取表达式"
+          - "不通过"
+        summary: "云云bridge 前端 18 项验证结论：第 8 项输入框与标题横线重合、第 9 项双重成功提示不通过，其余通过。"
+        content_type: text-and-image
+        visual_read_required: true
+  - material_id: cloud-bridge-optimization-requirement
+    source_path: "open-platform/需求/云云bridge优化"
+    source_sha256: 100cd70baa2e2a7e1a53472cd526ca74749e721cae88acfb1fd5e7b21432e4bf
+    extraction: native-text
+    visual_review: on-demand
+    sections:
+      - section_id: bridge-opt-uplink-parse
+        title: "上行数据解析配置优化"
+        locator:
+          heading: "上行数据解析配置"
+        topics:
+          - cloud-integration
+          - uplink-parsing
+        keywords:
+          - "可视化映射"
+          - "必填校验"
+          - "参数表只读"
+          - "添加参数弹窗"
+          - "值来源"
+        summary: "可视化映射必填校验、响应处理小标题、上行参数表转只读并以弹窗完成增删改与转换类型动态表单。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: bridge-opt-downlink-parse
+        title: "下行数据解析配置优化"
+        locator:
+          heading: "下行数据解析配置"
+        topics:
+          - cloud-integration
+          - downlink-parsing
+        keywords:
+          - "Get token"
+          - "获取节点"
+          - "body参数表"
+          - "query参数表"
+          - "键值对模式"
+        summary: "Get token 与获取节点不展示平台/body参数表与自定义body模版，body/query 参数表增加值来源等字段。"
+        content_type: text-and-image
+        visual_read_required: true
+  - material_id: cloud-bridge-frontend-config-requirement
+    source_path: "open-platform/需求/云云协议转换前端配置需求"
+    source_sha256: f74db873e58e0957cbecfee502cf35dadfa326cd464cfad776447469aaed1e95
+    extraction: native-text
+    visual_review: on-demand
+    sections:
+      - section_id: bridge-config-protocol-management
+        title: "协议管理模块"
+        locator:
+          heading: "协议管理"
+        topics:
+          - cloud-integration
+          - protocol-management
+        keywords:
+          - "协议列表"
+          - "新增协议"
+          - "删除确认弹窗"
+          - "启用状态"
+          - "分页"
+        summary: "协议管理列表字段、启用/不启用语义、新增协议弹窗跳转配置页与删除确认规则。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: bridge-config-entry
+        title: "产品开发云云设备开发入口"
+        locator:
+          heading: "产品开发\\-云云设备开发"
+        topics:
+          - cloud-integration
+          - device-development
+        keywords:
+          - "云云开发"
+          - "创建入口"
+          - "协议关联"
+          - "云云bridge"
+        summary: "产品开发-云云开发作为创建云云bridge协议的第二入口及其与产品的关联关系。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: bridge-config-uplink
+        title: "上行数据解析配置"
+        locator:
+          heading: "**上行数据解析配置**"
+        topics:
+          - cloud-integration
+          - uplink-parsing
+        keywords:
+          - "签名认证"
+          - "Basic Auth"
+          - "新增header"
+          - "解析规则"
+          - "数据转换预览"
+        summary: "上行通信认证（签名/Basic Auth/新增header）、上行数据解析列表与规则编辑、数据转换预览。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: bridge-config-downlink
+        title: "下行数据解析"
+        locator:
+          heading: "**下行数据解析**"
+        topics:
+          - cloud-integration
+          - downlink-parsing
+        keywords:
+          - "无认证"
+          - "API key"
+          - "Bearer Token"
+          - "下行规则管理"
+          - "数据转换预览"
+        summary: "下行通信认证四种模式、下行规则管理与编辑配置、数据转换预览。"
+        content_type: text-and-image
+        visual_read_required: true
+  - material_id: open-platform-launch-requirement
+    source_path: "open-platform/需求/上线需求"
+    source_sha256: 533b8faf1b83e667e2e51305d7e665aae6508e3d3e69f7f79c959c32fbc2ce96
+    extraction: native-text
+    visual_review: on-demand
+    sections:
+      - section_id: launch-access-system
+        title: "产品接入系统上线优化"
+        locator:
+          heading: "产品接入系统"
+        topics:
+          - product-development
+        keywords:
+          - "详情简要"
+          - "一级类目"
+          - "消息推送"
+          - "固件升级"
+          - "配网方式"
+          - "API列表"
+        summary: "接入方式详情简要、类目其他置底、消息推送分组标签、固件首版本无升级按钮等上线优化。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: launch-console
+        title: "控制台上线项"
+        locator:
+          heading: "控制台"
+        topics:
+          - console
+        keywords:
+          - "文档中心"
+          - "常见问题"
+          - "帮助文档"
+        summary: "控制台新增文档中心与常见问题入口及iot平台帮助文档链接。"
+        content_type: text-and-table
+        visual_read_required: false
+  - material_id: open-platform-weekly-release-log
+    source_path: "open-platform/平台文档/开放平台每周发版日志"
+    source_sha256: c7b41ed7624be418635514e9ebf5d7e43150431e29b94228f7c665f5cd92b3f5
+    extraction: native-text
+    visual_review: on-demand
+    sections:
+      - section_id: release-log-waves
+        title: "发版波次台账"
+        locator:
+          heading: "20250718—版本1\\.0 已完成"
+        topics:
+          - release-notes
+        keywords:
+          - "20250718"
+          - "20250808"
+          - "20250903"
+          - "20250910"
+          - "20250917"
+          - "20250924"
+          - "20250930"
+        summary: "20250718 至 20250930 七个发版波次下各系统上线条目与对应飞书需求文档链接。"
+        content_type: text-and-table
+        visual_read_required: false
+  - material_id: open-platform-management-system-navigation
+    source_path: "open-platform/平台文档/开放平台管理系统.md"
+    source_sha256: 1c4b4e85750f4c7c4617ad223dc54dbdd6700e3478421cff2fd8ebc05230d2e1
+    extraction: native-text
+    visual_review: on-demand
+    sections:
+      - section_id: mgmt-system-navigation
+        title: "系统导航结构"
+        locator:
+          heading: "系统导航"
+        topics:
+          - platform-overview
+        keywords:
+          - "驾驶舱"
+          - "产品管理"
+          - "模板管理"
+          - "模组配置"
+          - "审核管理"
+          - "客户管理"
+        summary: "开放平台管理系统九大导航模块与子功能清单，APP运营模块已划除。"
+        content_type: text-and-table
+        visual_read_required: false
+  - material_id: centralized-platform-launch-requirement-v2
+    source_path: "open-platform/需求/集中管理平台上线需求—2.0"
+    source_sha256: 8417456af69838d74abe392dd5f2a993e3b6c5edd8cbd92dbfc9c71cee604686
+    extraction: native-text
+    visual_review: on-demand
+    sections:
+      - section_id: mgmt-v2-function-points
+        title: "事件与方法功能点规则"
+        locator:
+          heading: "新需求"
+        topics:
+          - centralized-interaction-management-platform
+          - function-definition
+        keywords:
+          - "添加事件"
+          - "添加方法"
+          - "输出参数"
+          - "唯一性校验"
+          - "场景支持"
+        summary: "功能库添加/编辑/删除事件与方法的字段规则、参数取值范围限定品类属性及模板关联删除约束。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: mgmt-v2-optimizations
+        title: "需求优化清单"
+        locator:
+          heading: "需求优化"
+        topics:
+          - centralized-interaction-management-platform
+        keywords:
+          - "功能库"
+          - "功能模板"
+          - "消息推送"
+          - "模组配置"
+          - "产品总览"
+        summary: "功能库、功能模板、消息推送、模组配置、产品总览等模块的2.0优化条目。"
+        content_type: text-and-image
+        visual_read_required: true
+  - material_id: centralized-platform-launch-requirement-v3
+    source_path: "open-platform/需求/集中管理平台上线需求—3.0"
+    source_sha256: faa2b7b0171177835547b90e56988e6265eb545a7098c8f1df2cdc3c7cd63244
+    extraction: native-text
+    visual_review: on-demand
+    sections:
+      - section_id: mgmt-v3-scene-review
+        title: "场景联动审核"
+        locator:
+          heading: "场景联动审核"
+        topics:
+          - centralized-interaction-management-platform
+          - audit-management
+          - scene-linkage
+        keywords:
+          - "待审核"
+          - "审核纪录"
+          - "覆盖展示"
+          - "产品状态"
+          - "筛选"
+        summary: "场景联动上线申请的后台审核两态流程、同产品新申请覆盖展示、筛选与列表字段。"
+        content_type: text-and-image
+        visual_read_required: true
+  - material_id: centralized-platform-launch-requirement-v4
+    source_path: "open-platform/需求/集中管理平台上线需求—4.0"
+    source_sha256: 4a49017d1c3fcced122fb9d36776e057d3d832ad8710b6971e7360bf73154b6d
+    extraction: native-text
+    visual_review: on-demand
+    sections:
+      - section_id: mgmt-v4-cockpit
+        title: "AIoT驾驶舱"
+        locator:
+          heading: "AIoT驾驶舱"
+        topics:
+          - centralized-interaction-management-platform
+          - data-cockpit
+        keywords:
+          - "数据中心"
+          - "设备接入趋势"
+          - "设备激活"
+          - "统计时区"
+          - "更新时间"
+        summary: "数据中心改名AIoT驾驶舱后的设备接入、设备分析、趋势图与统计口径及更新时间规则。"
+        content_type: text-and-image
+        visual_read_required: true
+  - material_id: centralized-platform-maintenance-module-requirement
+    source_path: "open-platform/需求/集中管理平台（运营平台）—开发者平台维护模块"
+    source_sha256: 3d67da228c4de3a29f76a8fe018e77d35064d456eb3fd76a40ea8c1a79e7e16b
+    extraction: native-text
+    visual_review: on-demand
+    sections:
+      - section_id: mgmt-module-registration-review
+        title: "注册审核"
+        locator:
+          heading: "注册审核"
+        topics:
+          - centralized-interaction-management-platform
+          - audit-management
+        keywords:
+          - "企业注册审核"
+          - "注册管理"
+        summary: "企业注册审核的处理流程、列表与操作要求。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: mgmt-module-enterprise
+        title: "企业管理"
+        locator:
+          heading: "**企业管理**"
+        topics:
+          - centralized-interaction-management-platform
+          - account-management
+        keywords:
+          - "企业管理"
+          - "企业权限"
+        summary: "企业管理列表与企业权限分配需求。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: mgmt-module-procurement
+        title: "采购管理"
+        locator:
+          heading: "采购管理"
+        topics:
+          - centralized-interaction-management-platform
+          - module-procurement
+        keywords:
+          - "模组采购"
+          - "采购列表"
+        summary: "模组采购管理列表与流程需求。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: mgmt-module-approval
+        title: "审批管理"
+        locator:
+          heading: "审批管理"
+        topics:
+          - centralized-interaction-management-platform
+          - audit-management
+        keywords:
+          - "申请授权码"
+          - "设备测试"
+          - "产品上线"
+          - "消息推送"
+        summary: "申请授权码、设备测试、产品上线、消息推送四类审核管理需求。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: mgmt-module-module-config
+        title: "模组配置"
+        locator:
+          heading: "模组配置 P1"
+        topics:
+          - centralized-interaction-management-platform
+        keywords:
+          - "模组列表"
+          - "固件"
+          - "模组配置"
+        summary: "模组配置P1的模组与固件维护需求。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: mgmt-module-template
+        title: "模板配置"
+        locator:
+          heading: "模板配置"
+        topics:
+          - centralized-interaction-management-platform
+        keywords:
+          - "功能点配置"
+          - "产品功能模板"
+          - "消息推送模板"
+        summary: "功能点配置、产品功能模板与消息推送模板管理需求。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: mgmt-module-product
+        title: "产品管理"
+        locator:
+          heading: "产品管理"
+        topics:
+          - centralized-interaction-management-platform
+        keywords:
+          - "产品总览"
+          - "产品配置"
+          - "类目管理"
+          - "品类管理"
+        summary: "产品总览、产品配置与类目/品类管理需求。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: mgmt-module-cockpit
+        title: "AIoT驾驶舱"
+        locator:
+          heading: "AIoT驾驶舱"
+        topics:
+          - centralized-interaction-management-platform
+          - data-cockpit
+        keywords:
+          - "驾驶舱"
+          - "数据中心"
+        summary: "AIoT驾驶舱数据展示需求，与上线需求4.0对应。"
+        content_type: text-and-image
+        visual_read_required: true
+  - material_id: product-access-launch-requirement-v3
+    source_path: "open-platform/需求/产品接入系统上线需求—3.0"
+    source_sha256: 389b417dc2e6b135b9b879b589eeee7095155e9d237f28e4ba1147de88d0381d
+    extraction: native-text
+    visual_review: on-demand
+    sections:
+      - section_id: access-v3-scene-linkage
+        title: "场景联动"
+        locator:
+          heading: "场景联动"
+        topics:
+          - product-development
+          - scene-linkage
+        keywords:
+          - "标准自动化"
+          - "自定义自动化"
+          - "触发条件"
+          - "执行动作"
+          - "发起上线"
+        summary: "标准与自定义自动化场景的触发条件、执行动作功能构成与自动化发起上线流程。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: access-v3-custom-points
+        title: "自定义功能点"
+        locator:
+          heading: "自定义功能点"
+        topics:
+          - product-development
+          - function-definition
+        keywords:
+          - "自定义属性"
+          - "自定义事件"
+          - "自定义方法"
+        summary: "自定义属性、事件、方法三类功能点的配置规则与约束。"
+        content_type: text-and-image
+        visual_read_required: true
+  - material_id: open-platform-ticket-system-requirement
+    source_path: "open-platform/需求/开放平台+服务平台工单系统"
+    source_sha256: e2c297d8c670bf558cb3e8e6995f8c3bb37cb84c728cf01b6f526c02fb24f853
+    extraction: native-text
+    visual_review: on-demand
+    sections:
+      - section_id: ticket-flow
+        title: "工单填报与流转"
+        locator:
+          heading: "工单流转"
+        topics:
+          - ticket-system
+        keywords:
+          - "工单标签"
+          - "运维组"
+          - "工单等级"
+          - "状态流转"
+          - "填报入口"
+        summary: "工单填报入口、标签/运维组/等级体系与工单状态流转机。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: ticket-service-management
+        title: "服务平台工单管理"
+        locator:
+          heading: "服务平台工单管理"
+        topics:
+          - ticket-system
+        keywords:
+          - "标签配置"
+          - "运维组配置"
+          - "我提交的工单"
+          - "处理工单"
+          - "重启工单"
+          - "飞书通知"
+        summary: "服务平台侧工单标签与运维组配置、提交/分配/处理/重启工单流程及飞书通知。"
+        content_type: text-and-image
+        visual_read_required: true
+      - section_id: ticket-open-platform
+        title: "开放平台工单"
+        locator:
+          heading: "开放平台工单"
+        topics:
+          - ticket-system
+        keywords:
+          - "新增工单"
+          - "工单详情"
+          - "图片上传"
+          - "200字符"
+        summary: "开放平台侧新增工单与工单详情需求，含图片上传与描述字数限制。"
+        content_type: text-and-image
+        visual_read_required: true
