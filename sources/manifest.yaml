@@ -574,3 +574,15 @@ materials:
       - console
     status: active
     notes: 上线需求：产品接入系统（接入方式详情简要、一级类目其他置底、消息推送触发条件分组标签、固件配置首固件无升级按钮与新增固件前提条件、配网热点蓝牙名称非必填、云云接入API列表）与控制台（文档中心、常见问题）。
+  - id: open-platform-weekly-release-log
+    type: platform-documentation
+    path: open-platform/平台文档/开放平台每周发版日志
+    sha256: c7b41ed7624be418635514e9ebf5d7e43150431e29b94228f7c665f5cd92b3f5
+    source: user-provided
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - release-notes
+    status: active
+    notes: 开放平台每周发版日志（20250718—20250930 七个波次）：产品接入/产品服务/产品运营/集中管理/开放平台管理/工单系统各上线条目与飞书链接；20250910 波次含云云接入协议转换、20250917 波次含云云对接bridge前端配置。
