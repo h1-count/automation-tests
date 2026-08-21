@@ -1,9 +1,10 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   appendMaterialEntry,
   asRecords,
+  computeSourceHash,
   defaultSourcesRoot,
   fileSha256,
   loadSourcesManifest,
@@ -13,7 +14,7 @@ import {
   writeSourcesManifest,
   type SourcesManifestPaths
 } from "./sourcesManifest.js";
-import { findPendingItem, recordHandledDecision, type PendingItem, type ScanOptions } from "./ingest.js";
+import { findPendingItem, logicalFileName, recordHandledDecision, type PendingItem, type ScanOptions } from "./ingest.js";
 
 export type GitRunner = (args: string[], options?: { cwd?: string }) => { status: number; stdout: string; stderr: string };
 
@@ -84,6 +85,76 @@ function uniqueTargetPath(sourcesRoot: string, targetDir: string, fileName: stri
     suffix += 1;
   }
   return { target, overwrites: false };
+}
+
+function pruneJunk(root: string): void {
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = resolve(directory, entry.name);
+      if (entry.name === "__MACOSX" && entry.isDirectory()) {
+        rmSync(entryPath, { recursive: true, force: true });
+      } else if (entry.isDirectory()) {
+        walk(entryPath);
+      } else if (entry.name === ".DS_Store" || entry.name.startsWith("._")) {
+        rmSync(entryPath, { force: true });
+      }
+    }
+  };
+  walk(root);
+}
+
+function assertSafeZipEntries(zipPath: string): void {
+  const listing = spawnSync("unzip", ["-Z1", zipPath], { encoding: "utf8" });
+  if (listing.status !== 0) {
+    throw new Error(`读取 zip 条目失败：${listing.stderr.trim()}`);
+  }
+  for (const rawLine of listing.stdout.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith("/") || line.split("/").some((segment) => segment === "..")) {
+      throw new Error(`zip 包含不安全路径条目：${line}`);
+    }
+  }
+}
+
+/**
+ * Extracts an uploaded zip as a directory package: unzip (fallback ditto),
+ * drop macOS/OS junk, hoist a single top-level wrapper directory so the
+ * package root is the target itself.
+ */
+export function extractZipPackage(zipPath: string, target: string): void {
+  assertSafeZipEntries(zipPath);
+  const extractRoot = resolve(dirname(target), `.${basename(target)}.extract`);
+  rmSync(extractRoot, { recursive: true, force: true });
+  mkdirSync(extractRoot, { recursive: true });
+  const unzip = spawnSync("unzip", ["-q", "-o", zipPath, "-d", extractRoot], { encoding: "utf8" });
+  if (unzip.status !== 0) {
+    const ditto = spawnSync("ditto", ["-x", "-k", zipPath, extractRoot], { encoding: "utf8" });
+    if (ditto.status !== 0) {
+      rmSync(extractRoot, { recursive: true, force: true });
+      throw new Error(`解压失败：${unzip.stderr.trim() || ditto.stderr.trim()}`);
+    }
+  }
+  pruneJunk(extractRoot);
+  const entries = readdirSync(extractRoot).filter((name) => !name.startsWith("."));
+  if (entries.length === 0) {
+    rmSync(extractRoot, { recursive: true, force: true });
+    throw new Error("zip 解压后为空（或仅包含系统垃圾文件）。");
+  }
+  const contentRoot = entries.length === 1 && statSync(resolve(extractRoot, entries[0])).isDirectory()
+    ? resolve(extractRoot, entries[0])
+    : extractRoot;
+  mkdirSync(dirname(target), { recursive: true });
+  renameSync(contentRoot, target);
+  rmSync(extractRoot, { recursive: true, force: true });
+}
+
+function requiredSourceHash(path: string): string {
+  const hash = computeSourceHash(path);
+  if (!hash) {
+    throw new Error(`无法计算内容哈希：${path}`);
+  }
+  return hash;
 }
 
 function commitScope(projects: string[]): string {
@@ -189,12 +260,16 @@ export function applyPendingItem(options: ApplyOptions): ApplyResult {
     }
     const oldRelativePath = String(material.path ?? "");
     const oldAbsolutePath = resolve(sourcesRoot, oldRelativePath);
-    const oldBasename = basename(oldRelativePath);
     const targetDir = dirname(oldRelativePath);
-    const { target, overwrites } = uniqueTargetPath(sourcesRoot, targetDir, item.file.fileName, item.file.sha256, oldAbsolutePath);
+    const logicalName = logicalFileName(item.file.fileName);
+    const isPackage = logicalName.toLowerCase().endsWith(".zip");
+    const nextName = isPackage ? basename(logicalName, ".zip") : logicalName;
+    const { target, overwrites } = isPackage
+      ? { target: uniqueTargetPath(sourcesRoot, targetDir, nextName, item.file.sha256).target, overwrites: false }
+      : uniqueTargetPath(sourcesRoot, targetDir, nextName, item.file.sha256, oldAbsolutePath);
     const relativeTarget = target.slice(sourcesRoot.length + 1);
     const sourceVersion = options.sourceVersion ?? "unknown";
-    actions.push(overwrites ? `覆盖 ${relativeTarget}（同名换版）` : `复制暂存文件 → ${relativeTarget}`);
+    actions.push(overwrites ? `覆盖 ${relativeTarget}（同名换版）` : isPackage ? `解压包 → ${relativeTarget}/（markdown+附件目录包）` : `复制暂存文件 → ${relativeTarget}`);
     if (!overwrites && oldRelativePath && oldRelativePath !== relativeTarget) {
       actions.push(`移除旧路径 ${oldRelativePath}（内容保留在 Git 历史）`);
     }
@@ -210,9 +285,14 @@ export function applyPendingItem(options: ApplyOptions): ApplyResult {
     const manifestBackup = readFileSync(manifestFile, "utf8");
     const oldBackupPath = `${oldAbsolutePath}.ingest-rollback`;
     let oldFileMoved = false;
-    supersedeMaterialVersion(loaded.raw, materialId, { path: relativeTarget, sha256: item.file.sha256, sourceVersion }, defaultNow());
-    mkdirSync(dirname(target), { recursive: true });
-    copyFileSync(absolutePath, target);
+    if (isPackage) {
+      extractZipPackage(absolutePath, target);
+    } else {
+      mkdirSync(dirname(target), { recursive: true });
+      copyFileSync(absolutePath, target);
+    }
+    const nextSha256 = isPackage ? requiredSourceHash(target) : item.file.sha256;
+    supersedeMaterialVersion(loaded.raw, materialId, { path: relativeTarget, sha256: nextSha256, sourceVersion }, defaultNow());
     if (!overwrites && existsSync(oldAbsolutePath) && oldAbsolutePath !== target) {
       renameSync(oldAbsolutePath, oldBackupPath);
       oldFileMoved = true;
@@ -239,7 +319,7 @@ export function applyPendingItem(options: ApplyOptions): ApplyResult {
     } catch (error) {
       writeFileSync(manifestFile, manifestBackup);
       if (oldFileMoved && existsSync(oldBackupPath)) renameSync(oldBackupPath, oldAbsolutePath);
-      if (!overwrites && existsSync(target) && target !== oldAbsolutePath) rmSync(target);
+      if (!overwrites && existsSync(target) && target !== oldAbsolutePath) rmSync(target, { recursive: true, force: true });
       throw new Error(`登记失败已回滚（manifest 恢复、文件系统还原）：${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -250,7 +330,9 @@ export function applyPendingItem(options: ApplyOptions): ApplyResult {
     );
   }
 
-  const slug = slugifyMaterialId(item.file.fileName);
+  const logicalName = logicalFileName(item.file.fileName);
+  const isPackage = logicalName.toLowerCase().endsWith(".zip");
+  const slug = slugifyMaterialId(logicalName);
   const materialId = options.materialId ?? (slug || `uploaded-${item.file.sha256.slice(0, 10)}`);
   if (!options.materialId && !slug) {
     warnings.push(`文件名无法推导 ASCII 编号，已使用 ${materialId}；建议通过 --material-id 提供语义编号。`);
@@ -259,32 +341,38 @@ export function applyPendingItem(options: ApplyOptions): ApplyResult {
     throw new Error(`资料编号已存在：${materialId}；请通过 --material-id 指定其他编号。`);
   }
   const targetDir = options.targetDir ?? item.suggestion.targetDir ?? "需求";
-  const { target } = uniqueTargetPath(sourcesRoot, targetDir, item.file.fileName, item.file.sha256);
+  const nextName = isPackage ? basename(logicalName, ".zip") : logicalName;
+  const { target } = uniqueTargetPath(sourcesRoot, targetDir, nextName, item.file.sha256);
   const relativeTarget = target.slice(sourcesRoot.length + 1);
   const projects = options.projects ?? [];
   const scopes = options.scopes ?? [];
   if (projects.length === 0) {
     warnings.push("applicable_projects 为空（未知不得默认适用）；后续确认项目后需修订 manifest。");
   }
-  actions.push(`复制暂存文件 → ${relativeTarget}`);
-  actions.push(`manifest 追加新条目 ${materialId}（type=${options.targetType ?? item.suggestion.targetType}，sha256=${item.file.sha256.slice(0, 12)}…）`);
+  actions.push(isPackage ? `解压包 → ${relativeTarget}/（markdown+附件目录包）` : `复制暂存文件 → ${relativeTarget}`);
+  actions.push(`manifest 追加新条目 ${materialId}（type=${options.targetType ?? item.suggestion.targetType}）`);
   actions.push("git 提交");
   if (options.dryRun) {
     return { ...base, status: "dry-run", actions, warnings };
   }
   const manifestBackup = readFileSync(manifestFile, "utf8");
+  if (isPackage) {
+    extractZipPackage(absolutePath, target);
+  } else {
+    mkdirSync(dirname(target), { recursive: true });
+    copyFileSync(absolutePath, target);
+  }
+  const nextSha256 = isPackage ? requiredSourceHash(target) : item.file.sha256;
   appendMaterialEntry(loaded.raw, {
     id: materialId,
     type: options.targetType ?? item.suggestion.targetType,
     path: relativeTarget,
-    sha256: item.file.sha256,
+    sha256: nextSha256,
     sourceVersion: options.sourceVersion ?? "unknown",
     applicableProjects: projects,
     referenceScopes: scopes,
     notes: options.notes ?? "上传摄取登记；适用项目与范围待确认。"
   });
-  mkdirSync(dirname(target), { recursive: true });
-  copyFileSync(absolutePath, target);
   try {
     writeSourcesManifest(loaded.raw, manifestPaths);
     const commit = gitAddAndCommit(gitRunner, projectDir, [manifestFile, target], `test(${commitScope(projects)}): 登记新资料 ${materialId}`);
@@ -292,7 +380,7 @@ export function applyPendingItem(options: ApplyOptions): ApplyResult {
     return { ...base, status: "applied", actions, commit, warnings };
   } catch (error) {
     writeFileSync(manifestFile, manifestBackup);
-    if (existsSync(target)) rmSync(target);
+    if (existsSync(target)) rmSync(target, { recursive: true, force: true });
     throw new Error(`登记失败已回滚（manifest 恢复、复制文件移除）：${error instanceof Error ? error.message : String(error)}`);
   }
 }

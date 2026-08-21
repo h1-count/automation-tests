@@ -163,6 +163,14 @@ export function listStagedFiles(stagingRoot: string): StagedFile[] {
 }
 
 /**
+ * Strips the DSH upload prefix (`<6-16 hex>-`) from staged file names so
+ * classification matches against the material's real name.
+ */
+export function logicalFileName(fileName: string): string {
+  return fileName.replace(/^[0-9a-f]{6,16}-/, "");
+}
+
+/**
  * Normalizes a file base name for same-material matching: case folding, whitespace
  * removal, trailing YYYYMMDD dates and explicit version tokens. Used only to
  * propose version relationships; the user always confirms the supersedes target.
@@ -194,6 +202,8 @@ function buildMaterialIndex(manifest: LoadedSourcesManifest): { bySha256: Map<st
 export function classifyStagedFile(file: StagedFile, manifest: LoadedSourcesManifest): ClassificationOutcome {
   const { bySha256, byNormalizedBase } = buildMaterialIndex(manifest);
   const extension = extname(file.fileName).toLowerCase();
+  const logicalName = logicalFileName(file.fileName);
+  const logicalStem = logicalName.replace(/\.[^.]+$/, "");
 
   const shaMatches = bySha256.get(file.sha256) ?? [];
   if (shaMatches.length > 0) {
@@ -218,8 +228,7 @@ export function classifyStagedFile(file: StagedFile, manifest: LoadedSourcesMani
     };
   }
 
-  const withoutExtension = file.fileName.replace(/\.[^.]+$/, "");
-  if (NOT_SOURCE_PATTERNS.some((pattern) => pattern.test(withoutExtension))) {
+  if (NOT_SOURCE_PATTERNS.some((pattern) => pattern.test(logicalStem))) {
     return {
       classification: "not-source-candidate",
       matchedMaterialIds: [],
@@ -230,9 +239,9 @@ export function classifyStagedFile(file: StagedFile, manifest: LoadedSourcesMani
     };
   }
 
-  const normalized = normalizeBaseName(file.fileName);
+  const normalized = normalizeBaseName(logicalName);
   const normalizedMatches = (byNormalizedBase.get(normalized) ?? []).filter((id) => id.length > 0);
-  const exactBaseMatches = manifest.materials.filter((material) => basename(material.path) === file.fileName).map((material) => material.id);
+  const exactBaseMatches = manifest.materials.filter((material) => basename(material.path) === logicalName).map((material) => material.id);
   const versionMatches = exactBaseMatches.length > 0 ? exactBaseMatches : normalizedMatches;
   if (versionMatches.length === 1) {
     return {
@@ -255,7 +264,7 @@ export function classifyStagedFile(file: StagedFile, manifest: LoadedSourcesMani
     };
   }
 
-  const hint = TYPE_BY_NAME_HINT.find((candidate) => candidate.pattern.test(file.fileName));
+  const hint = TYPE_BY_NAME_HINT.find((candidate) => candidate.pattern.test(logicalName));
   return {
     classification: "new-material-candidate",
     matchedMaterialIds: [],

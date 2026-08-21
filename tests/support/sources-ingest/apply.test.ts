@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 import { stringify, parse } from "yaml";
 import { runScan } from "../../../src/support/sources-ingest/ingest.js";
 import { applyPendingItem, slugifyMaterialId, type GitRunner } from "../../../src/support/sources-ingest/apply.js";
-import { fileSha256, loadSourcesManifest } from "../../../src/support/sources-ingest/sourcesManifest.js";
+import { computeSourceHash, fileSha256, loadSourcesManifest } from "../../../src/support/sources-ingest/sourcesManifest.js";
 
 interface Fixture {
   root: string;
@@ -273,6 +274,101 @@ test("request-scoped mode records a decision without touching sources or git", a
 test("slugify keeps ascii slugs and falls back for chinese-only names", () => {
   assert.equal(slugifyMaterialId("Cloud Bridge Guide.pdf"), "cloud-bridge-guide");
   assert.equal(slugifyMaterialId("蓝牙通讯协议20241202.doc"), "");
+});
+
+async function makeZip(zipPath: string, files: Array<{ path: string; content: string | Buffer }>): Promise<void> {
+  const staging = `${zipPath}.src`;
+  await rm(staging, { recursive: true, force: true });
+  for (const file of files) {
+    const target = resolve(staging, file.path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, file.content);
+  }
+  await mkdir(dirname(zipPath), { recursive: true });
+  const result = spawnSync("zip", ["-q", "-r", zipPath, "."], { cwd: staging, encoding: "utf8" });
+  await rm(staging, { recursive: true, force: true });
+  assert.equal(result.status, 0, `zip 打包失败：${result.stderr}`);
+}
+
+test("DSH-prefixed upload names still match their material for version detection", async () => {
+  const fixture = await createFixture([{ id: "bt-protocol", path: "knowledge-base/蓝牙通讯协议20241202.docx", content: "v1" }]);
+  try {
+    await writeFile(resolve(fixture.stagingRoot, "abc123def456-蓝牙通讯协议20250301.docx"), "v2");
+    const scan = runScan(fixture.options);
+    assert.equal(scan.pending[0].classification, "new-version-candidate");
+    assert.deepEqual(scan.pending[0].matchedMaterialIds, ["bt-protocol"]);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("zip package supersedes an old pdf: extracted directory, junk filtered, dir hash in manifest", async () => {
+  const fixture = await createFixture([{ id: "bridge-guide", path: "平台文档/云云bridge指南.pdf", content: "old pdf" }]);
+  try {
+    const zipPath = resolve(fixture.stagingRoot, "abc123def456-云云bridge指南.zip");
+    await makeZip(zipPath, [
+      { path: "云云bridge指南/__MACOSX/junk", content: "junk" },
+      { path: "云云bridge指南/.DS_Store", content: "junk" },
+      { path: "云云bridge指南/云云bridge指南.md", content: "# 指南\n正文\n" },
+      { path: "云云bridge指南/图片和附件/image 1.png", content: Buffer.from([137, 80, 78, 71]) }
+    ]);
+    const scan = runScan(fixture.options);
+    assert.equal(scan.pending[0].classification, "new-version-candidate");
+    const result = applyPendingItem({
+      ...fixture.options,
+      itemId: scan.pending[0].itemId,
+      mode: "register",
+      supersedes: "bridge-guide",
+      sourceVersion: "20251127",
+      gitRunner: fakeGitRunner()
+    });
+    assert.equal(result.status, "applied");
+    const packageDir = resolve(fixture.sourcesRoot, "平台文档/云云bridge指南");
+    assert.ok(existsSync(packageDir));
+    const entries = readdirSync(packageDir);
+    assert.ok(entries.includes("云云bridge指南.md"));
+    assert.ok(entries.includes("图片和附件"));
+    assert.equal(entries.includes("__MACOSX"), false);
+    assert.equal(entries.includes(".DS_Store"), false);
+    assert.equal(existsSync(resolve(fixture.sourcesRoot, "平台文档/云云bridge指南.pdf")), false);
+    const entry = loadSourcesManifest(fixture.manifestPaths).materials.find((material) => material.id === "bridge-guide");
+    assert.equal(entry?.path, "平台文档/云云bridge指南");
+    assert.equal(entry?.sha256, computeSourceHash(packageDir));
+    const history = entry?.raw.version_history as Array<Record<string, unknown>>;
+    assert.equal(history[0].path, "平台文档/云云bridge指南.pdf");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("zip package registers as a new material directory", async () => {
+  const fixture = await createFixture([]);
+  try {
+    const zipPath = resolve(fixture.stagingRoot, "def789abc012-门锁需求包.zip");
+    await makeZip(zipPath, [
+      { path: "门锁需求包/门锁需求.md", content: "# 需求\n规则\n" },
+      { path: "门锁需求包/图片和附件/pic.png", content: Buffer.from([1, 2, 3]) }
+    ]);
+    const scan = runScan(fixture.options);
+    const result = applyPendingItem({
+      ...fixture.options,
+      itemId: scan.pending[0].itemId,
+      mode: "register",
+      materialId: "smart-lock-requirement-package",
+      targetType: "requirement",
+      targetDir: "open-platform/需求",
+      projects: ["open-platform"],
+      gitRunner: fakeGitRunner()
+    });
+    assert.equal(result.status, "applied");
+    const packageDir = resolve(fixture.sourcesRoot, "open-platform/需求/门锁需求包");
+    assert.ok(existsSync(resolve(packageDir, "门锁需求.md")));
+    const entry = loadSourcesManifest(fixture.manifestPaths).materials.find((material) => material.id === "smart-lock-requirement-package");
+    assert.equal(entry?.path, "open-platform/需求/门锁需求包");
+    assert.equal(entry?.sha256, computeSourceHash(packageDir));
+  } finally {
+    await fixture.cleanup();
+  }
 });
 
 test("manifest round-trip stays byte-identical for the real sources manifest shape", async () => {
