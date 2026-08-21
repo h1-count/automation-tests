@@ -537,3 +537,15 @@ materials:
       - cloud-integration
     status: active
     notes: 云云bridge 功能验证清单：18 项逐条核验，第 8/9 项标记不通过（提取表达式输入框与标题横线重合、添加参数双重成功提示）；与 cloud-bridge-protocol-conversion-guide 同功能域。
+  - id: cloud-bridge-optimization-requirement
+    type: requirement
+    path: open-platform/需求/云云bridge优化
+    sha256: 100cd70baa2e2a7e1a53472cd526ca74749e721cae88acfb1fd5e7b21432e4bf
+    source: user-provided
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - cloud-integration
+    status: active
+    notes: 云云bridge 优化需求：编辑规则抽屉标题、上行数据解析配置（可视化映射必填校验、参数表只读+弹窗管理、响应参数映射）、下行 Get token/获取节点参数表精简；附 modao 原型链接。
