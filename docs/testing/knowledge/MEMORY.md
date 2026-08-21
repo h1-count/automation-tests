@@ -170,17 +170,17 @@
 
 <!-- project-experience:8930A9E44C21:start -->
 <a id="exp-8930a9e44c21"></a>
-## 2026-08-20：同路径产物发布与 plan 共有节同步的踩坑序列
+## 2026-08-21：同路径产物发布与 plan 共有节同步的踩坑序列
 
 - 经验编号：EXP-8930A9E44C21
 - 适用范围：同路径产物发布与 plan 共有节同步的踩坑序列
 - 证据状态：受控探索已验证
-- 观察：本轮连续踩三类发布坑：①artifact-publish-succeed 将运行档案 plan.md 以同路径 source/target 发布时，prepare 判定 target 已 matched →『部分产物集』进入 reconciliation_required（两次，靠 task:manage reconcile 收口）；②从套件 design.md 提取共有节写入运行档案 plan.md 后，来源相对链接层级（4 层 vs 5 层）未适配 → 评审批次启动被『Reviewer input must be…controlled source』拒绝（两次）；③callback-resolve 的决定行比对基准是磁盘 plan.md：预先把决定行写入磁盘再用同文件作为 --plan-source 会因『未恰好追加一行』被拒；且决定行的 subjectDigest 必须用 CallbackRequested 事件的规范摘要（6359af…），不能写 callbackId。
-- 判断：三类坑均源于『同一文件的 in-place 语义』：引擎的原子发布/快照比对都以磁盘当前内容为基准，同路径发布与预写内容都会破坏『待变更』语义；相对路径层级是位置属性，跨目录复制共有节必须重算。
-- 当前优先策略：①运行档案 plan.md 不以同路径 source/target 进发布集——plan 变更走对应活动的 --plan-source 或发布后再改共有节外的自由节；②从套件目录复制含来源链接的节到 .local/test-runs/<type>/<project>/<request>/ 时按目录深度统一重算相对层数（套件目录 4 层 → 运行档案 5 层）；③callback-resolve 前：磁盘 plan.md 保持无决定行，构建 candidate=磁盘+一行（subjectDigest 取 CallbackRequested 事件值）作为 --plan-source。
-- 证据引用：workflow-history.ndjson（login-register-20260820 与 -r2：ArtifactDriftDetected/批次拒绝/决定行拒绝事件序列）、findings 文件、本回复处置过程
+- 观察：registration-review 轮复现并扩展四类坑：①lease 默认 2 分钟窗口内无法完成核对→发布链，publish 时 claim 已过期，失败的 artifact-publish-succeed 会把活动推入 RECONCILING（部分产物集）或留下失败发布，需 task:resume + reconcile --outcome retry 后重新领取；②评审工作簿 testcase-review-publish 强制发布到仓库外（pathInside workspaceRoot 拒绝），沙箱 workspace-write 下仓库外目录只能在平台临时区（/tmp 可写）；③callback 决定行三个精确要求：决定类型列必须写中文「用例确认」（decisionTypeForActivity 映射），占位行「（本轮正式用户决定待…）」必须保留并只追加一行，subjectDigest 用 CallbackRequested 事件值；④套件 testcases/<type>/<project>/suites/<feature>/ 下文件的来源相对链接需 5 个 ../（上轮记录「套件目录 4 层」按 feature 子目录内文件应更正为 5 层），既有套件的 4 层链接是未被机器校验的历史笔误，review-batch-start 以「input must be controlled source」拒绝。
+- 判断：四类坑同源：引擎发布/回调契约以磁盘当前内容与事件内摘要为唯一基准，任何中间态（过期租约、占位行、错误层级、仓库内路径）都确定性拒绝；恢复路径统一是 resume→reconcile→重新领取，不应重试原命令。
+- 当前优先策略：①发布链在单个 bash 命令内连续执行领取+发布，避免租约窗口耗尽；②lease expired 先 task:resume 再 reconcile --outcome retry，部分产物集用 reconcile --publish <publishId>；③工作簿发布到 /tmp 仓库外目录再 cp 回运行档案留副本；④决定行模板：保留占位行+追加一行「| 用例确认 | <subjectDigest> | accepted | 说明 |」；⑤新套件来源链接从 feature 目录起算 5 个 ../ 并用 normpath 预验存在性。
+- 证据引用：本轮 Git 提交（registration-review 套件）、.local/test-runs/web/open-platform/registration-review-20260821/workflow-history.ndjson 事件 13-18/25-31 与本轮处置过程
 - 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
-- 最近更新：2026-08-20T02:10:40.696Z
+- 最近更新：2026-08-21T09:10:03.756Z
 <!-- project-experience:8930A9E44C21:end -->
 
 <!-- project-experience:BCB78D753769:start -->
