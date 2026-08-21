@@ -558,25 +558,116 @@ documents:
         content_type: text-and-image
         visual_read_required: true
   - material_id: cloud-bridge-protocol-conversion-guide
-    source_path: open-platform/平台文档/云云接入bridge协议转换操作指南.pdf
-    source_sha256: 3d8d58a37603bb1d758dbfb3e7cb79bc50fdae453660001ddac2f335b08074f8
+    source_path: open-platform/平台文档/云云接入bridge协议转换操作指南
+    source_sha256: 29de38359dee6321b0060c4f1a8f7b49d7ee9cc124bb4382ceefbde6bdac7b1b
     extraction: native-text
     visual_review: on-demand
     sections:
-      - section_id: bridge-conversion
-        title: 云云 Bridge 协议转换
+      - section_id: bridge-guide-product-intro
+        title: 产品介绍与基本概念
         locator:
-          pages: 1-44
+          heading: 产品介绍
         topics:
           - cloud-integration
-          - protocol-conversion
+          - product-intro
         keywords:
-          - bridge
-          - 协议转换
           - 云云接入
-        summary: 云云接入 Bridge 协议转换流程与配置说明。
+          - bridge
+          - 基本概念
+          - 协议
+          - 碎片化
+        summary: 云云接入 bridge 协议转换的产品定位、协议概念与解决的碎片化问题。
         content_type: text-and-image
-        visual_read_required: true
+        visual_read_required: false
+      - section_id: bridge-guide-architecture
+        title: 技术架构
+        locator:
+          heading: 技术架构
+        topics:
+          - cloud-integration
+          - architecture
+        keywords:
+          - 技术架构
+          - 协议转换
+          - 标准协议
+          - 自定义协议
+        summary: bridge 协议转换的整体技术架构与数据流。
+        content_type: text-and-image
+        visual_read_required: false
+      - section_id: bridge-guide-scenarios
+        title: 功能优势、应用场景与适用范围
+        locator:
+          heading: 功能优势
+        topics:
+          - cloud-integration
+          - scenario
+        keywords:
+          - 功能优势
+          - 应用场景
+          - 适用范围
+          - 第三方云云设备
+        summary: bridge 协议转换的功能优势、应用场景与适用产品范围。
+        content_type: text-and-image
+        visual_read_required: false
+      - section_id: bridge-guide-create
+        title: 新增云云接入 Bridge 协议
+        locator:
+          heading: 新增云云接入Bridge协议
+        topics:
+          - cloud-integration
+          - configuration
+        keywords:
+          - 新增协议
+          - 准备工作
+          - 协议管理入口
+          - 云云开发入口
+        summary: 新增云云接入 Bridge 协议的准备工作与协议管理、云云开发两个入口路径。
+        content_type: text-and-image
+        visual_read_required: false
+      - section_id: bridge-guide-protocol-info
+        title: 协议信息配置
+        locator:
+          heading: 协议信息配置
+        topics:
+          - cloud-integration
+          - configuration
+        keywords:
+          - 协议信息
+          - 协议配置
+          - 基本信息
+        summary: 云云接入 Bridge 协议的基础信息配置项与规则。
+        content_type: text-and-image
+        visual_read_required: false
+      - section_id: bridge-guide-uplink-parse
+        title: 上行数据解析配置
+        locator:
+          heading: 上行数据解析配置
+        topics:
+          - cloud-integration
+          - data-parsing
+        keywords:
+          - 上行数据
+          - 数据解析
+          - 脚本
+          - 转换规则
+        summary: 设备上行数据的解析脚本与转换规则配置。
+        content_type: text-and-image
+        visual_read_required: false
+      - section_id: bridge-guide-downlink-parse
+        title: 下行数据解析配置
+        locator:
+          heading: 下行数据解析配置
+        topics:
+          - cloud-integration
+          - data-parsing
+        keywords:
+          - 下行数据
+          - 数据解析
+          - 指令下发
+          - 转换规则
+        summary: 平台下行指令的解析脚本与转换规则配置。
+        content_type: text-and-image
+        visual_read_required: false
   - material_id: iot-service-development-introduction
     source_path: open-platform/平台文档/IoT服务开发介绍.docx
     source_sha256: 292643946f697061c8defe0937d84d8e991631cc5bc2be9c2173506feda1baa1

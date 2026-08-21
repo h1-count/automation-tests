@@ -3,8 +3,8 @@ knowledge_indexes:
   - id: open-platform-knowledge-index
     project: open-platform
     path: indexes/open-platform.yaml
-    status: stale
-    updated_at: 2026-07-16
+    status: reviewed
+    updated_at: 2026-08-21
     covered_material_ids:
       - openapi-document
       - cloud-cloud-api-document
