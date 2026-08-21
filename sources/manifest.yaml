@@ -659,3 +659,17 @@ materials:
       - module-procurement
     status: active
     notes: 集中管理平台（运营平台）开发者平台维护模块需求 v1.3（2025-05-07）：注册审核、企业管理、采购管理、审批管理（申请授权码/设备测试/产品上线/消息推送）、模组配置 P1、模板配置（功能点/产品功能模板/消息推送模板）、产品管理（总览/配置/类目/品类）、AIoT驾驶舱；集中交互管理平台.docx（API 文档）引用的核心需求源。
+  - id: product-access-launch-requirement-v3
+    type: requirement
+    path: open-platform/需求/产品接入系统上线需求—3.0
+    sha256: 389b417dc2e6b135b9b879b589eeee7095155e9d237f28e4ba1147de88d0381d
+    source: user-provided
+    source_version: "3.0"
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - product-development
+      - scene-linkage
+      - function-definition
+    status: active
+    notes: 产品接入系统上线需求 3.0：场景联动（标准/自定义自动化、触发条件由属性事件组成、执行动作由属性方法组成、自动化发起上线）与自定义功能点（属性/事件/方法）；对应发版日志 20250910 波次。
