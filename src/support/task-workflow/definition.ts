@@ -1025,6 +1025,29 @@ function buildV7ReusableActivities(
     required: true,
     metadata: suiteMetadata
   }];
+  const designReconfirmActivities: WorkflowActivityDefinition[] = [
+    {
+      id: "design-revalidation",
+      kind: "design_revalidation",
+      phase: "case_validation",
+      dependencies: ["reuse-assessment"],
+      required: true,
+      metadata: { ...suiteMetadata, tier: "design", scope: "reconfirm" }
+    },
+    {
+      id: "case-confirmation",
+      kind: "callback",
+      phase: "case_confirmation",
+      dependencies: ["design-revalidation"],
+      required: true,
+      metadata: {
+        ...suiteMetadata,
+        subjectSchemaVersion: "case-confirmation-subject-v2",
+        scope: "reconfirm",
+        casePackages
+      }
+    }
+  ];
   const affectedBuildChain: WorkflowActivityDefinition[] = [];
   appendBuildReadinessAndExecution(
     affectedBuildChain,
@@ -1095,17 +1118,26 @@ function buildV7ReusableActivities(
   }
   const branchActivities = reuseAssessment.decision === "direct_execute"
     ? directActivities
-    : reuseAssessment.decision === "affected_rebuild"
-      ? affectedActivities
-      : fullActivities;
+    : reuseAssessment.decision === "design_reconfirm"
+      ? designReconfirmActivities
+      : reuseAssessment.decision === "affected_rebuild"
+        ? affectedActivities
+        : fullActivities;
   if (deliveryTarget !== "full_run") {
     const branchTail = reuseAssessment.decision === "direct_execute"
       ? "suite-validation"
-      : deliveryTarget === "testcase_only"
+      : reuseAssessment.decision === "design_reconfirm"
+        ? "case-confirmation"
+        : deliveryTarget === "testcase_only"
         ? "case-confirmation"
         : "build";
     markDeliveryTerminal(branchActivities, branchTail, deliveryTarget);
     return [assessmentActivity, ...branchActivities];
+  }
+  if (reuseAssessment.decision === "design_reconfirm") {
+    throw new Error(
+      "design_reconfirm is a testcase_only reuse decision; a full_run request must take full_replan."
+    );
   }
   const branchTail = reuseAssessment.decision === "direct_execute" ? "suite-validation" : "build";
   const usesStableSuiteAuthorization = reuseAssessment.decision === "direct_execute";

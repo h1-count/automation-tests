@@ -101,6 +101,7 @@ export type WorkflowPhase = (typeof workflowPhases)[number];
 export type ActivityKind =
   | "reuse_assessment"
   | "suite_validation"
+  | "design_revalidation"
   | "impact_location"
   | "policy_authorization"
   | "source_selection"
@@ -265,7 +266,7 @@ export interface ReusableWorkflowDefinitionInput extends BuildWorkflowDefinition
     suiteId: string;
     suiteVersion?: string;
     assessmentDigest: string;
-    decision: "direct_execute" | "affected_rebuild" | "full_replan";
+    decision: "direct_execute" | "design_reconfirm" | "affected_rebuild" | "full_replan";
     requestedProfile: "full_feature" | "smoke" | "affected" | "failed_or_blocked";
     effectiveProfile: "full_feature" | "smoke" | "affected" | "failed_or_blocked";
     selectedCaseIds: string[];

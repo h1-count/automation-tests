@@ -20,6 +20,7 @@
     "check:web-exploration": "tsx scripts/check-web-exploration.ts",
     "test:suite:assess": "tsx scripts/manage-test-suite.ts assess",
     "test:suite:status": "tsx scripts/manage-test-suite.ts status",
+    "test:suite:register-design": "tsx scripts/manage-test-suite.ts register-design",
     "test:web:chrome": "playwright test --config=playwright.chrome.config.ts",
     "test:web:authenticated": "playwright test --config=playwright.authenticated.config.ts",
     "test:web:debug": "playwright test --config=playwright.debug.config.ts --debug=inspector",

@@ -719,6 +719,32 @@ export class DurableWorkflowManager {
           }
         );
       }
+      if (reuseAssessment.decision === "design_reconfirm") {
+        const revalidationStartId = randomUUID();
+        initialEvents.push(
+          {
+            ...identity,
+            eventId: revalidationStartId,
+            type: "ActivityAttemptStarted",
+            actorType: "system",
+            idempotencyKey: `${runId}/design-revalidation/attempt-1/started`,
+            payload: { activityId: "design-revalidation", attempt: 1 }
+          },
+          {
+            ...identity,
+            type: "ActivitySucceeded",
+            actorType: "system",
+            idempotencyKey: `${runId}/design-revalidation/${reuseAssessment.assessmentDigest}`,
+            payload: {
+              activityId: "design-revalidation",
+              attempt: 1,
+              verification: `design:${reuseAssessment.suiteVersion ?? reuseAssessment.assessmentDigest}`,
+              outcome: "zero_drift_reconfirmed"
+            },
+            causationId: revalidationStartId
+          }
+        );
+      }
     }
     await this.history.appendBatch(initialEvents, { seq: 0, digest: GENESIS_DIGEST });
     if (input.sessionId) await this.runtime.bindSession(input.sessionId, input.targetThreadId);

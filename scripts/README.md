@@ -16,7 +16,7 @@
 | 交付 Excel | `npx tsx scripts/export-testcase-delivery-xlsx.ts --cases <cases.md> --design <design.md> --request <type/project/request> --output outputs/<request>/<套件业务名>测试用例.xlsx` |
 | 资料索引 | `npm run check:knowledge-index`、`npm run knowledge:search -- ...` |
 | 项目经验 | `npm run knowledge:manage -- candidate-add --project <project> --scope <scope> --observation <observation> --judgment <judgment> --strategy <strategy> --evidence <ref> --validation <condition>`；验证后使用 `candidate-promote` |
-| 稳定套件 | `npm run test:suite:assess -- ...`、`npm run test:suite:status -- ...` |
+| 稳定套件 | `npm run test:suite:assess -- ...`、`npm run test:suite:status -- ...`、`npm run test:suite:register-design -- --suite <type/project/feature> --from-request <type/project/request>`（设计层注册：验证该请求用例确认已 accepted 后冻结设计证据） |
 | Durable Workflow | `npm run task:initialize -- ...`、`npm run task:resume -- ...`、`npm run task:status -- ...`、`npm run task:gate -- ...`、`npm run task:manage -- --help` |
 | 定位修复回退 | `npm run task:manage -- execution-scope-reopen --request <id> --selector-repair <incident-path>` |
 | selector | `npm run check:web-exploration -- ...`、`npm run test:web:verify-selectors -- ...`、`npm run test:web:inspect -- ...` |

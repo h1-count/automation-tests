@@ -31,6 +31,7 @@ import {
   isStructuredTestcaseDocumentVersion,
   parseTestcaseDocument
 } from "../testcase/testcaseDocument.js";
+import { assessStableDesignSuite, readStableSuiteTier } from "./designSuite.js";
 
 export const STABLE_TEST_SUITE_SCHEMA_VERSION = "stable-test-suite-manifest-v1" as const;
 export const TEST_SUITE_REUSE_ASSESSMENT_SCHEMA_VERSION = "test-suite-reuse-assessment-v1" as const;
@@ -42,6 +43,7 @@ export type StableTestSuiteProfile =
   | "failed_or_blocked";
 export type StableTestSuiteReuseDecision =
   | "direct_execute"
+  | "design_reconfirm"
   | "affected_rebuild"
   | "full_replan";
 
@@ -358,6 +360,27 @@ export async function assessStableTestSuite(input: {
       selectedCaseIds: [],
       affectedCaseIds: [],
       reasons: ["stable_suite_not_found"]
+    });
+  }
+  if (readStableSuiteTier(input.suiteId, root) === "design") {
+    const design = await assessStableDesignSuite({
+      suiteId: input.suiteId,
+      environment: input.environment,
+      workspaceRoot: root
+    });
+    const effectiveProfile = design.decision === "affected_rebuild"
+      ? "affected"
+      : requestedProfile;
+    return assessment({
+      suiteId: design.manifest.suiteId,
+      suiteVersion: design.manifest.suiteVersion,
+      environment: input.environment,
+      requestedProfile,
+      effectiveProfile,
+      decision: design.decision,
+      selectedCaseIds: design.decision === "full_replan" ? [] : design.selectedCaseIds,
+      affectedCaseIds: design.affectedCaseIds,
+      reasons: design.reasons
     });
   }
   let validation: SuiteValidationResult;

@@ -5,6 +5,12 @@ import {
   validateStableTestSuite,
   type StableTestSuiteProfile
 } from "../src/support/test-suite/stableSuite.js";
+import {
+  designSuiteManifestPath,
+  registerStableDesignSuite,
+  validateStableDesignSuite,
+  readStableSuiteTier
+} from "../src/support/test-suite/designSuite.js";
 
 function option(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -30,11 +36,56 @@ async function main(): Promise<void> {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return;
   }
+  if (command === "register-design") {
+    const result = await registerStableDesignSuite({
+      suiteId,
+      requestId: required(args, "--from-request")
+    });
+    const validation = await validateStableDesignSuite(suiteId);
+    process.stdout.write(`${JSON.stringify({
+      suiteId: result.manifest.suiteId,
+      tier: result.manifest.tier,
+      suiteVersion: result.manifest.suiteVersion,
+      manifestPath: result.path,
+      created: result.created,
+      sourceRequestId: result.manifest.sourceRequestId,
+      caseCount: result.manifest.caseIds.length,
+      sourceCount: result.manifest.sourceRegistry.length,
+      driftedSuitePaths: validation.driftedSuitePaths,
+      driftedSourceIds: validation.driftedSourceIds
+    }, null, 2)}\n`);
+    if (validation.driftedSuitePaths.length || validation.driftedSourceIds.length) {
+      process.exitCode = 2;
+    }
+    return;
+  }
   if (command === "status") {
+    const tier = readStableSuiteTier(suiteId);
+    if (tier === "design") {
+      const validation = await validateStableDesignSuite(suiteId);
+      process.stdout.write(`${JSON.stringify({
+        suiteId,
+        tier,
+        suiteVersion: validation.manifest.suiteVersion,
+        manifestPath: designSuiteManifestPath(suiteId),
+        valid: validation.driftedSuitePaths.length === 0
+          && validation.driftedSourceIds.length === 0,
+        driftedSuitePaths: validation.driftedSuitePaths,
+        driftedSourceIds: validation.driftedSourceIds,
+        caseCount: validation.manifest.caseIds.length,
+        sourceCount: validation.manifest.sourceRegistry.length,
+        allowedEnvironments: validation.manifest.allowedEnvironments
+      }, null, 2)}\n`);
+      if (validation.driftedSuitePaths.length || validation.driftedSourceIds.length) {
+        process.exitCode = 2;
+      }
+      return;
+    }
     const manifest = await loadStableTestSuite(suiteId);
     const validation = await validateStableTestSuite(suiteId);
     process.stdout.write(`${JSON.stringify({
       suiteId,
+      tier: tier ?? "execution",
       suiteVersion: manifest.suiteVersion,
       manifestPath: stableSuiteManifestPath(suiteId),
       valid: validation.driftedPaths.length === 0 && !validation.closureDrift,
@@ -48,7 +99,10 @@ async function main(): Promise<void> {
     if (validation.driftedPaths.length || validation.closureDrift) process.exitCode = 2;
     return;
   }
-  throw new Error("Usage: manage-test-suite.ts <assess|status> --suite <type/project/feature> [--environment <test|pre>] [--profile <profile>]");
+  throw new Error(
+    "Usage: manage-test-suite.ts <assess|status|register-design> --suite <type/project/feature> "
+    + "[--environment <test|pre>] [--profile <profile>] [--from-request <type/project/request>]"
+  );
 }
 
 main().catch((error: unknown) => {

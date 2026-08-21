@@ -147,13 +147,16 @@ Activity 状态仅由事件归约为 `PENDING`、`READY`、`RUNNING`、`SUCCEEDE
 
 v7 的第一个业务事实是确定性复用评估：先区分长期 `suiteId/suiteVersion` 与本轮 `runRequestId`，再从稳定 manifest、当前文件摘要、精确脚本依赖闭包、Oracle、selector/API 契约、静态资产、权限和数据策略派生 `direct_execute`、`affected_rebuild` 或 `full_replan`，调用方不得手填结论、digest、caseIds 或脚本路径。目标 build 只变化而契约语义不变时仍可直接复用；Provider、账号、设备或远端数据不可用只影响 readiness。
 
+稳定套件注册分两层（`stable-test-suite-manifest-v2`）：`execution` 层冻结正式执行证据（entryScripts、scriptClosure、formal manifest），只可能由 `full_run` 晋升产出；`design` 层只冻结设计证据（design.md、cases-*.md、来源登记 SRC→SHA-256 与最后接受的用例确认），面向 `testcase_only` 终态请求。设计层注册入口 `npm run test:suite:register-design -- --suite <type/project/feature> --from-request <type/project/request>` 从该请求 `workflow-history.ndjson` 验证 `case-confirmation` 已被用户 `accepted` 且工作流终态完成，不满足即拒绝；注册产物 `suite.manifest.json` 纳入 Git 随套件演进。
+
 v7 分支固定为：
 
 - `direct_execute → suite-validation → readiness → authorization → run → report`，不产生用例确认；
-- `affected_rebuild → impact-location → targeted-evolution → targeted-review → case-confirmation → build → readiness → authorization → run → report`；
+- `design_reconfirm → design-revalidation → case-confirmation(scope: reconfirm)`：仅当套件为设计层注册且全部冻结摘要（套件资产与全部来源 SHA）零漂移时派生；不重新生成、不重新评审，`design-revalidation` 由评估摘要确定性自动完成，用例确认 subject 为全量 case 集。该决策只对 `testcase_only` 交付合法，`full_run` 请求不得消费它；
+- `affected_rebuild → impact-location → targeted-evolution → targeted-review → case-confirmation → build → readiness → authorization → run → report`：来源 SHA 漂移时按设计层台账 `SRC → RULE → caseIds` 闭包（或执行层 `impactMap`）证明受影响引用后派生；
 - `full_replan` 进入完整设计分支。
 
-直接分支只引用 suite manifest，不复制或重新生成设计；定向分支只处理 `impactMap` 证明的受影响引用。全局范围、环境、数据写入或安全边界变化，以及映射不完整，必须回退 `full_replan`。
+直接分支只引用 suite manifest，不复制或重新生成设计；定向分支只处理 `impactMap` 证明的受影响引用。全局范围、环境、数据写入或安全边界变化，以及映射不完整，必须回退 `full_replan`。设计层还有两条回退：来源登记与台账无法解析出完整 `SRC → RULE → caseIds` 闭包时回退 `full_replan`（映射不完整）；套件资产（design.md/cases-*.md）摘要与注册不一致时回退 `full_replan`（越轨修改，必须全量复验）。
 
 `npm run test:suite:assess -- --suite <type/project/feature> --environment <test|pre> [--profile <profile>]` 只读输出评估；`task:initialize -- --request <new-run> --delivery-target <target> --suite <suiteId> --reuse auto --environment <test|pre>` 会重算同一评估，不接受外部摘要或结论。直接分支只执行到选定终点；`full_run` 直接分支启动 readiness 后使用 `task:manage suite-readiness-publish --request <new-run> --claim <lease> --environment <test|pre>`。`no_write + test/pre + 完全匹配` 由 `policy_auto_no_write` 为本轮生成 `execution-authorization-v5`，其他写入、OTP、上传、提交、设备动作或提权仍须本轮新确认。设计复用不复用旧授权、正式记录、能力有效期、数据台账、cleanup 结论或报告。
 
