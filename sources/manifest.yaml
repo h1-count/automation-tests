@@ -37,9 +37,9 @@ knowledge_indexes:
 materials:
   - id: product-access-system-requirement
     type: requirement
-    path: "open-platform/需求/产品接入系统功能需求说明 "
+    path: "open-platform/需求/产品接入系统功能需求说明"
     source: user-provided
-    source_version: unknown
+    source_version: "1.2"
     applicable_projects:
       - open-platform
     reference_scopes:

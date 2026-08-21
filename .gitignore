@@ -2,6 +2,10 @@
 node_modules/
 *.tsbuildinfo
 
+# Local package-manager cache and host vision artifacts must never enter Git.
+.pnpm-store/
+.dsh-vision-toolkit/
+
 # IDE and execution-host metadata. Keep only the reviewed project adapters.
 .idea/
 .codex/*
