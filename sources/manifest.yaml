@@ -673,3 +673,15 @@ materials:
       - function-definition
     status: active
     notes: 产品接入系统上线需求 3.0：场景联动（标准/自定义自动化、触发条件由属性事件组成、执行动作由属性方法组成、自动化发起上线）与自定义功能点（属性/事件/方法）；对应发版日志 20250910 波次。
+  - id: open-platform-ticket-system-requirement
+    type: requirement
+    path: open-platform/需求/开放平台+服务平台工单系统
+    sha256: e2c297d8c670bf558cb3e8e6995f8c3bb37cb84c728cf01b6f526c02fb24f853
+    source: user-provided
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - ticket-system
+    status: active
+    notes: 开放平台+服务平台工单系统需求：工单填报入口、流转流程、工单标签、运维组、工单等级、状态流转机、服务平台工单管理（标签/运维组配置、我提交的/分配给我的、创建/重启/处理工单）、开放平台工单（新增/详情）、飞书通知；附 modao 原型与蓝湖链接；对应发版日志 20250930 工单波次。扫描启发式误判 platform-documentation 已纠正为 requirement。
