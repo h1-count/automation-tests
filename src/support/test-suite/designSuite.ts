@@ -617,6 +617,22 @@ export async function assessStableDesignSuite(input: {
   };
 }
 
+/** Load and fully validate a registered design-tier suite manifest. */
+export async function loadStableDesignSuite(
+  suiteId: string,
+  workspaceRoot = process.cwd()
+): Promise<StableDesignSuiteManifest> {
+  const root = resolve(workspaceRoot);
+  const path = designSuiteManifestPath(suiteId, root);
+  if (!existsSync(path)) {
+    throw new Error(`Stable design suite is not registered: ${suiteId}.`);
+  }
+  return parseStableDesignSuiteManifest(
+    JSON.parse(await readFile(path, "utf8")) as unknown,
+    suiteId
+  );
+}
+
 /** The tier recorded in a suite registration file, for routing shared assessment entry points. */
 export function readStableSuiteTier(
   suiteId: string,

@@ -147,6 +147,11 @@ import {
   type StableTestSuiteProfile,
   type TestSuiteReuseAssessment
 } from "../test-suite/stableSuite.js";
+import {
+  loadStableDesignSuite,
+  readStableSuiteTier,
+  type StableDesignSuiteManifest
+} from "../test-suite/designSuite.js";
 
 const policyAutoNoWriteOperations = new Set([
   "authenticate_test_account",
@@ -576,10 +581,27 @@ export class DurableWorkflowManager {
           workspaceRoot: this.workspaceRoot
         })
       : undefined;
-    const stableSuite = reuseAssessment?.suiteVersion
-      && reuseAssessment.decision !== "full_replan"
+    // Tier-aware suite loading: an execution-tier manifest feeds the direct /
+    // affected chains, while a design-tier manifest only freezes design
+    // evidence (case packages) for the design_reconfirm branch.
+    const reuseActive = Boolean(reuseAssessment?.suiteVersion)
+      && reuseAssessment!.decision !== "full_replan";
+    const suiteTier = reuseActive && input.suiteId
+      ? readStableSuiteTier(input.suiteId, this.workspaceRoot)
+      : undefined;
+    const stableSuite = reuseActive && suiteTier !== "design"
       ? await loadStableTestSuite(input.suiteId!, this.workspaceRoot)
       : undefined;
+    let designSuite: StableDesignSuiteManifest | undefined;
+    if (reuseActive && suiteTier === "design") {
+      designSuite = await loadStableDesignSuite(input.suiteId!, this.workspaceRoot);
+      if (reuseAssessment!.decision !== "design_reconfirm") {
+        throw new Error(
+          "Design-tier suites only support the design_reconfirm reuse branch; "
+          + "resolve source drift through a full_replan request."
+        );
+      }
+    }
     const affectedWorkspace = stableSuite && reuseAssessment?.decision === "affected_rebuild"
       ? await materializeAffectedSuiteWorkspace({
           suiteId: stableSuite.suiteId,
@@ -618,10 +640,12 @@ export class DurableWorkflowManager {
       casePackages: input.casePackages
         ?? (stableSuite
           ? stableSuite.casePackages.map((item) => basename(item.path))
-          : this.compatibilityDefinitionVersion === "v5"
-            ? (await readdir(this.requestRoot))
-                .filter((name) => name === "cases.md" || /^cases-[a-z0-9][a-z0-9-]*\.md$/u.test(name))
-                .sort()
+          : designSuite
+            ? designSuite.casePackages.map((item) => basename(item.path))
+            : this.compatibilityDefinitionVersion === "v5"
+              ? (await readdir(this.requestRoot))
+                  .filter((name) => name === "cases.md" || /^cases-[a-z0-9][a-z0-9-]*\.md$/u.test(name))
+                  .sort()
           : parseCasePackages(plan)),
       reviewerRoles: input.reviewerRoles,
       executionIsolation: input.executionIsolation
