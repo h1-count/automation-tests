@@ -525,3 +525,15 @@ materials:
     status: active
     notes: 懒猫慧居第一阶段运营后台功能需求资料；本次仅按文件名登记，具体模块和章节范围待按需读取后补充。
     sha256: 7da840f0692585fe99e3cd50c87a76967b70c63edf033b1db72d41e6b6f3c32f
+  - id: cloud-bridge-bug-verification
+    type: requirement
+    path: open-platform/需求/云云bridgeBug
+    sha256: 3da915b09dd833d1dd8aa6c7b8fd9d5940439d8f1e3bdef37b897635964d8650
+    source: user-provided
+    source_version: unknown
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - cloud-integration
+    status: active
+    notes: 云云bridge 功能验证清单：18 项逐条核验，第 8/9 项标记不通过（提取表达式输入框与标题横线重合、添加参数双重成功提示）；与 cloud-bridge-protocol-conversion-guide 同功能域。
