@@ -549,3 +549,15 @@ materials:
       - cloud-integration
     status: active
     notes: 云云bridge 优化需求：编辑规则抽屉标题、上行数据解析配置（可视化映射必填校验、参数表只读+弹窗管理、响应参数映射）、下行 Get token/获取节点参数表精简；附 modao 原型链接。
+  - id: cloud-bridge-frontend-config-requirement
+    type: requirement
+    path: open-platform/需求/云云协议转换前端配置需求
+    sha256: f74db873e58e0957cbecfee502cf35dadfa326cd464cfad776447469aaed1e95
+    source: user-provided
+    source_version: 2025-09-11
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - cloud-integration
+    status: active
+    notes: 云云bridge 前端配置主需求（原型 2025-09-11 版）：协议管理模块、产品开发-云云开发入口、上行数据解析（签名/Basic Auth/header/解析规则/转换预览）、下行数据解析（无认证/API key/Bearer Token/签名+Token/规则管理）；开头链接云云bridge优化，属同功能域二期。
