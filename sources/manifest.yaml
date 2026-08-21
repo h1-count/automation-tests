@@ -644,3 +644,18 @@ materials:
       - data-cockpit
     status: active
     notes: 集中管理平台上线需求 4.0：AIoT驾驶舱（原数据中心模块改名）：设备接入/合作企业/接入品牌/接入趋势图、设备激活分析、统计时区与更新时间规则。
+  - id: centralized-platform-maintenance-module-requirement
+    type: requirement
+    path: open-platform/需求/集中管理平台（运营平台）—开发者平台维护模块
+    sha256: 3d67da228c4de3a29f76a8fe018e77d35064d456eb3fd76a40ea8c1a79e7e16b
+    source: user-provided
+    source_version: "1.3"
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - centralized-interaction-management-platform
+      - operation-backend
+      - audit-management
+      - module-procurement
+    status: active
+    notes: 集中管理平台（运营平台）开发者平台维护模块需求 v1.3（2025-05-07）：注册审核、企业管理、采购管理、审批管理（申请授权码/设备测试/产品上线/消息推送）、模组配置 P1、模板配置（功能点/产品功能模板/消息推送模板）、产品管理（总览/配置/类目/品类）、AIoT驾驶舱；集中交互管理平台.docx（API 文档）引用的核心需求源。
