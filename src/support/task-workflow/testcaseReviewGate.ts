@@ -8,7 +8,15 @@ export function assertTestcaseReviewExportReady(
     throw new Error("Testcase review workbooks are only available for version-7 requests.");
   }
   const resolution = view.activities["case-review-resolution"];
-  if (resolution?.state !== "SUCCEEDED" || resolution.outcome !== "converged") {
+  // The design_reconfirm branch revalidates a registered, user-accepted design
+  // with zero drift; its design-revalidation activity carries the converged
+  // review evidence, so a per-round review workbook is still mandatory before
+  // the reconfirm confirmation (§4.3 forbids reusing a previous round's file).
+  const designRevalidation = view.activities["design-revalidation"];
+  const converged = (resolution?.state === "SUCCEEDED" && resolution.outcome === "converged")
+    || (designRevalidation?.state === "SUCCEEDED"
+      && designRevalidation.outcome === "zero_drift_reconfirmed");
+  if (!converged) {
     throw new Error("Testcase review preparation requires a converged case-review-resolution.");
   }
   const confirmation = view.activities["case-confirmation"];
