@@ -225,8 +225,8 @@ materials:
       - version: unknown
         path: open-platform/平台文档/云云接入bridge协议转换操作指南.pdf
         sha256: 3d8d58a37603bb1d758dbfb3e7cb79bc50fdae453660001ddac2f335b08074f8
-        supersededAt: 2026-08-21
-        superseded_in_commit: 7851f8d
+        superseded_at: 2026-08-21
+        superseded_in_commit: c89b524
   - id: iot-service-development-introduction
     type: platform-documentation
     path: open-platform/平台文档/IoT服务开发介绍.docx

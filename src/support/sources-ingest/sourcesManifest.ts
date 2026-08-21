@@ -225,8 +225,8 @@ export interface SupersededVersion {
   version: string;
   path: string;
   sha256: string;
-  supersededAt: string;
-  supersededInCommit?: string;
+  superseded_at: string;
+  superseded_in_commit?: string;
 }
 
 /**
@@ -248,7 +248,7 @@ export function supersedeMaterialVersion(
     version: String(material.source_version ?? "unknown"),
     path: String(material.path ?? ""),
     sha256: String(material.sha256 ?? ""),
-    supersededAt
+    superseded_at: supersededAt
   };
   material.path = next.path;
   material.sha256 = next.sha256;

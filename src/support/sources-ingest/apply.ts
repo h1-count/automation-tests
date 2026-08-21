@@ -304,17 +304,21 @@ export function applyPendingItem(options: ApplyOptions): ApplyResult {
       const scope = commitScope(asRecordProjects(material));
       const commit = gitAddAndCommit(gitRunner, projectDir, commitPaths, `test(${scope}): 更新资料 ${materialId} 至新版本`);
       if (oldFileMoved) rmSync(oldBackupPath, { force: true });
-      const history = asRecords(material.version_history);
-      const last = history[history.length - 1];
-      if (last) {
-        last.superseded_in_commit = commit;
-        writeSourcesManifest(loaded.raw, manifestPaths);
-        const amend = gitRunner(["commit", "--amend", "--no-edit", "--", manifestFile], { cwd: projectDir });
-        if (amend.status !== 0) {
-          warnings.push(`回填 superseded_in_commit 失败（非致命）：${amend.stderr.trim()}`);
-        }
-      }
       recordHandledDecision({ sha256: item.file.sha256, fileName: item.file.fileName, decision: "register-version", detail: `取代 ${materialId}，提交 ${commit}` }, options);
+      // Backfill the replacement commit hash in a separate small commit: recording it
+      // inside the replacement commit itself (amend) would rewrite the hash and leave
+      // a dangling reference.
+      try {
+        const history = asRecords(material.version_history);
+        const last = history[history.length - 1];
+        if (last) {
+          last.superseded_in_commit = commit;
+          writeSourcesManifest(loaded.raw, manifestPaths);
+          gitAddAndCommit(gitRunner, projectDir, [manifestFile], `test(${commitScope(asRecordProjects(material))}): 回填资料 ${materialId} 版本链提交指向`);
+        }
+      } catch (backfillError) {
+        warnings.push(`回填 superseded_in_commit 失败（非致命）：${backfillError instanceof Error ? backfillError.message : String(backfillError)}`);
+      }
       return { ...base, status: "applied", actions, commit, staleIndexes: staleTargets, warnings };
     } catch (error) {
       writeFileSync(manifestFile, manifestBackup);
