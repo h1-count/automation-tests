@@ -33,6 +33,8 @@
     "check:rule-design": "tsx scripts/rule-design-preflight.ts",
     "check:markdown": "tsx scripts/check-markdown-format.ts",
     "check:knowledge-index": "tsx scripts/check-knowledge-index.ts",
+    "sources:ingest": "tsx scripts/manage-sources-ingest.ts",
+    "test:sources-ingest": "tsx --test tests/support/sources-ingest/*.test.ts",
     "knowledge:search": "tsx scripts/search-knowledge.ts",
     "knowledge:manage": "tsx scripts/manage-project-knowledge.ts",
     "check:test-assets": "tsx scripts/check-test-assets.ts",
