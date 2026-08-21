@@ -617,3 +617,17 @@ materials:
       - function-definition
     status: active
     notes: 集中管理平台上线需求 2.0：功能库添加/编辑/删除事件与方法规则（标识符唯一校验、输出参数取值范围限定品类属性、事件被产品功能模板关联不可删）。
+  - id: centralized-platform-launch-requirement-v3
+    type: requirement
+    path: open-platform/需求/集中管理平台上线需求—3.0
+    sha256: faa2b7b0171177835547b90e56988e6265eb545a7098c8f1df2cdc3c7cd63244
+    source: user-provided
+    source_version: "3.0"
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - centralized-interaction-management-platform
+      - audit-management
+      - scene-linkage
+    status: active
+    notes: 集中管理平台上线需求 3.0：场景联动审核（待审核/审核纪录两态、产品状态同步、同产品新申请覆盖展示、筛选与列表字段）；集中交互管理平台.docx 引用的需求源之一。
