@@ -1,4 +1,4 @@
-version: 3
+version: 4
 knowledge_indexes:
   - id: open-platform-knowledge-index
     project: open-platform
@@ -46,6 +46,7 @@ materials:
       - product-development
     status: active
     notes: 原始需求文档；文档版本信息与变更日志显示最新版本为 1.2。
+    sha256: 5e429d9900d04c8c277c734700c9dd9373da5db99a03d27ee9e856dc0c92a5b4
   - id: apartment-lock-command-report
     type: device-protocol
     path: knowledge-base/device-protocol/公寓锁指令下发上报.txt
@@ -57,6 +58,7 @@ materials:
       - command-reporting
     status: active
     notes: 文件名显示为公寓锁指令下发与上报资料；具体协议版本和适用项目待确认。
+    sha256: 2c99883b16d0d4b423d8cb8159a892a96b36f28895e68d8f61a83e0a5ebe7738
   - id: home-device-access-protocol
     type: device-protocol
     path: knowledge-base/device-protocol/家居设备接入协议.docx
@@ -67,6 +69,7 @@ materials:
       - device-access
     status: active
     notes: 家居设备接入协议；版本和适用项目待确认。
+    sha256: d82c2b2cb488e1f69238c40ada004b7187bedf605ee60213d6af6cb05b3b22a5
   - id: bluetooth-communication-protocol-20241202
     type: device-protocol
     path: knowledge-base/device-protocol/蓝牙通讯协议20241202.doc
@@ -78,6 +81,7 @@ materials:
       - device-access
     status: active
     notes: 文件名含协议日期；具体适用设备待确认。
+    sha256: 00e6aeecdba42c3da7418477bf6a380efbccf52eda0e94bd742d2b37b264dd03
   - id: generic-device-access-protocol
     type: device-protocol
     path: knowledge-base/device-protocol/通用设备接入协议.docx
@@ -88,6 +92,7 @@ materials:
       - device-access
     status: active
     notes: 通用设备接入协议；版本和适用项目待确认。
+    sha256: d32a3cf4df915af503662176de2655c2156fc2e9c0e6b9828b51c7a912dba9b6
   - id: jinyun-device-control-with-logs
     type: device-protocol
     path: knowledge-base/device-protocol/金云设备控制指令发送(包含日志指令).pdf
@@ -99,6 +104,7 @@ materials:
       - device-logs
     status: active
     notes: 金云设备控制与日志指令资料；服务和协议适用范围待确认。
+    sha256: ac421889e86b84804536ab56eeca05e3d18561939d836b03c0704cf49f9a51f0
   - id: jinshan-cloud-device-control
     type: device-protocol
     path: knowledge-base/device-protocol/金山云设备控制指令发送.pdf
@@ -109,6 +115,7 @@ materials:
       - device-control
     status: active
     notes: 金山云设备控制指令资料；服务和协议适用范围待确认。
+    sha256: 8d2746a3cfa3b1d0b7cb10c892c7c43e56d0a35a12f6345f71c1fa902dcab288
   - id: access-control-communication-protocol
     type: device-protocol
     path: knowledge-base/device-protocol/门禁通讯协议.doc
@@ -120,6 +127,7 @@ materials:
       - device-access
     status: active
     notes: 门禁通信协议；版本和适用项目待确认。
+    sha256: 965fb143be93e52a67e4fd5e2862adba302ea80c72004ec2a348849ade11decf
   - id: smart-lock-communication-protocol-20240113
     type: device-protocol
     path: knowledge-base/device-protocol/门锁通讯协20240113.doc
@@ -131,6 +139,7 @@ materials:
       - device-access
     status: active
     notes: 文件名含门锁通信协议日期；具体适用设备待确认。
+    sha256: 748afc5889b488dadb68ae5d0bd02d29782d4751110d59f156e82ef11ce40441
   - id: openapi-document
     type: api-documentation
     path: knowledge-base/open-platform/API接口文档/OpenAPI .docx
@@ -142,6 +151,7 @@ materials:
       - api
     status: active
     notes: 开放平台 OpenAPI 资料；接口版本待确认。
+    sha256: 01a571f996cab6b00f143a8ecc7a8a88bc961553a4998600fccd53a3f6f99758
   - id: cloud-cloud-api-document
     type: api-documentation
     path: knowledge-base/open-platform/API接口文档/云云api.docx
@@ -154,6 +164,7 @@ materials:
       - api
     status: active
     notes: 云云 API 资料；具体服务边界待确认。
+    sha256: 7702208236d1c9993c0482d75c87a1727f4e0c76c7bf3a08dc0a59b86774d5f0
   - id: smart-lock-api-document
     type: api-documentation
     path: knowledge-base/open-platform/API接口文档/智能门锁 API.docx
@@ -166,6 +177,7 @@ materials:
       - api
     status: active
     notes: 智能门锁 API 资料；接口版本和适用项目待确认。
+    sha256: c6a1f87d60c54d97d324062e96e45f1067139225ca9f7116f50e9925f50044f5
   - id: industry-saas-api-document
     type: api-documentation
     path: knowledge-base/open-platform/API接口文档/行业saas api.docx
@@ -178,6 +190,7 @@ materials:
       - api
     status: active
     notes: 行业 SaaS API 资料；接口版本和适用项目待确认。
+    sha256: aeaad2572b863f15a6f06e4ab8d51e9f7207af83ba23816ccb7a710c7d39095a
   - id: iot-platform-help
     type: platform-documentation
     path: knowledge-base/open-platform/iot平台帮助文档.pdf
@@ -194,6 +207,7 @@ materials:
       - product-development
     status: active
     notes: IoT 平台帮助资料，覆盖平台介绍、账号与企业成员、产品开发等宽范围；具体章节主题以 open-platform-knowledge-index 为准，版本待确认。
+    sha256: 4473657d25751ae2ac06b03c1abea533749cf07353dde1d0c2daa350423e038e
   - id: cloud-bridge-protocol-conversion-guide
     type: integration-guide
     path: knowledge-base/open-platform/云云接入bridge协议转换操作指南.pdf
@@ -206,6 +220,7 @@ materials:
       - protocol-conversion
     status: active
     notes: 云云接入 bridge 协议转换指南；版本待确认。
+    sha256: 3d8d58a37603bb1d758dbfb3e7cb79bc50fdae453660001ddac2f335b08074f8
   - id: iot-service-development-introduction
     type: platform-documentation
     path: knowledge-base/open-platform/平台文档中心/IOT服务开发/IoT服务开发介绍.docx
@@ -217,6 +232,7 @@ materials:
       - iot-service-development
     status: active
     notes: IoT 服务开发介绍；版本待确认。
+    sha256: 292643946f697061c8defe0937d84d8e991631cc5bc2be9c2173506feda1baa1
   - id: product-development-detail
     type: platform-documentation
     path: knowledge-base/open-platform/平台文档中心/产品开发/产品开发详解.docx
@@ -228,6 +244,7 @@ materials:
       - product-development
     status: active
     notes: 产品开发详解；版本待确认。
+    sha256: 01272848433fe5b7d8f10bef17446a2713a52d674e1e7fe45228efd8eb23703b
   - id: product-test-and-launch
     type: platform-documentation
     path: knowledge-base/open-platform/平台文档中心/产品开发/产品测试与上线.docx
@@ -240,6 +257,7 @@ materials:
       - product-launch
     status: active
     notes: 产品测试与上线资料；版本待确认。
+    sha256: 8cb9f8ea34ffedf6bf8bd1ee4b83e46a01bf39cfde9adb571c32e8a92a1e59f3
   - id: function-definition-detail
     type: platform-documentation
     path: knowledge-base/open-platform/平台文档中心/产品开发/功能定义详解.docx
@@ -251,6 +269,7 @@ materials:
       - function-definition
     status: active
     notes: 功能定义详解；版本待确认。
+    sha256: 7396976fdbef79df9d2e804233087e5259ec639b3c99c077971965b25c8e3929
   - id: product-development-center
     type: platform-documentation
     path: knowledge-base/open-platform/平台文档中心/产品开发/平台文档中心-产品开发.docx
@@ -262,6 +281,7 @@ materials:
       - product-development
     status: active
     notes: 产品开发中心入口资料；版本待确认。
+    sha256: 33016ef04173d1abbc236b767406d42ae2b2579cb07db06b65bae41e7f035bbc
   - id: authorization-code-management
     type: platform-documentation
     path: knowledge-base/open-platform/平台文档中心/产品开发/授权码管理.docx
@@ -273,6 +293,7 @@ materials:
       - authorization-code
     status: active
     notes: 授权码管理资料；版本待确认。
+    sha256: 5ae6b7ee7d7561aba1fcf39b15bbfbc465a723a5a6a6529612de510f577dc92a
   - id: hardware-module-introduction
     type: platform-documentation
     path: knowledge-base/open-platform/平台文档中心/产品开发/硬件模组介绍.docx
@@ -284,6 +305,7 @@ materials:
       - hardware-module
     status: active
     notes: 硬件模组介绍；版本待确认。
+    sha256: ea20d64d7a1101a8a9ced839b5ec3d468114620d5511ff811103fc8ef662b86b
   - id: device-development-detail
     type: platform-documentation
     path: knowledge-base/open-platform/平台文档中心/产品开发/设备开发详解.docx
@@ -295,6 +317,7 @@ materials:
       - device-development
     status: active
     notes: 设备开发详解；版本待确认。
+    sha256: bbe1d57e303d26f0902c49b89fceca8c57d0ec5a32be1d2f9c6716bb94a870f7
   - id: advanced-configuration
     type: platform-documentation
     path: knowledge-base/open-platform/平台文档中心/产品开发/高级配置.docx
@@ -306,6 +329,7 @@ materials:
       - advanced-configuration
     status: active
     notes: 高级配置资料；版本待确认。
+    sha256: 58755d54805bf5dcbbca536777ac731ea9767a0991afc60e1e369298a2904955
   - id: operation-management
     type: platform-documentation
     path: knowledge-base/open-platform/平台文档中心/产品运营/运营管理.docx
@@ -317,6 +341,7 @@ materials:
       - operation-management
     status: active
     notes: 产品运营资料；版本待确认。
+    sha256: c7db2fad98c87b1f1676ab94012eb20afaf30e8eb21c095c35fd1bfe5ee3400f
   - id: value-added-services
     type: platform-documentation
     path: knowledge-base/open-platform/平台文档中心/增值服务/增值服务.docx
@@ -328,6 +353,7 @@ materials:
       - value-added-services
     status: active
     notes: 增值服务资料；版本待确认。
+    sha256: d6d903367595bba6137fefebf2bade723d73a505c13bb2a1ad0fe379af3d7709
   - id: platform-overview-core-value
     type: platform-documentation
     path: knowledge-base/open-platform/平台文档中心/平台介绍/平台概览与核心价值.docx
@@ -339,6 +365,7 @@ materials:
       - platform-overview
     status: active
     notes: 平台概览资料；版本待确认。
+    sha256: d75db02468b9135586ae9c609b7b2ac586b3a91210bbe851905385f553b002c4
   - id: pre-integration-preparation
     type: platform-documentation
     path: knowledge-base/open-platform/平台文档中心/接入前备/接入前备.docx
@@ -350,6 +377,7 @@ materials:
       - pre-integration
     status: active
     notes: 接入前准备资料；版本待确认。
+    sha256: 668466a5d6185706bbac2b32672ea59134037aa48edce9ba832360dfa982201c
   - id: platform-access-authorization
     type: integration-guide
     path: knowledge-base/open-platform/平台获取接口授权方式.pdf
@@ -361,6 +389,7 @@ materials:
       - api-authorization
     status: active
     notes: 平台获取接口授权方式；版本待确认。
+    sha256: f41a7158c211b2791830c57430a3be7e5a070ea864eb02f53f6d6a436d9a8531
   - id: platform-development-guide
     type: platform-documentation
     path: knowledge-base/open-platform/开发指南/开发指南.docx
@@ -372,6 +401,7 @@ materials:
       - development-guide
     status: active
     notes: 平台开发指南；版本待确认。
+    sha256: e176a96482617567111a8081eaad93ed84acf671aa4f84685b6f312c3c03da1e
   - id: device-callback-message-document
     type: integration-guide
     path: knowledge-base/open-platform/开发指南/设备回调消息文档.docx
@@ -384,6 +414,7 @@ materials:
       - api
     status: active
     notes: 设备回调消息资料；版本待确认。
+    sha256: eb965fcf03d02a6fea463d20fd19eefb88912bfddd00146b8fb5b6baa186fe3c
   - id: aiot-platform-project-document
     type: requirement
     path: requirements/open-platform/AIoT平台项目.docx
@@ -398,6 +429,7 @@ materials:
       - work-order
     status: active
     notes: 开放平台官网、注册登录、控制台、账号企业与工单需求；版本待确认。
+    sha256: 64ed64b7e3c1c133d30c660ebb9eb5de5af1aed385d18e481ba18ee7b582d00b
   - id: open-platform-technical-solution
     type: technical-design
     path: requirements/open-platform/开放平台技术方案.docx
@@ -412,6 +444,7 @@ materials:
       - cloud-integration
     status: active
     notes: 开放平台网关、服务平台、权限和云云接入技术方案；版本待确认。
+    sha256: 60788b0e59dbc00680533c1ddc5ae5f108afc8d26ee901e8a73ace0b4d8a1ed0
   - id: open-platform-interface-document
     type: api-documentation
     path: requirements/open-platform/开放平台接口文档.docx
@@ -426,6 +459,7 @@ materials:
       - api
     status: active
     notes: 开放平台产品开发及相关模块接口资料；版本待确认。
+    sha256: 56b7f5bbcd0d02f4283df910f434780dce9c76ab8c3b42d245ab98409a8dc0b3
   - id: centralized-interaction-management-platform
     type: requirement
     path: requirements/open-platform/集中交互管理平台.docx
@@ -439,6 +473,7 @@ materials:
       - audit-management
     status: active
     notes: 开放平台后台（运营侧）采购管理、审核管理与接口资料；版本待确认。
+    sha256: 1150ad24284308c21ccc3c77e25057b019e7a1c9bc4ed9aa558bb7eeb96b9c02
   - id: open-platform-axure-prototype
     type: prototype
     path: prototypes/open-platform
@@ -458,6 +493,7 @@ materials:
       - service-support
     status: active
     notes: Axure 导出的原型资料包；以目录入口及页面 HTML 作为按需读取定位，目录内运行资源不单独登记。
+    sha256: 0c21f0f7c472d2fd0cf712201c46cfd584ec5607cfe6a4b01d778c5243bc08e6
   - id: lazy-cat-app-product-requirement
     type: requirement
     path: requirements/lazy-cat/V1.0 懒猫慧居app产品需求文档.docx
@@ -470,6 +506,7 @@ materials:
       - product-requirement
     status: active
     notes: 懒猫慧居 App 产品需求文档；正文变更日志最新版本为 V1.2，包含注册登录、密码重置等模块。本次注册登录测试实际引用“注册登录模块”“忘记密码/重置密码”章节。
+    sha256: 8b71df96f9152c8154cf2bc4fe71d540dcb8c21be4125f9b21f22e08cbb80b13
   - id: lazy-cat-operation-backend-phase-one-requirement
     type: requirement
     path: requirements/lazy-cat/第一阶段：V1.0版本-c端运营后台功能.docx
@@ -481,3 +518,4 @@ materials:
       - operation-backend
     status: active
     notes: 懒猫慧居第一阶段运营后台功能需求资料；本次仅按文件名登记，具体模块和章节范围待按需读取后补充。
+    sha256: 7da840f0692585fe99e3cd50c87a76967b70c63edf033b1db72d41e6b6f3c32f

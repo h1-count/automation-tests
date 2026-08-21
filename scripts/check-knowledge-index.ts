@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { parse } from "yaml";
+import { computeSourceHash } from "../src/support/sources-ingest/sourcesManifest.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -36,33 +36,7 @@ function asStrings(value: unknown): string[] {
 }
 
 function sourceSha256(path: string) {
-  const hash = createHash("sha256");
-  const files = (directory: string): string[] =>
-    readdirSync(directory, { withFileTypes: true })
-      .flatMap((entry) => {
-        const entryPath = resolve(directory, entry.name);
-        return entry.isDirectory() ? files(entryPath) : entry.isFile() ? [entryPath] : [];
-      })
-      .sort();
-
-  if (!existsSync(path)) {
-    return undefined;
-  }
-  try {
-    const children = readdirSync(path, { withFileTypes: true });
-    for (const file of files(path)) {
-      hash.update(relative(path, file));
-      hash.update("\0");
-      hash.update(readFileSync(file));
-      hash.update("\0");
-    }
-    if (children.length === 0) {
-      hash.update("empty-directory\0");
-    }
-    return hash.digest("hex");
-  } catch {
-    return createHash("sha256").update(readFileSync(path)).digest("hex");
-  }
+  return computeSourceHash(path);
 }
 
 function hasLocator(section: UnknownRecord) {
@@ -153,10 +127,25 @@ function validateIndex(indexPath: string, project: string, expectedMaterialIds: 
 
 try {
   const manifest = readYaml(resolve(sourcesRoot, "manifest.yaml"));
-  if (manifest.version !== 3) {
-    fail("sources/manifest.yaml 必须使用版本 3。`knowledge_indexes` 是章节索引的唯一登记入口。");
+  if (manifest.version !== 4) {
+    fail("sources/manifest.yaml 必须使用版本 4（材料级 sha256 + version_history）。`knowledge_indexes` 是章节索引的唯一登记入口。");
   }
   const materials = asRecords(manifest.materials);
+  for (const material of materials) {
+    if (material.status !== "active") continue;
+    const materialId = String(material.id ?? "<unknown>");
+    const materialPath = typeof material.path === "string" ? material.path : "";
+    if (typeof material.sha256 !== "string" || !material.sha256) {
+      fail(`active 材料 ${materialId} 缺少材料级 sha256；请运行 npm run sources:ingest -- backfill。`);
+      continue;
+    }
+    const materialFile = resolve(sourcesRoot, materialPath);
+    if (!existsSync(materialFile)) {
+      fail(`active 材料 ${materialId} 的文件不存在：${materialPath}。`);
+    } else if (sourceSha256(materialFile) !== material.sha256) {
+      fail(`active 材料 ${materialId} 的内容哈希与 manifest 不一致；文件可能被静默修改，需重新登记版本。`);
+    }
+  }
   const materialPaths = new Map(
     materials.filter((item) => typeof item.id === "string" && typeof item.path === "string").map((item) => [item.id as string, item.path as string])
   );
