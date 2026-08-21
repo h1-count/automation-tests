@@ -3,7 +3,7 @@ knowledge_indexes:
   - id: open-platform-knowledge-index
     project: open-platform
     path: indexes/open-platform.yaml
-    status: reviewed
+    status: stale
     updated_at: 2026-07-16
     covered_material_ids:
       - openapi-document
@@ -210,9 +210,9 @@ materials:
     sha256: 4473657d25751ae2ac06b03c1abea533749cf07353dde1d0c2daa350423e038e
   - id: cloud-bridge-protocol-conversion-guide
     type: integration-guide
-    path: open-platform/平台文档/云云接入bridge协议转换操作指南.pdf
+    path: open-platform/平台文档/云云接入bridge协议转换操作指南
     source: repository-catalog
-    source_version: unknown
+    source_version: "1.0"
     applicable_projects:
       - open-platform
     reference_scopes:
@@ -220,7 +220,13 @@ materials:
       - protocol-conversion
     status: active
     notes: 云云接入 bridge 协议转换指南；版本待确认。
-    sha256: 3d8d58a37603bb1d758dbfb3e7cb79bc50fdae453660001ddac2f335b08074f8
+    sha256: 29de38359dee6321b0060c4f1a8f7b49d7ee9cc124bb4382ceefbde6bdac7b1b
+    version_history:
+      - version: unknown
+        path: open-platform/平台文档/云云接入bridge协议转换操作指南.pdf
+        sha256: 3d8d58a37603bb1d758dbfb3e7cb79bc50fdae453660001ddac2f335b08074f8
+        supersededAt: 2026-08-21
+        superseded_in_commit: 7851f8d
   - id: iot-service-development-introduction
     type: platform-documentation
     path: open-platform/平台文档/IoT服务开发介绍.docx
