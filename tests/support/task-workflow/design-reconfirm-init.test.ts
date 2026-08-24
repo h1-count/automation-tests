@@ -171,23 +171,32 @@ test("the reconfirm case-confirmation subject binds the suite cases through the 
   assert.equal(await manager.callbackSubjectDigest("case-confirmation"), subjectDigest);
 });
 
-test("initialize rejects an unsupported design-tier branch with a precise error", async () => {
+test("initialize routes design-tier source drift into an isolated affected rebuild", async () => {
   const root = await createDesignSuiteHarness();
   const requestRoot = resolve(root, ".local/test-runs/web/demo/reconfirm-run-3");
   await mkdir(requestRoot, { recursive: true });
   await writeFile(resolve(requestRoot, "plan.md"), "# plan\n");
+  const stableCasesPath = resolve(root, "testcases/web/demo/suites/registration/cases.md");
+  const stableCases = await readFile(stableCasesPath, "utf8");
   await writeFile(resolve(root, "sources/requirements/demo/requirement.md"), "requirement body v2\n");
 
   const manager = new DurableWorkflowManager("web/demo/reconfirm-run-3", root);
-  await assert.rejects(
-    manager.initialize({
-      suiteId: "web/demo/registration",
-      reuse: "auto",
-      environment: "test",
-      deliveryTarget: "testcase_only"
-    }),
-    /Design-tier suites only support the design_reconfirm reuse branch/u
+  const gate = await manager.initialize({
+    suiteId: "web/demo/registration",
+    reuse: "auto",
+    environment: "test",
+    deliveryTarget: "testcase_only"
+  });
+  assert.equal(gate.activities["reuse-assessment"]?.outcome, "affected_rebuild");
+  assert.equal(gate.activities["impact-location"]?.state, "READY");
+  assert.equal(gate.activities["source-selection"], undefined);
+  assert.equal(manager.suiteRoot, undefined, "affected rebuild must not target the stable suite directory");
+  assert.equal(
+    await readFile(resolve(requestRoot, "cases.md"), "utf8"),
+    stableCases,
+    "targeted evolution starts from a request-local case package copy"
   );
+  assert.equal(await readFile(stableCasesPath, "utf8"), stableCases);
 });
 
 test("initialize of a design_reconfirm run requires the run plan.md", async () => {

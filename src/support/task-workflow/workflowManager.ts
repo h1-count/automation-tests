@@ -149,6 +149,7 @@ import {
 } from "../test-suite/stableSuite.js";
 import {
   loadStableDesignSuite,
+  materializeAffectedDesignSuiteWorkspace,
   readStableSuiteTier,
   type StableDesignSuiteManifest
 } from "../test-suite/designSuite.js";
@@ -581,9 +582,10 @@ export class DurableWorkflowManager {
           workspaceRoot: this.workspaceRoot
         })
       : undefined;
-    // Tier-aware suite loading: an execution-tier manifest feeds the direct /
-    // affected chains, while a design-tier manifest only freezes design
-    // evidence (case packages) for the design_reconfirm branch.
+    // Tier-aware suite loading: execution-tier manifests feed direct and
+    // affected chains. A design-tier source drift takes the same targeted
+    // branch, but first copies its case packages into the request archive so
+    // the stable Git asset remains read-only until an explicit promotion.
     const reuseActive = Boolean(reuseAssessment?.suiteVersion)
       && reuseAssessment!.decision !== "full_replan";
     const suiteTier = reuseActive && input.suiteId
@@ -593,13 +595,15 @@ export class DurableWorkflowManager {
       ? await loadStableTestSuite(input.suiteId!, this.workspaceRoot)
       : undefined;
     let designSuite: StableDesignSuiteManifest | undefined;
+    let designAffectedWorkspace: { casePackagePaths: string[] } | undefined;
     if (reuseActive && suiteTier === "design") {
       designSuite = await loadStableDesignSuite(input.suiteId!, this.workspaceRoot);
-      if (reuseAssessment!.decision !== "design_reconfirm") {
-        throw new Error(
-          "Design-tier suites only support the design_reconfirm reuse branch; "
-          + "resolve source drift through a full_replan request."
-        );
+      if (reuseAssessment!.decision === "affected_rebuild") {
+        designAffectedWorkspace = await materializeAffectedDesignSuiteWorkspace({
+          suiteId: designSuite.suiteId,
+          runRequestId: this.requestId,
+          workspaceRoot: this.workspaceRoot
+        });
       }
     }
     const affectedWorkspace = stableSuite && reuseAssessment?.decision === "affected_rebuild"
@@ -616,9 +620,10 @@ export class DurableWorkflowManager {
           ? resolve(this.workspaceRoot, affectedWorkspace.planPath)
           : this.planPath));
     if (!existsSync(planPath)) throw new Error(`Workflow initialization requires plan.md: ${planPath}`);
-    if (input.suiteId) {
+    if (input.suiteId && !designAffectedWorkspace) {
       // Persist the run→suite binding before any workflow event exists so
-      // every later command resolves design assets from the suite directory.
+      // every direct/reconfirm command resolves design assets from the suite
+      // directory. Affected design rebuilds use their request-local copy.
       const boundSuiteRoot = suiteDirectoryPath(this.workspaceRoot, input.suiteId);
       if (this.runRootMode === "local-test-runs") {
         writeSuiteBinding(this.requestRoot, input.suiteId);
@@ -1221,6 +1226,7 @@ export class DurableWorkflowManager {
       : undefined;
     const payload: SafeEventPayload = {
       activityId,
+      attempt: activity.attempt,
       verification: input.verification,
       outputRefs,
       ...(verifiedOutputDigests.length
@@ -4052,13 +4058,26 @@ export class DurableWorkflowManager {
   }
 
   private reviewPackagePaths(view: WorkflowProjection): string[] {
-    return Object.values(view.activities)
-      .filter((activity) => ["case_generation", "candidate_generation"].includes(activity.definition.kind))
-      .map((activity) => {
+    const packageNames = new Set<string>();
+    for (const activity of Object.values(view.activities)) {
+      if (["case_generation", "candidate_generation"].includes(activity.definition.kind)) {
         const packageName = activity.definition.metadata?.package;
-        if (typeof packageName !== "string") throw new Error(`Case activity ${activity.id} has no package binding.`);
-        return resolve(this.designAssetPath(packageName));
-      });
+        if (typeof packageName !== "string") {
+          throw new Error(`Case activity ${activity.id} has no package binding.`);
+        }
+        packageNames.add(packageName);
+      }
+      if (Array.isArray(activity.definition.metadata?.casePackages)) {
+        for (const packageName of activity.definition.metadata.casePackages) {
+          if (typeof packageName === "string" && isCasesPackageName(packageName)) {
+            packageNames.add(packageName);
+          }
+        }
+      }
+    }
+    return [...packageNames]
+      .sort()
+      .map((packageName) => resolve(this.designAssetPath(packageName)));
   }
 
   private async currentReviewReadiness(

@@ -1,5 +1,5 @@
 /**
- * 请求成本分析（request-cost-analysis-v1）。
+ * 请求成本分析（request-cost-analysis-v2）。
  *
  * 从运行档案 workflow-history.ndjson 派生时间口径（活动净耗时/跨度/重试浪费、
  * reviewer 批次时长、人工等待），并聚合 DSH 会话日志的逐调用 token usage
@@ -10,7 +10,7 @@
  * 不含会话内容或标识原文（会话 ID 仅以 4 位掩码呈现）。
  */
 
-export const REQUEST_COST_ANALYSIS_SCHEMA_VERSION = "request-cost-analysis-v1";
+export const REQUEST_COST_ANALYSIS_SCHEMA_VERSION = "request-cost-analysis-v2";
 
 export type HistoryEventLike = {
   type: string;
@@ -34,6 +34,16 @@ export type ActivityCost = {
   wasteSeconds: number;
   driftEvents: number;
   outcome: string;
+  attemptDetails: ActivityAttemptCost[];
+};
+
+/** A completed attempt. `attemptInferred` marks legacy success events that
+ * omitted the attempt number and were paired with the latest open attempt. */
+export type ActivityAttemptCost = {
+  attempt: number;
+  seconds: number;
+  outcome: "succeeded" | "failed";
+  attemptInferred: boolean;
 };
 
 export type ReviewerSpan = {
@@ -98,8 +108,16 @@ export function parseJsonl(text: string): HistoryEventLike[] {
  * occurredAt 缺失的事件跳过时长统计但保留计数。
  */
 export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeline {
-  const activityStarts = new Map<string, string>();
-  const activity = new Map<string, { attempts: number; busy: number; first?: string; last?: string; outcome: string; drift: number }>();
+  const activityStarts = new Map<string, Map<number, string>>();
+  const activity = new Map<string, {
+    attempts: number;
+    busy: number;
+    first?: string;
+    last?: string;
+    outcome: string;
+    drift: number;
+    attemptDetails: ActivityAttemptCost[];
+  }>();
   const openDispatches = new Map<string, string[]>();
   const openCallbacks = new Map<string, string>();
   const reviewerSpans: ReviewerSpan[] = [];
@@ -109,12 +127,22 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
   let requestId = "";
   let humanWait = 0;
 
-  const touch = (id: string): {
-    attempts: number; busy: number; first?: string; last?: string; outcome: string; drift: number;
-  } => {
-    const current = activity.get(id) ?? { attempts: 0, busy: 0, outcome: "", drift: 0 };
+  const touch = (id: string) => {
+    const current = activity.get(id) ?? {
+      attempts: 0,
+      busy: 0,
+      outcome: "",
+      drift: 0,
+      attemptDetails: []
+    };
     activity.set(id, current);
     return current;
+  };
+
+  const latestOpenAttempt = (activityId: string): number | undefined => {
+    const openAttempts = activityStarts.get(activityId);
+    if (!openAttempts?.size) return undefined;
+    return [...openAttempts.keys()].sort((left, right) => right - left)[0];
   };
 
   for (const event of events) {
@@ -130,21 +158,40 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
         break;
       case "ActivityAttemptStarted":
         if (!activityId || !occurredAt) break;
-        activityStarts.set(`${activityId}#${asNumber(payload.attempt) ?? activityStarts.size}`, occurredAt);
         const started = touch(activityId);
+        const declaredAttempt = asNumber(payload.attempt);
+        const attempt = Number.isInteger(declaredAttempt) && declaredAttempt! > 0
+          ? declaredAttempt!
+          : started.attempts + 1;
+        const openAttempts = activityStarts.get(activityId) ?? new Map<number, string>();
+        openAttempts.set(attempt, occurredAt);
+        activityStarts.set(activityId, openAttempts);
         started.attempts += 1;
         started.first = started.first ?? occurredAt;
         break;
       case "ActivitySucceeded":
       case "ActivityFailed": {
         if (!activityId || !occurredAt) break;
-        const attemptKey = `${activityId}#${asNumber(payload.attempt) ?? 0}`;
-        const start = activityStarts.get(attemptKey) ?? activityStarts.get(`${activityId}#0`);
+        const declaredAttempt = asNumber(payload.attempt);
+        const attemptInferred = !Number.isInteger(declaredAttempt) || declaredAttempt! <= 0;
+        const attempt = attemptInferred ? latestOpenAttempt(activityId) : declaredAttempt!;
+        const openAttempts = activityStarts.get(activityId);
+        const start = attempt === undefined ? undefined : openAttempts?.get(attempt);
         const record = touch(activityId);
-        if (start) record.busy += secondsBetween(start, occurredAt);
+        if (start && attempt !== undefined) {
+          const seconds = Math.round(secondsBetween(start, occurredAt));
+          record.busy += seconds;
+          record.attemptDetails.push({
+            attempt,
+            seconds,
+            outcome: event.type === "ActivitySucceeded" ? "succeeded" : "failed",
+            attemptInferred
+          });
+          openAttempts?.delete(attempt);
+          if (openAttempts?.size === 0) activityStarts.delete(activityId);
+        }
         record.last = occurredAt;
         record.outcome = event.type;
-        activityStarts.delete(attemptKey);
         break;
       }
       case "ArtifactDriftDetected":
@@ -207,7 +254,8 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
         ? Math.max(0, Math.round(secondsBetween(record.first, record.last) - record.busy))
         : 0,
       driftEvents: record.drift,
-      outcome: record.outcome
+      outcome: record.outcome,
+      attemptDetails: [...record.attemptDetails].sort((left, right) => left.attempt - right.attempt)
     }))
     .sort((left, right) => left.activityId.localeCompare(right.activityId));
 
@@ -314,6 +362,18 @@ export function buildCostReport(input: CostReportInput): string {
   lines.push("| --- | --- | --- | --- | --- | --- | --- |");
   for (const item of timeline.activities) {
     lines.push(`| ${item.activityId} | ${item.attempts} | ${formatMinutes(item.busySeconds)} | ${formatMinutes(item.wallSeconds)} | ${formatMinutes(item.wasteSeconds)} | ${item.driftEvents} | ${item.outcome || "—"} |`);
+  }
+  lines.push("", "## 时间口径（按尝试）", "");
+  lines.push("| 活动 | 尝试 | 耗时 | 结束 | attempt 来源 |", "| --- | --- | --- | --- | --- |");
+  const attempts = timeline.activities.flatMap((item) => item.attemptDetails.map((attempt) => ({
+    activityId: item.activityId,
+    ...attempt
+  })));
+  if (!attempts.length) {
+    lines.push("| 无可配对尝试 | — | — | — | — |");
+  }
+  for (const attempt of attempts) {
+    lines.push(`| ${attempt.activityId} | ${attempt.attempt} | ${formatMinutes(attempt.seconds)} | ${attempt.outcome} | ${attempt.attemptInferred ? "从历史事件推断" : "事件声明"} |`);
   }
   lines.push("", "## reviewer 批次", "");
   lines.push("| 批次 | 角色 | 时长 | 结论 |", "| --- | --- | --- | --- |");

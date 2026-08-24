@@ -51,6 +51,27 @@ test("deriveRequestTimeline 汇总活动净耗时/跨度/浪费与漂移", () =>
   assert.equal(candidate.wasteSeconds, 25);
   assert.equal(candidate.driftEvents, 1);
   assert.equal(candidate.outcome, "ActivitySucceeded");
+  assert.deepEqual(candidate.attemptDetails, [
+    { attempt: 1, seconds: 895, outcome: "failed", attemptInferred: false },
+    { attempt: 2, seconds: 154, outcome: "succeeded", attemptInferred: false }
+  ]);
+});
+
+test("legacy success without attempt pairs with the latest open attempt", () => {
+  const timeline = deriveRequestTimeline([
+    event("ActivityAttemptStarted", "2026-08-21T08:00:00.000Z", { activityId: "candidate-generation", attempt: 1 }),
+    event("ActivityFailed", "2026-08-21T08:01:00.000Z", { activityId: "candidate-generation", attempt: 1 }),
+    event("ActivityAttemptStarted", "2026-08-21T08:02:00.000Z", { activityId: "candidate-generation", attempt: 2 }),
+    event("ActivitySucceeded", "2026-08-21T08:05:00.000Z", { activityId: "candidate-generation" })
+  ]);
+  const candidate = timeline.activities.find((item) => item.activityId === "candidate-generation");
+  assert.ok(candidate);
+  assert.equal(candidate.busySeconds, 240);
+  assert.equal(candidate.wasteSeconds, 60);
+  assert.deepEqual(candidate.attemptDetails, [
+    { attempt: 1, seconds: 60, outcome: "failed", attemptInferred: false },
+    { attempt: 2, seconds: 180, outcome: "succeeded", attemptInferred: true }
+  ]);
 });
 
 test("deriveRequestTimeline 配对 reviewer 派发与提交", () => {
@@ -119,6 +140,7 @@ test("buildCostReport 渲染双口径且不含会话标识原文", () => {
   });
   assert.match(report, /# 请求成本报告：web\/demo\/request-1/);
   assert.match(report, /candidate-generation \| 2 \|/);
+  assert.match(report, /时间口径（按尝试）/);
   assert.match(report, /rev-r1 \| combined \| 6.9 min \| findings_present/);
   assert.match(report, /\| 总计 \| — \| 45 \| 93420 \| 25818 \| 274448 \|/);
   assert.match(report, /assistant\/message/);

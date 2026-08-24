@@ -43,7 +43,7 @@
 | 计划确认 subject | 无 | 仅回放：`plan-confirmation-subject-v1`、`plan-confirmation-subject-v2` | 流程规范 | 历史计划确认回放 |
 | 项目经验候选 | `project-knowledge-candidates-v1` | 无 | 项目经验规范 | 本地候选控制元数据 |
 | 请求内来源 | `request-local-source-v1` | 无 | 用例规范 | 请求级来源登记 |
-| 请求成本分析 | `request-cost-analysis-v1` | 无 | 研究文档 | 请求时间+token 双口径成本报告 |
+| 请求成本分析 | `request-cost-analysis-v2` | 归档证据：`request-cost-analysis-v1` | 研究文档 | 请求时间+token 双口径成本报告；v2 增加逐尝试时长与旧事件 attempt 推断标识 |
 | reviewer 定向读取图 | `review-reading-map-v1` | 无 | 用例规范 | reviewer 必读区间与交叉对照配对 |
 | reviewer 批次范围 | `review-batch-scope-v3` | 仅回放：`review-batch-scope-v1`、`review-batch-scope-v2` | 流程规范 | 当前定向复审范围 |
 | reviewer epoch | `review-epoch-v1` | 无 | 流程规范 | 评审演进 epoch |

@@ -21,8 +21,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, readdir } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { atomicWrite } from "../test-data/ledgerStore.js";
+import { basename, dirname, resolve } from "node:path";
+import { atomicWrite, atomicWriteText } from "../test-data/ledgerStore.js";
 import { canonicalJson, sha256Canonical } from "../task-workflow/canonicalJson.js";
 import type { SafeJsonValue } from "../task-workflow/types.js";
 import {
@@ -98,6 +98,8 @@ export interface DesignSuiteAssessment {
 const sourceIdPattern = /^SRC-[A-Z0-9]+(?:-[A-Z0-9]+)+$/u;
 const digestPattern = /^[a-f0-9]{64}$/u;
 const ruleIdPattern = /^RULE-[A-Z0-9]+(?:-[A-Z0-9]+)+$/u;
+const suiteIdPattern = /^(?:web|h5|app|api|mqtt|iot|iot-chain)\/[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/u;
+const requestIdPattern = /^(?:web|h5|app|api|mqtt|iot|iot-chain)\/[a-z0-9][a-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_-]*$/u;
 
 /** Parse the ledger's source registry section (`## 请求内来源`). */
 export function parseSourceRegistry(designLedger: string): StableDesignSourceRegistration[] {
@@ -631,6 +633,38 @@ export async function loadStableDesignSuite(
     JSON.parse(await readFile(path, "utf8")) as unknown,
     suiteId
   );
+}
+
+/**
+ * Materialize a design-tier affected rebuild into the request-local archive.
+ *
+ * A design-tier manifest has no formal scripts to relocate, but its unchanged
+ * case packages must still be copied before targeted evolution. Otherwise a
+ * candidate-generation worker would mutate the Git-tracked stable suite while
+ * rebuilding only the affected RULE/case closure.
+ */
+export async function materializeAffectedDesignSuiteWorkspace(input: {
+  suiteId: string;
+  runRequestId: string;
+  workspaceRoot?: string;
+}): Promise<{ casePackagePaths: string[] }> {
+  const root = resolve(input.workspaceRoot ?? process.cwd());
+  const suiteScope = input.suiteId.split("/").slice(0, 2).join("/");
+  const requestScope = input.runRequestId.split("/").slice(0, 2).join("/");
+  if (!suiteIdPattern.test(input.suiteId)
+    || !requestIdPattern.test(input.runRequestId)
+    || suiteScope !== requestScope) {
+    throw new Error("Affected design suite workspace must use the suite type/project scope.");
+  }
+  const manifest = await loadStableDesignSuite(input.suiteId, root);
+  const runRoot = resolve(root, ".local", "test-runs", ...input.runRequestId.split("/"));
+  const casePackagePaths: string[] = [];
+  for (const identity of manifest.casePackages) {
+    const target = resolve(runRoot, basename(identity.path));
+    await atomicWriteText(target, await readFile(resolve(root, identity.path), "utf8"));
+    casePackagePaths.push(target);
+  }
+  return { casePackagePaths: casePackagePaths.sort() };
 }
 
 /** The tier recorded in a suite registration file, for routing shared assessment entry points. */

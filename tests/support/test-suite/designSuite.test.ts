@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 import {
   assessStableDesignSuite,
+  materializeAffectedDesignSuiteWorkspace,
   parseRuleLedger,
   parseSourceRegistry,
   registerStableDesignSuite,
@@ -293,4 +294,25 @@ test("secondary file drift still selects affected_rebuild under per-file baselin
   });
   assert.equal(assessment.decision, "affected_rebuild");
   assert.ok(assessment.reasons.some((reason) => reason.startsWith("source_digest_drift:")));
+});
+
+test("affected design rebuild materializes case packages into the request archive", async () => {
+  const harness = await createHarness();
+  await registerStableDesignSuite({
+    suiteId,
+    requestId: "web/demo/accepted-run",
+    workspaceRoot: harness.root
+  });
+  const stableCases = await readFile(harness.casesPath, "utf8");
+  const materialized = await materializeAffectedDesignSuiteWorkspace({
+    suiteId,
+    runRequestId: "web/demo/affected-run",
+    workspaceRoot: harness.root
+  });
+  assert.deepEqual(materialized.casePackagePaths, [
+    resolve(harness.root, ".local/test-runs/web/demo/affected-run/cases-registration.md")
+  ]);
+  const copied = await readFile(materialized.casePackagePaths[0]!, "utf8");
+  assert.equal(copied, stableCases);
+  assert.equal(await readFile(harness.casesPath, "utf8"), stableCases);
 });
