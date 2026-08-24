@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "stable-test-suite-manifest-v2",
+  "tier": "design",
+  "suiteId": "web/open-platform/create-product",
+  "designLedger": {
+    "path": "testcases/web/open-platform/suites/create-product/design.md",
+    "digest": "64dac10bf25c0b35f3a7e8c35c63df36bdd7e6c54898b4547e02c75307447384"
+  },
+  "casePackages": [
+    {
+      "path": "testcases/web/open-platform/suites/create-product/cases.md",
+      "digest": "5f2c040e59ffd726d33b48a763181eafa95750bce82efed7f9d61ead6d7d7b4b"
+    }
+  ],
+  "caseIds": [
+    "OPEN-CAT-001",
+    "OPEN-CAT-002",
+    "OPEN-CREATE-001",
+    "OPEN-CREATE-002",
+    "OPEN-CREATE-003",
+    "OPEN-DESC-001",
+    "OPEN-DEVTYPE-001",
+    "OPEN-LIST-001",
+    "OPEN-LIST-002",
+    "OPEN-LIST-003",
+    "OPEN-LIST-004",
+    "OPEN-LIST-005",
+    "OPEN-LIST-006",
+    "OPEN-MODEL-001",
+    "OPEN-MODEL-002",
+    "OPEN-NAME-001",
+    "OPEN-NAME-002",
+    "OPEN-NAME-003",
+    "OPEN-PROD-001",
+    "OPEN-PROD-002",
+    "OPEN-PROD-003",
+    "OPEN-QUOTA-001",
+    "OPEN-QUOTA-002",
+    "OPEN-QUOTA-003",
+    "OPEN-SMART-001",
+    "OPEN-WIZ-001"
+  ],
+  "profiles": {
+    "full_feature": [
+      "OPEN-CAT-001",
+      "OPEN-CAT-002",
+      "OPEN-CREATE-001",
+      "OPEN-CREATE-002",
+      "OPEN-CREATE-003",
+      "OPEN-DESC-001",
+      "OPEN-DEVTYPE-001",
+      "OPEN-LIST-001",
+      "OPEN-LIST-002",
+      "OPEN-LIST-003",
+      "OPEN-LIST-004",
+      "OPEN-LIST-005",
+      "OPEN-LIST-006",
+      "OPEN-MODEL-001",
+      "OPEN-MODEL-002",
+      "OPEN-NAME-001",
+      "OPEN-NAME-002",
+      "OPEN-NAME-003",
+      "OPEN-PROD-001",
+      "OPEN-PROD-002",
+      "OPEN-PROD-003",
+      "OPEN-QUOTA-001",
+      "OPEN-QUOTA-002",
+      "OPEN-QUOTA-003",
+      "OPEN-SMART-001",
+      "OPEN-WIZ-001"
+    ],
+    "smoke": [
+      "OPEN-CAT-001",
+      "OPEN-CAT-002",
+      "OPEN-CREATE-001",
+      "OPEN-CREATE-002",
+      "OPEN-DEVTYPE-001",
+      "OPEN-MODEL-001",
+      "OPEN-NAME-001",
+      "OPEN-NAME-003",
+      "OPEN-WIZ-001"
+    ],
+    "failed_or_blocked": []
+  },
+  "sourceRegistry": [
+    {
+      "sourceId": "SRC-CP-001",
+      "digest": "b0a4adcff16e309794deb26990d31a9d52d1e589d0ed8d00312e1aa7198acefb",
+      "sourcePaths": [
+        "sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md"
+      ],
+      "fileDigests": [
+        {
+          "path": "sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md",
+          "digest": "b0a4adcff16e309794deb26990d31a9d52d1e589d0ed8d00312e1aa7198acefb"
+        }
+      ]
+    }
+  ],
+  "allowedEnvironments": [
+    "test",
+    "pre"
+  ],
+  "suiteVersion": "e404ee88a1648100b7fe303fe08164c2955debb8d35a1910e52c025cf4851b2a",
+  "status": "stable",
+  "sourceRequestId": "web/open-platform/create-product-20260824-r2",
+  "acceptance": {
+    "workflowHeadDigest": "10e18ea251c2584876c7aaefa762a2db6c5d4e6737da0944a9066a69ddb03334",
+    "confirmationDigest": "902c8470717fd221eed8737037d5bfce443cc89fb63c551f2432cd23c75bfd2e",
+    "acceptedAt": "2026-08-24T05:39:49.290Z"
+  }
+}
