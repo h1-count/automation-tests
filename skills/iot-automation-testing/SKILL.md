@@ -11,7 +11,7 @@ description: 在本仓库中规划、设计、维护或分析 Web、H5、App、W
 
 ## 读取顺序
 
-测试上下文加载（USER-PREFERENCES、MEMORY.md 工程经验、项目确认后读取项目经验库、来源与静态资产筛选）统一按[流程规范 §3.1](../../docs/testing/automation-guideline.md#31-测试上下文加载)执行，本节不复述；以下只列编排顺序：
+测试上下文加载（USER-PREFERENCES、EXPERIENCE.md 工程经验、项目确认后读取项目经验库、来源与静态资产筛选）统一按[流程规范 §3.1](../../docs/testing/automation-guideline.md#31-测试上下文加载)执行，本节不复述；以下只列编排顺序：
 
 1. 在新测试开始前让用户选择 `testcase_only / script_only / full_run`；用户已明确目标时直接采用，不重复询问。同 `runRequestId` 已有 history 时不重选。
 2. 确定 `suiteId=<type/project/feature>` 与 `runRequestId=<type/project/request>`；无法唯一确定时只询问最小必要信息。

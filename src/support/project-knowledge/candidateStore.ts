@@ -162,7 +162,7 @@ export async function promoteCandidate(
   assertProject(project);
   assertSafe(promotedKnowledgeRef, "经验库引用");
   const expectedKnowledgeFile = project === "automation-engineering"
-    ? "docs/testing/knowledge/MEMORY.md"
+    ? "docs/testing/knowledge/EXPERIENCE.md"
     : `docs/testing/knowledge/${project}-testing-knowledge.md`;
   if (!promotedKnowledgeRef.includes(expectedKnowledgeFile)) {
     throw new Error("经验库引用必须指向同一项目的知识文件。");

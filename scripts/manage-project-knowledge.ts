@@ -43,7 +43,7 @@ async function main(): Promise<void> {
         project,
         required(args, "--id"),
         project === "automation-engineering"
-          ? "docs/testing/knowledge/MEMORY.md"
+          ? "docs/testing/knowledge/EXPERIENCE.md"
           : `docs/testing/knowledge/${project}-testing-knowledge.md`,
         evidenceType
       );

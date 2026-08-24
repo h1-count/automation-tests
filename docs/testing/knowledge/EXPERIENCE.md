@@ -1,4 +1,4 @@
-# 自动化工程经验（MEMORY）
+# 自动化工程经验（EXPERIENCE）
 
 > 测试工程自身经验的唯一事实源。被测产品的产品测试经验见对应 `<project>-testing-knowledge.md`，沉淀与分工规则见 [README.md](./README.md)。
 
