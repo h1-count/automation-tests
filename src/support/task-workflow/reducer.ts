@@ -8,6 +8,7 @@ import {
   type FormalExecutionWorkflowEvidence,
   type ReviewPolicy,
   type SafeEventPayload,
+  type SafeJsonValue,
   type TestOutcome,
   type WorkflowActivityDefinition,
   type WorkflowDefinition,
@@ -32,7 +33,16 @@ import {
   reviewBatchScopeDigest
 } from "./reviewBatchScope.js";
 import { GENESIS_DIGEST } from "./historyStore.js";
-import { validateWorkflowDefinition } from "./definition.js";
+import {
+  buildV8CandidateExtension,
+  validateWorkflowDefinition,
+  workflowGraphDigest
+} from "./definition.js";
+import {
+  candidateFragmentManifestDigest,
+  parseCandidateFragmentManifest
+} from "./candidateFragments.js";
+import { canonicalJson } from "./canonicalJson.js";
 
 interface ReducerRuntime {
   suspended: boolean;
@@ -954,7 +964,7 @@ function applyActivityEvent(
           `Review batch ${batchId} requires an immutable inputDigest.`
         );
       }
-      if (["v4", "v5", "v6", "v7"].includes(event.definitionVersion)) {
+      if (["v4", "v5", "v6", "v7", "v8"].includes(event.definitionVersion)) {
         if (!Array.isArray(payload.inputRefs) || !payload.inputRefs.length) {
           throw new WorkflowTransitionError(`Review batch ${batchId} requires non-empty inputRefs.`);
         }
@@ -1056,7 +1066,10 @@ function applyActivityEvent(
             `Review batch ${batchId} has malformed readinessWarnings.`
           );
         }
-        const isSemanticSnapshot = scope?.schemaVersion === "review-batch-scope-v3";
+        const semanticScope = scope?.schemaVersion === "review-batch-scope-v3"
+          ? scope
+          : undefined;
+        const isSemanticSnapshot = semanticScope !== undefined;
         if (isSemanticSnapshot && refs.some((ref) => ref.semanticDigest === undefined)) {
           throw new WorkflowTransitionError(
             `Review batch ${batchId} v3 scope requires semanticDigest for every inputRef.`
@@ -1075,7 +1088,7 @@ function applyActivityEvent(
               `Review batch ${batchId} v3 scope requires roleInputDigests.`
             );
           }
-          const expected = reviewRoleInputDigests(event.requestId, refs, scopeDigest, scope);
+          const expected = reviewRoleInputDigests(event.requestId, refs, scopeDigest, semanticScope);
           const actual = Object.fromEntries(Object.entries(rawRoleDigests).map(([activityId, digest]) => {
             if (typeof digest !== "string") {
               throw new WorkflowTransitionError(
@@ -1090,6 +1103,43 @@ function applyActivityEvent(
             );
           }
           runtime.reviewBatchRoleDigests.set(batchId, new Map(Object.entries(actual)));
+          if (payload.rolePackets !== undefined) {
+            if (!Array.isArray(payload.rolePackets)) {
+              throw new WorkflowTransitionError(`Review batch ${batchId} has malformed rolePackets.`);
+            }
+            const expectedActivities = semanticScope.roleScopes.map((roleScope) => roleScope.activityId).sort();
+            const packets = payload.rolePackets.map((value) => {
+              if (!value || typeof value !== "object" || Array.isArray(value)) {
+                throw new WorkflowTransitionError(`Review batch ${batchId} has malformed rolePacket.`);
+              }
+              const packet = value as Record<string, unknown>;
+              if (
+                typeof packet.activityId !== "string"
+                || typeof packet.role !== "string"
+                || typeof packet.path !== "string"
+                || packet.path.startsWith("/")
+                || packet.path.includes("..")
+                || typeof packet.digest !== "string"
+                || !sha256Pattern.test(packet.digest)
+                || !Number.isInteger(packet.packetBytes)
+                || Number(packet.packetBytes) < 0
+                || !Number.isInteger(packet.originalBytes)
+                || Number(packet.originalBytes) < 0
+              ) {
+                throw new WorkflowTransitionError(`Review batch ${batchId} has malformed rolePacket.`);
+              }
+              return packet;
+            });
+            if (
+              JSON.stringify(packets.map((packet) => String(packet.activityId)).sort())
+              !== JSON.stringify(expectedActivities)
+              || packets.some((packet) => semanticScope.roleScopes.find((roleScope) =>
+                roleScope.activityId === packet.activityId && roleScope.role === packet.role
+              ) === undefined)
+            ) {
+              throw new WorkflowTransitionError(`Review batch ${batchId} rolePackets do not match its role scopes.`);
+            }
+          }
         }
       }
       runtime.reviewBatches.set(
@@ -1493,8 +1543,8 @@ export function reduceWorkflow(
     || stringField(expanded.payload, "graphDigest") !== graphDigest) {
     throw new WorkflowTransitionError("ActivitiesExpanded does not match the pinned workflow digests.");
   }
-  const definitions = pinnedDefinition?.activities ?? definitionsFromExpanded(expanded);
-  const expandedDefinition: WorkflowDefinition = {
+  let definitions = pinnedDefinition?.activities ?? definitionsFromExpanded(expanded);
+  let expandedDefinition: WorkflowDefinition = {
     schemaVersion: "test-workflow-definition-v1",
     definitionId: started.definitionId,
     definitionVersion: started.definitionVersion,
@@ -1518,6 +1568,7 @@ export function reduceWorkflow(
     throw new WorkflowTransitionError("Expanded workflow definition differs from the pinned graph.");
   }
   const activities = initializeActivities(definitions);
+  let effectiveGraphDigest = graphDigest;
   const identity = {
     runId: started.runId,
     requestId: started.requestId,
@@ -1560,6 +1611,7 @@ export function reduceWorkflow(
     }
   }
   let sawExpanded = false;
+  let sawCandidateGraph = false;
 
   for (const event of events) {
     if (event.runId !== identity.runId
@@ -1578,6 +1630,94 @@ export function reduceWorkflow(
     if (event.type === "ActivitiesExpanded") {
       if (sawExpanded) throw new WorkflowTransitionError("ActivitiesExpanded may occur only once.");
       sawExpanded = true;
+      materializeReady(activities, identity.definitionVersion);
+      continue;
+    }
+    if (event.type === "CandidateGraphExpanded") {
+      if (identity.definitionVersion !== "v8") {
+        throw new WorkflowTransitionError("CandidateGraphExpanded is only valid for v8 workflows.");
+      }
+      if (sawCandidateGraph) {
+        throw new WorkflowTransitionError("CandidateGraphExpanded may occur only once.");
+      }
+      if (!runtime.succeededActivityDetails.has("candidate-skeleton")) {
+        throw new WorkflowTransitionError("CandidateGraphExpanded requires candidate-skeleton to succeed first.");
+      }
+      if (stringField(event.payload, "parentGraphDigest") !== effectiveGraphDigest) {
+        throw new WorkflowTransitionError("CandidateGraphExpanded parentGraphDigest does not match the active graph.");
+      }
+      requireDigest(stringField(event.payload, "skeletonDigest"), "skeletonDigest");
+      const scope = stringField(event.payload, "scope");
+      if (scope !== "full" && scope !== "affected") {
+        throw new WorkflowTransitionError("CandidateGraphExpanded scope must be full or affected.");
+      }
+      let manifest;
+      try {
+        manifest = parseCandidateFragmentManifest(JSON.stringify({
+          schemaVersion: "candidate-fragment-manifest-v1",
+          scope,
+          modules: event.payload.modules
+        }));
+      } catch (error) {
+        throw new WorkflowTransitionError(
+          `CandidateGraphExpanded modules are not a valid frozen skeleton: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      if (candidateFragmentManifestDigest(manifest) !== stringField(event.payload, "skeletonDigest")) {
+        throw new WorkflowTransitionError("CandidateGraphExpanded skeletonDigest does not match its frozen modules.");
+      }
+      const additions = definitionsFromExpanded(event);
+      if (!additions.length || additions.some((activity) => activities[activity.id])) {
+        throw new WorkflowTransitionError("CandidateGraphExpanded contains no activities or duplicates an existing activity.");
+      }
+      const expectedAdditions = buildV8CandidateExtension({
+        modules: manifest.modules,
+        scope,
+        capabilities: expandedDefinition.capabilities,
+        writesData: expandedDefinition.writesData,
+        deliveryTarget: expandedDefinition.deliveryTarget ?? "full_run",
+        reviewPolicy: expandedDefinition.reviewPolicy!
+      });
+      if (
+        canonicalJson(additions as unknown as SafeJsonValue)
+        !== canonicalJson(expectedAdditions as unknown as SafeJsonValue)
+      ) {
+        throw new WorkflowTransitionError("CandidateGraphExpanded activities do not match the frozen skeleton extension.");
+      }
+      const candidate: WorkflowDefinition = {
+        ...expandedDefinition,
+        activities: [...definitions, ...additions],
+        graphDigest: stringField(event.payload, "graphDigest")
+      };
+      if (workflowGraphDigest({
+        schemaVersion: candidate.schemaVersion,
+        definitionId: candidate.definitionId,
+        definitionVersion: candidate.definitionVersion,
+        requestId: candidate.requestId,
+        planDigest: candidate.planDigest,
+        capabilities: candidate.capabilities,
+        writesData: candidate.writesData,
+        ...(candidate.deliveryTarget ? { deliveryTarget: candidate.deliveryTarget } : {}),
+        ...(candidate.reviewPolicy ? { reviewPolicy: candidate.reviewPolicy } : {}),
+        activities: candidate.activities
+      }) !== candidate.graphDigest) {
+        throw new WorkflowTransitionError("CandidateGraphExpanded graphDigest does not match its appended activities.");
+      }
+      validateWorkflowDefinition(candidate);
+      definitions = candidate.activities;
+      expandedDefinition = candidate;
+      for (const addition of additions) {
+        activities[addition.id] = {
+          id: addition.id,
+          definition: addition,
+          state: "PENDING",
+          attempt: 0,
+          blockerIds: [],
+          unresolvedExternalOperationIds: []
+        };
+      }
+      effectiveGraphDigest = candidate.graphDigest;
+      sawCandidateGraph = true;
       materializeReady(activities, identity.definitionVersion);
       continue;
     }
@@ -1709,7 +1849,7 @@ export function reduceWorkflow(
     requestId: identity.requestId,
     definitionId: identity.definitionId,
     definitionVersion: identity.definitionVersion,
-    graphDigest,
+    graphDigest: effectiveGraphDigest,
     planDigest,
     ...(expandedDefinition.deliveryTarget
       ? { deliveryTarget: expandedDefinition.deliveryTarget }

@@ -23,6 +23,7 @@
 | 浏览器探索策略 | `browser-exploration-policy-v1` | 无 | 定位规范 | 探索安全策略 |
 | 候选门禁 | `candidate-gate-v1` | 无 | 用例规范 | v3 候选结构、关系与风险门禁 |
 | 候选生成策略 | `candidate-generation-policy-v1` | 无 | 用例规范 | 候选生成约束 |
+| 候选分片清单 | `candidate-fragment-manifest-v1` | 无 | 用例规范 | v8 冻结模块、RULE 和来源归属 |
 | 能力证据 | `capability-evidence-v1` | 无 | 环境规范 | readiness 能力证明 |
 | 用例确认 subject | `case-confirmation-subject-v2` | 仅回放：`case-confirmation-subject-v1` | 流程规范 | 当前一次性用例确认摘要 |
 | 用例证据包 | `case-evidence-bundle-v2` | 无 | 报告规范 | 父用例正式结果证据 |
@@ -43,12 +44,12 @@
 | 计划确认 subject | 无 | 仅回放：`plan-confirmation-subject-v1`、`plan-confirmation-subject-v2` | 流程规范 | 历史计划确认回放 |
 | 项目经验候选 | `project-knowledge-candidates-v1` | 无 | 项目经验规范 | 本地候选控制元数据 |
 | 请求内来源 | `request-local-source-v1` | 无 | 用例规范 | 请求级来源登记 |
-| 请求成本分析 | `request-cost-analysis-v2` | 归档证据：`request-cost-analysis-v1` | 研究文档 | 请求时间+token 双口径成本报告；v2 增加逐尝试时长与旧事件 attempt 推断标识 |
+| 请求成本分析 | `request-cost-analysis-v5` | 归档证据：`request-cost-analysis-v1`、`request-cost-analysis-v2`、`request-cost-analysis-v3`、`request-cost-analysis-v4` | 研究文档 | 请求时间+token 双口径成本报告；v5 增加 reviewer 原始输入、分片输入与节省比 |
 | reviewer 定向读取图 | `review-reading-map-v1` | 无 | 用例规范 | reviewer 必读区间与交叉对照配对 |
 | reviewer 批次范围 | `review-batch-scope-v3` | 仅回放：`review-batch-scope-v1`、`review-batch-scope-v2` | 流程规范 | 当前定向复审范围 |
 | reviewer epoch | `review-epoch-v1` | 无 | 流程规范 | 评审演进 epoch |
 | reviewer 发现与修订证据 | `review-findings-evidence-v1`、`review-revision-evidence-v1` | 无 | 用例规范 | 评审发现和修订证明 |
-| reviewer 输入快照 | `review-input-snapshot-v2`、`review-role-input-v2` | 仅回放：`review-input-snapshot-v1` | 流程规范 | 当前冻结输入与角色投影 |
+| reviewer 输入快照 | `review-input-snapshot-v3`、`review-role-input-v2`、`reviewer-input-packet-v1` | 仅回放：`review-input-snapshot-v1`、`review-input-snapshot-v2` | 流程规范 | 冻结原件、角色摘要与只读分片包 |
 | reviewer 策略 | `review-policy-v3` | 仅回放：`review-policy-v1`、`review-policy-v2` | 用例规范 | 当前风险自适应评审策略 |
 | 需求事实预提取 | `requirement-facts-v1` | 无 | 用例规范 | 骨架阶段零推理候选事实与覆盖闭包审计 |
 | 修订分层 | `revision-tier-v1` | 无 | 用例规范 | 用例集修订影响面分级与确定性收口 |

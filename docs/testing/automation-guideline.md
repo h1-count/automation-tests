@@ -164,7 +164,9 @@ v7 分支固定为：
 
 #### 完整设计分支、Activity 命令与恢复
 
-v7 `full_replan` 的用户可见设计交互固定为：“读取资料 → 自动生成完整候选用例集 → 自动门禁与评审 → 一次用例确认”。新 v3 内部使用 `source-selection → candidate-generation → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`；旧 v2 history 仍按原图回放。`case-confirmation` 前不得创建其他 callback、请求用户发送“继续”或分批确认 REQ、RULE、计划或用例包。
+v8 `full_replan` 的用户可见设计交互固定为：“读取资料 → 自动生成完整候选用例集 → 自动门禁与评审 → 一次用例确认”。内部使用 `source-selection → candidate-skeleton → 分片子图 → candidate-assemble → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`；骨架成功后只允许一次 `CandidateGraphExpanded`，其模块、RULE 归属和图摘要不可再变。`candidate-assemble` 是仓库内确定性控制面：宿主只需领取它并调用 `task:manage candidate-assemble --claim <lease> --publish <id> --verified <evidence>`，工具从已发布分片重建并原子发布 `cases.md`，不再请求模型汇总。旧 v7/v2 history 仍按原图回放。`case-confirmation` 前不得创建其他 callback、请求用户发送“继续”或分批确认 REQ、RULE、计划或用例包。
+
+复审必须优先传入前序 `baseBatchId`。未手工指定 reviewer 范围时，系统以冻结的角色级语义摘要计算变化：仅重新派发摘要变化的角色，未变化角色复用已收敛的证据；无角色级语义变化时不新建复审批次。手工 `--activity/--affected-ref` 仍是显式覆盖，严格范围与受影响重建的既有约束不变。
 
 `build` 的产物是完整、可审查的候选脚本，不是环境可执行性证明。部署版本、运行时 selector、OTP、fixture/provider、资源预算和实际 cleanup 能力只由 `readiness` 决定 runnable/deferred，不得反向删除有源码依据的候选实现。
 
@@ -331,7 +333,7 @@ Web/H5 在 `build` Activity 内按“资格满足时的只读真实页面候选�
 
 新精简流程冻结 `candidate-gate-v1` 和 `review-policy-v3`。`deterministic_only` 不创建 reviewer 事件；`combined/impact` 只由语义风险触发。硬缺口在 reviewer 派发前一次性返回。适用角色、发现项和可提交标准只由[用例规范](./testcase-guideline.md)定义。
 
-批次输入由 manager 从 `plan.md`、定义声明的用例集和计划实际引用的受控/请求内来源读取并计算，调用方不得注入摘要。`review-input-snapshot-v2` 同时冻结完整资产摘要、语义输入摘要和角色输入摘要；`review-batch-scope-v3` 冻结 epoch、语义演进轮次和角色 scope。reviewer 记录、workflow、工程和报告区块不进入语义输入。新 v3 的 `combined` 读取语义触发的相关 case，包括因冲突或待确认而触发的 light case；`impact` 读取写入/strict case 及安全邻域。旧 v2 批次保留原风险筛选规则。
+批次输入由 manager 从 `plan.md`、定义声明的用例集和计划实际引用的受控/请求内来源读取并计算，调用方不得注入摘要。`review-input-snapshot-v3` 同时冻结完整原件、语义输入摘要、角色输入摘要和 `reviewer-input-packet-v1`：派发仅提供该角色的用例块、REQ/RULE 台账行、可定位的来源摘录及全局边界；完整原件只用于恢复与审计。history 只登记 packet 的 runtime 路径、摘要和字节数，不写正文。`review-batch-scope-v3` 冻结 epoch、语义演进轮次和角色 scope。reviewer 记录、workflow、工程和报告区块不进入语义输入。新 v3 的 `combined` 读取语义触发的相关 case，包括因冲突或待确认而触发的 light case；`impact` 读取写入/strict case 及安全邻域。旧 v1/v2 批次保留原输入语义并只读回放。
 
 每次 `reviewer-dispatch` 和 `reviewer-submit` 都必须携带宿主创建真实只读子 Agent 后返回的 `agentTaskId`。该标识必须与主 session/thread 不同，只写 runtime；提交前 manager 必须验证同一 `batchId + activityId + role` 的 running binding。新 `ReviewerSubmitted` 只持久化不含标识的隔离证明版本。缺少绑定、runtime 丢失或绑定不一致时不写提交事件，gate 输出 rebind；durable 派发已成功但 runtime 写入失败时仍只保留一次派发。旧 history 继续回放，但缺少新隔离证明的旧批次不能冒充修复后的真实隔离证据。
 

@@ -238,9 +238,7 @@ function roleCaseScope(
   const normalizedRole = role.trim();
   if (!normalizedRole) throw new Error("Review role scope requires a role.");
   const selected = normalizedRole === "impact"
-    ? assessment.cases.filter((item) =>
-        adaptiveSemanticReview || item.level === "strict"
-      )
+    ? assessment.cases.filter((item) => item.level === "strict")
     : normalizedRole === "combined"
       ? assessment.cases.filter((item) => adaptiveSemanticReview || item.level !== "light")
       : assessment.cases;

@@ -629,7 +629,7 @@ async function main(): Promise<void> {
     process.stdout.write([
       "Usage: task:manage <command> --request <type/project/request> ...",
       "Reuse: init --delivery-target <testcase_only|script_only|full_run> --suite <type/project/feature> --reuse auto --environment <test|pre> [--profile <profile>], suite-promote --suite <type/project/feature>",
-      "Core: init, resume, activity-start, activity-renew, candidate-gate, activity-succeed, artifact-publish-succeed, activity-invalidate, activity-fail",
+      "Core: init, resume, activity-start, activity-renew, candidate-graph-expand, candidate-assemble, candidate-gate, activity-succeed, artifact-publish-succeed, activity-invalidate, activity-fail",
       "Waits: callback-request, callback-resolve, callback-reopen, block, resolve, reconcile, suspend",
       "  callback-resolve --callback <id> --resolution <accepted|rejected|revision_requested|cancelled> --plan-source <updated-plan.md>  # required for formal callbacks",
       "Review: review-batch-start, reviewer-dispatch/submit/fail, review-batch-invalidate",
@@ -728,7 +728,8 @@ async function main(): Promise<void> {
           ? parseBoolean(required(args, "--writes-data"), "--writes-data")
           : false
       }),
-      profile: profile as StableTestSuiteProfile | undefined
+      profile: profile as StableTestSuiteProfile | undefined,
+      fragmented: true
     });
     output(args, view, workflowStatusText(view));
     return;
@@ -837,6 +838,22 @@ async function main(): Promise<void> {
       result,
       `Candidate gate 已通过；profile=${result.report.profile}；review=${result.report.reviewMode}。`
     );
+    return;
+  }
+
+  if (command === "candidate-graph-expand") {
+    const view = await manager.expandCandidateGraph();
+    output(args, view, `候选分片子图已冻结；就绪活动：${view.readyActivities.join("、") || "无"}。`);
+    return;
+  }
+
+  if (command === "candidate-assemble") {
+    const view = await manager.assembleCandidateFragments({
+      claimToken: required(args, "--claim"),
+      publishId: required(args, "--publish"),
+      verification: required(args, "--verified")
+    });
+    output(args, view, "候选分片已确定性汇总并原子发布 cases.md。");
     return;
   }
 
@@ -1918,9 +1935,10 @@ async function main(): Promise<void> {
         ? { deterministic: { classifierDigest: required(args, "--classifier-digest") } }
         : { agentTaskId: required(args, "--agent-task") })
     });
+    const reviewPacket = await manager.reviewerInputPacket(batchId, activityId);
     output(
       args,
-      view,
+      { ...view, ...(reviewPacket ? { reviewPacket } : {}) },
       deterministicDispatch
         ? `确定性评审已派发（${activityId}，structural 档）。`
         : `Reviewer ${activityId} 已派发。`

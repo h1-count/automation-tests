@@ -90,9 +90,10 @@ test("v7 full replan automatically converges a complete candidate before one con
   );
 });
 
-test("v3 lean workflow merges generation gates and defers authorization policy until readiness", () => {
+test("v8 v3 workflow freezes only the skeleton before expanding candidate fragments", () => {
   const definition = buildWorkflowDefinition({
     ...baseDefinitionInput(),
+    fragmented: true,
     casePackages: ["cases.md"],
     planText: [
       "test-design-index-v3",
@@ -103,30 +104,46 @@ test("v3 lean workflow merges generation gates and defers authorization policy u
   assert.equal(definition.reviewPolicy?.schemaVersion, "review-policy-v3");
   assert.equal(definition.reviewPolicy?.maxAttemptsPerRole, 2);
   assert.equal(definition.reviewPolicy?.maxSemanticEvolutionCycles, 1);
-  assert.deepEqual(
-    definition.activities.slice(0, 3).map((activity) => activity.id),
-    ["source-selection", "candidate-generation", "candidate-gate"]
-  );
-  assert.equal(
-    definition.activities.some((activity) =>
-      ["plan-validation", "relation-sync", "completeness-validation"].includes(activity.id)
-    ),
-    false
-  );
-  assert.deepEqual(
-    definition.activities.filter((activity) => activity.kind === "review").map((activity) => activity.id),
-    ["case-review-combined", "case-review-impact"]
-  );
-  assert.equal(
-    definition.activities.find((activity) => activity.id === "execution-authorization")
-      ?.metadata?.decisionMode,
-    "risk_adaptive"
-  );
-  assert.equal(
-    definition.activities.find((activity) => activity.id === "execution-authorization")
-      ?.metadata?.policyVersion,
-    "policy_auto_no_write_v2"
-  );
+  assert.equal(definition.definitionVersion, "v8");
+  assert.deepEqual(definition.activities.map((activity) => activity.id), [
+    "source-selection",
+    "candidate-skeleton"
+  ]);
+});
+
+test("v8 reuses the dynamic skeleton only for full and affected rebuilds", () => {
+  const v8Input = {
+    fragmented: true,
+    planText: "rule-design-ledger-v3",
+    casePackages: ["cases.md"]
+  };
+  const full = buildReusableWorkflowDefinition({
+    ...reusableInput("full_replan"),
+    ...v8Input
+  });
+  const affected = buildReusableWorkflowDefinition({
+    ...reusableInput("affected_rebuild"),
+    ...v8Input
+  });
+  const direct = buildReusableWorkflowDefinition({
+    ...reusableInput("direct_execute"),
+    ...v8Input
+  });
+
+  assert.equal(full.definitionVersion, "v8");
+  assert.deepEqual(full.activities.map((activity) => activity.id), [
+    "reuse-assessment",
+    "source-selection",
+    "candidate-skeleton"
+  ]);
+  assert.equal(affected.definitionVersion, "v8");
+  assert.deepEqual(affected.activities.map((activity) => activity.id), [
+    "reuse-assessment",
+    "impact-location",
+    "candidate-skeleton"
+  ]);
+  assert.equal(direct.definitionVersion, "v7");
+  assert.equal(direct.activities.some((activity) => activity.id === "candidate-skeleton"), false);
 });
 
 test("v7 reuse branches confirm only the design that was rebuilt", () => {

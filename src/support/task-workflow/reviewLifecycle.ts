@@ -245,6 +245,8 @@ export interface ReviewLifecycleEventInput {
   readinessDigest?: string;
   readinessWarnings?: string[];
   roleInputDigests?: Record<string, string>;
+  /** Safe runtime references and aggregate sizes only; never packet content. */
+  rolePackets?: SafeJsonValue;
   isolationProofVersion?: typeof REVIEWER_ISOLATION_PROOF_VERSION;
   /** 修订分层 structural 档标记：该评审由确定性分级器收口，非隔离 LLM 评审员。 */
   deterministic?: { classifierDigest: string };
@@ -357,6 +359,7 @@ export function prepareReviewLifecycleEvent(
       ? { readinessWarnings: input.readinessWarnings }
       : {}),
     ...(input.roleInputDigests ? { roleInputDigests: input.roleInputDigests } : {}),
+    ...(input.rolePackets ? { rolePackets: input.rolePackets } : {}),
     ...(input.isolationProofVersion
       ? { isolationProofVersion: input.isolationProofVersion }
       : {}),

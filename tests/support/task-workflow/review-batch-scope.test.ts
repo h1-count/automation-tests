@@ -8,6 +8,7 @@ import {
   reviewBatchScopeDigest
 } from "../../../src/support/task-workflow/reviewBatchScope.js";
 import { assessCaseReviewRisk } from "../../../src/support/task-workflow/caseReviewRisk.js";
+import { routeSemanticReview } from "../../../src/support/task-workflow/reviewSemanticRouting.js";
 
 const activities = [
   "case-review-requirements",
@@ -149,6 +150,21 @@ test("v3 mixed scope excludes light from combined and keeps impact strict-only",
   });
   assert.deepEqual(parseReviewBatchScope(scope), scope);
   assert.match(reviewBatchScopeDigest(scope), /^[a-f0-9]{64}$/u);
+  assert.deepEqual(routeSemanticReview({
+    scope,
+    allActivityIds,
+    baselineRoleInputDigests: {
+      "case-review-combined": "a".repeat(64),
+      "case-review-impact": "b".repeat(64)
+    },
+    currentRoleInputDigests: {
+      "case-review-combined": "c".repeat(64),
+      "case-review-impact": "b".repeat(64)
+    }
+  }), {
+    requiredActivityIds: ["case-review-combined"],
+    affectedRefs: ["OPEN-REG-002", "REQ-REG-002", "RULE-REG-002"]
+  });
 });
 
 test("v1 review scope parsing and digest stay backward compatible", () => {

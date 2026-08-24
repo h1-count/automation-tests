@@ -18,6 +18,7 @@ import {
 
 export const REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION = "review-input-snapshot-v1" as const;
 export const REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION = "review-input-snapshot-v2" as const;
+export const REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION = "review-input-snapshot-v3" as const;
 
 export interface ReviewInputSnapshotArtifact {
   sourcePath: string;
@@ -28,10 +29,22 @@ export interface ReviewInputSnapshotArtifact {
   roleSemanticDigests?: Record<string, string>;
 }
 
+/** A read-only reviewer packet. Full frozen originals remain in `artifacts`
+ * for recovery and audit; dispatch exposes only this role-scoped projection. */
+export interface ReviewRoleInputPacket {
+  activityId: string;
+  role: string;
+  packetPath: string;
+  digest: string;
+  packetBytes: number;
+  originalBytes: number;
+}
+
 export interface ReviewInputSnapshotManifest {
   schemaVersion:
     | typeof REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION
-    | typeof REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION;
+    | typeof REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+    | typeof REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION;
   requestId: string;
   batchId: string;
   createdAt: string;
@@ -42,6 +55,8 @@ export interface ReviewInputSnapshotManifest {
   combinedDigest: string;
   semanticDigest?: string;
   roleInputDigests?: Record<string, string>;
+  /** Present only in v3; these are disposable role-specific projections. */
+  rolePackets?: ReviewRoleInputPacket[];
 }
 
 export interface ReviewInputIdentity {
@@ -68,6 +83,11 @@ const hardLinkUnavailableCodes = new Set([
 
 function sha256(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function isSemanticSnapshotManifest(manifest: ReviewInputSnapshotManifest): boolean {
+  return manifest.schemaVersion === REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+    || manifest.schemaVersion === REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION;
 }
 
 export function reviewInputDigest(
@@ -183,6 +203,76 @@ function roleSemanticReviewContent(
     return Buffer.from(filtered.join("\n").replace(/\n{3,}/gu, "\n\n").trim(), "utf8");
   }
   return Buffer.from(semantic, "utf8");
+}
+
+function sourceExcerptForRole(content: Uint8Array, roleScope: ReviewRoleCaseScope): string {
+  const markdown = Buffer.from(content).toString("utf8");
+  const references = [
+    ...roleScope.caseIds,
+    ...roleScope.requirementRefs,
+    ...roleScope.ruleRefs
+  ];
+  if (!references.length) return "";
+  const lines = markdown.split(/\r?\n/u);
+  const selected = new Set<number>();
+  for (const [index, line] of lines.entries()) {
+    if (!references.some((reference) => line.includes(reference))) continue;
+    for (let offset = -1; offset <= 1; offset += 1) {
+      const candidate = index + offset;
+      if (candidate >= 0 && candidate < lines.length) selected.add(candidate);
+    }
+    for (let heading = index - 1; heading >= 0; heading -= 1) {
+      if (/^#{1,6}\s+/u.test(lines[heading]!)) {
+        selected.add(heading);
+        break;
+      }
+    }
+  }
+  return [...selected]
+    .sort((left, right) => left - right)
+    .map((index) => lines[index])
+    .join("\n")
+    .trim();
+}
+
+function rolePacketContent(
+  sourcePath: string,
+  content: Uint8Array,
+  roleScope: ReviewRoleCaseScope
+): string {
+  if (/\/cases(?:-[^/]+)?\.md$/u.test(sourcePath) || sourcePath.endsWith("/plan.md")) {
+    return Buffer.from(roleSemanticReviewContent(sourcePath, content, roleScope)).toString("utf8");
+  }
+  return sourcePath.endsWith(".md") ? sourceExcerptForRole(content, roleScope) : "";
+}
+
+function rolePacketMarkdown(
+  batchId: string,
+  roleScope: ReviewRoleCaseScope,
+  artifacts: Array<Pick<ReviewInputSnapshotArtifact, "sourcePath" | "snapshotPath" | "digest" | "sizeBytes"> & { content: Uint8Array }>
+): string {
+  const lines = [
+    "# 评审输入包", "",
+    `- 批次：${batchId}`,
+    `- 活动：${roleScope.activityId}`,
+    `- 角色：${roleScope.role}`,
+    `- 用例范围：${roleScope.caseIds.join(", ") || "无"}`,
+    `- 需求范围：${roleScope.requirementRefs.join(", ") || "无"}`,
+    `- 规则范围：${roleScope.ruleRefs.join(", ") || "无"}`,
+    "- 全局边界：不得扩展上述范围；完整冻结原件仅用于恢复和审计。", "",
+    "## 审计原件", "",
+    "| 原始路径 | 摘要 | 字节 | 冻结副本 |",
+    "| --- | --- | --- | --- |",
+    ...artifacts.map((artifact) =>
+      `| ${artifact.sourcePath} | ${artifact.digest} | ${artifact.sizeBytes} | ${artifact.snapshotPath} |`
+    )
+  ];
+  for (const artifact of artifacts) {
+    const content = rolePacketContent(artifact.sourcePath, artifact.content, roleScope);
+    if (!content) continue;
+    lines.push("", `## 切片：${artifact.sourcePath}`, "", content);
+  }
+  return `${lines.join("\n").trim()}\n`;
 }
 
 export function semanticReviewInputDigest(
@@ -400,9 +490,26 @@ export class ReviewInputSnapshotStore {
         const blobPath = await this.ensureBlob(artifact.digest, artifact.content);
         await this.materializeSnapshot(blobPath, artifact.snapshotPath, artifact.content);
       }
+      const rolePackets = scope?.schemaVersion === "review-batch-scope-v3"
+        ? await Promise.all(scope.roleScopes.map(async (roleScope) => {
+            const content = Buffer.from(rolePacketMarkdown(batchId, roleScope, artifacts), "utf8");
+            const packetPath = resolve(this.batchRoot(batchId), "packets", `${roleScope.activityId}.md`);
+            await atomicWrite(packetPath, content);
+            return {
+              activityId: roleScope.activityId,
+              role: roleScope.role,
+              packetPath,
+              digest: sha256(content),
+              packetBytes: content.byteLength,
+              originalBytes: artifacts.reduce((sum, artifact) => sum + artifact.sizeBytes, 0)
+            };
+          }))
+        : undefined;
       const manifest: ReviewInputSnapshotManifest = {
-        schemaVersion: useSemanticSnapshot
-          ? REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+        schemaVersion: rolePackets
+          ? REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION
+          : useSemanticSnapshot
+            ? REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
           : REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION,
         requestId: this.requestId,
         batchId,
@@ -413,7 +520,8 @@ export class ReviewInputSnapshotStore {
         ...(semanticDigest ? {
           semanticDigest,
           roleInputDigests: reviewerDigests
-        } : {})
+        } : {}),
+        ...(rolePackets ? { rolePackets } : {})
       };
       await atomicWrite(
         this.manifestPath(batchId),
@@ -477,6 +585,12 @@ export class ReviewInputSnapshotStore {
     return manifest;
   }
 
+  /** Returns a verified, role-scoped packet for host reviewer dispatch. */
+  async readRolePacket(batchId: string, activityId: string): Promise<ReviewRoleInputPacket | undefined> {
+    const manifest = await this.verify(batchId);
+    return manifest.rolePackets?.find((packet) => packet.activityId === activityId);
+  }
+
   async verify(batchId: string): Promise<ReviewInputSnapshotManifest> {
     const manifest = await this.read(batchId);
     const identity: Array<{ sourcePath: string; digest: string; sizeBytes: number }> = [];
@@ -505,7 +619,7 @@ export class ReviewInputSnapshotStore {
         sizeBytes: artifact.sizeBytes
       });
       if (
-        manifest.schemaVersion === REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+        isSemanticSnapshotManifest(manifest)
         && (
           !artifact.semanticDigest
           || sha256(semanticReviewContent(artifact.sourcePath, content)) !== artifact.semanticDigest
@@ -514,7 +628,7 @@ export class ReviewInputSnapshotStore {
         throw new Error(`Review input snapshot ${batchId} has an invalid semantic digest.`);
       }
       if (
-        manifest.schemaVersion === REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+        isSemanticSnapshotManifest(manifest)
         && manifest.scope?.schemaVersion === "review-batch-scope-v3"
       ) {
         const expectedRoleArtifactDigests = Object.fromEntries(
@@ -537,7 +651,7 @@ export class ReviewInputSnapshotStore {
     ) {
       throw new Error(`Review input snapshot ${batchId} has an invalid scope digest.`);
     }
-    const semanticDigest = manifest.schemaVersion === REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+    const semanticDigest = isSemanticSnapshotManifest(manifest)
       ? semanticReviewInputDigest(this.requestId, manifest.artifacts, scopeDigest)
       : undefined;
     const combinedDigest = semanticDigest
@@ -558,6 +672,45 @@ export class ReviewInputSnapshotStore {
           !== JSON.stringify(expectedRoleDigests)
       ) {
         throw new Error(`Review input snapshot ${batchId} has invalid role input digests.`);
+      }
+    }
+    if (manifest.schemaVersion === REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION) {
+      if (!manifest.scope || manifest.scope.schemaVersion !== "review-batch-scope-v3") {
+        throw new Error(`Review input snapshot ${batchId} v3 requires a role scope.`);
+      }
+      const expectedActivities = manifest.scope.roleScopes.map((scope) => scope.activityId).sort();
+      const packets = manifest.rolePackets ?? [];
+      if (JSON.stringify(packets.map((packet) => packet.activityId).sort()) !== JSON.stringify(expectedActivities)) {
+        throw new Error(`Review input snapshot ${batchId} has invalid role packets.`);
+      }
+      const originalBytes = manifest.artifacts.reduce((sum, artifact) => sum + artifact.sizeBytes, 0);
+      for (const packet of packets) {
+        const roleScope = manifest.scope.roleScopes.find((scope) => scope.activityId === packet.activityId);
+        const packetPath = resolve(packet.packetPath);
+        const packetRelative = portableRelative(this.batchRoot(batchId), packetPath);
+        if (
+          !roleScope
+          || roleScope.role !== packet.role
+          || !packetRelative.startsWith("packets/")
+          || packetRelative.includes("..")
+          || !digestPattern.test(packet.digest)
+          || packet.originalBytes !== originalBytes
+          || !Number.isInteger(packet.packetBytes)
+          || packet.packetBytes < 0
+        ) {
+          throw new Error(`Review input snapshot ${batchId} has an invalid role packet.`);
+        }
+        const content = await readFile(packetPath);
+        if (sha256(content) !== packet.digest || content.byteLength !== packet.packetBytes) {
+          throw new Error(`Review input snapshot ${batchId} has a corrupt role packet: ${packet.activityId}`);
+        }
+        const expected = Buffer.from(rolePacketMarkdown(batchId, roleScope, await Promise.all(manifest.artifacts.map(async (artifact) => ({
+          ...artifact,
+          content: await readFile(artifact.snapshotPath)
+        })))));
+        if (Buffer.compare(content, expected) !== 0) {
+          throw new Error(`Review input snapshot ${batchId} has an invalid role packet: ${packet.activityId}`);
+        }
       }
     }
     return manifest;
@@ -745,7 +898,8 @@ export class ReviewInputSnapshotStore {
     if (
       ![
         REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION,
-        REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+        REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION,
+        REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION
       ].includes(parsed.schemaVersion)
       || parsed.requestId !== this.requestId
       || parsed.batchId !== batchId
@@ -753,13 +907,16 @@ export class ReviewInputSnapshotStore {
       || !parsed.artifacts.length
       || (parsed.scope === undefined) !== (parsed.scopeDigest === undefined)
       || !digestPattern.test(parsed.combinedDigest)
-      || (parsed.schemaVersion === REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+      || ((parsed.schemaVersion === REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
+          || parsed.schemaVersion === REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION)
         && (
           !parsed.semanticDigest
           || !digestPattern.test(parsed.semanticDigest)
           || !parsed.roleInputDigests
           || Object.values(parsed.roleInputDigests).some((digest) => !digestPattern.test(digest))
         ))
+      || (parsed.schemaVersion === REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION
+        && !Array.isArray(parsed.rolePackets))
     ) {
       throw new Error(`Review input snapshot manifest ${batchId} is invalid.`);
     }

@@ -188,8 +188,15 @@ test("current semantic snapshot ignores derived index and review records but det
   });
   const store = new ReviewInputSnapshotStore(requestId, { workspaceRoot });
   const frozen = await store.freeze("REV-SEMANTIC-01", [planPath, casesPath], scope);
-  assert.equal(frozen.schemaVersion, "review-input-snapshot-v2");
+  assert.equal(frozen.schemaVersion, "review-input-snapshot-v3");
   assert.deepEqual(Object.keys(frozen.roleInputDigests ?? {}), ["case-review-combined"]);
+  const packet = await store.readRolePacket("REV-SEMANTIC-01", "case-review-combined");
+  assert.ok(packet);
+  assert.equal(packet.originalBytes, frozen.artifacts.reduce((sum, artifact) => sum + artifact.sizeBytes, 0));
+  const packetContent = await readFile(packet.packetPath, "utf8");
+  assert.match(packetContent, /# 评审输入包/);
+  assert.match(packetContent, /切片：testcases\/web\/demo\/semantic-review\/plan\.md/);
+  assert.match(packetContent, /切片：testcases\/web\/demo\/semantic-review\/cases-main\.md/);
 
   await writeFile(
     planPath,

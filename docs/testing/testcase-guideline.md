@@ -61,13 +61,13 @@ Activity、重试、等待、完整度和终态只来自 `workflow-history.ndjso
 
 用例标题使用“验证/检查/测试 + 行为”，但标题不代替步骤和预期。生成阶段不输出可直接执行的 CRUD SQL/Shell；实现细节留到用例确认后的 build 与执行授权。
 
-### 3.1 candidate-generation 内部分段并行
+### 3.1 v8 candidate-generation 分片并行
 
-单个 `candidate-generation` Activity 按“冻结骨架 → 并行片段 → 确定性拼装”执行。并行片段只是 Activity 内部的独立模型生成请求，不新增 Activity、不写 workflow history、不改变 workflow definition 与 graphDigest。
+新建 v8 请求按“冻结骨架 → 并行片段 → 确定性拼装”执行。`candidate-skeleton` 原子发布 `candidate-fragments/manifest.json` 后，`CandidateGraphExpanded` 把模块清单冻结为一次不可变子图；每个 `candidate-fragment-<moduleId>` 是独立可续租、重试和限流的 Activity，默认最多并发 3 个。旧 v7 history 仍按单一 `candidate-generation` Activity 只读回放。
 
 1. **冻结骨架**：先产出 plan 草案，确定模块清单、`REQ → RULE` 台账、每条 RULE 的设计方法，并按模块为 `RULE/caseId` 分配唯一前缀段。骨架一旦冻结就是各片段的唯一分工依据；片段不得改动骨架、跨段补号或引用其他模块的 case。
-2. **并行片段**：每个模块一个独立生成请求，输入只含该模块的骨架切片（模块名、关联 `RULE` 与来源引用、前缀段、优先级与风险指引）和命中的冻结来源；输出只写该模块 `## 模块：…` 下的折叠详情，不含文件头、统计行、快速索引。片段之间不共享推理，跨模块依赖只能回到骨架表达。
-3. **确定性拼装**：按骨架顺序把文件头与各模块片段拼成单一 `cases.md`；统计、快速索引与 `RULE → caseId` 投影一律由工具从折叠详情确定性重建（在 runtime staging 目录运行 `testcases:sync-relations`，派生区契约见 §4.2），禁止手写或修改派生区。片段被确定性检查判无效时只重新生成该模块片段，不重跑整份生成，也不因片段失败扩大或缩小骨架范围。
+2. **并行片段**：每个模块一个独立生成请求，输入只含该模块的骨架切片（模块名、关联 `RULE` 与来源引用、前缀段、优先级与风险指引）和命中的冻结来源；输出只写该模块 `## 模块：…` 下的折叠详情，不含文件头、统计行、快速索引。片段之间不共享推理，跨模块依赖只能回到骨架表达。宿主对可能超过 120 秒的调用必须用 `createCandidateFragmentLeaseKeepalive()` 每租约三分之一续约；续约失败后停止新调用与发布，`assertHealthy()` 失败即交由既有对账恢复。
+3. **确定性拼装**：按骨架顺序把运行档案 `candidate-fragments/<moduleId>.md` 拼成单一 `cases.md`；统计、快速索引与 `RULE → caseId` 投影一律由工具从折叠详情确定性重建（派生区契约见 §4.2），禁止手写或修改派生区。片段被确定性检查判无效时只重新生成该模块片段，不重跑整份生成，也不因片段失败扩大或缩小骨架范围。片段正文不写 workflow history，只登记路径与 SHA-256；不得直接改写稳定套件。
 
 骨架阶段的需求事实预提取（`requirement-facts-v1`，2026-08-21 起）：冻结骨架前先对命中的冻结来源运行 `npx tsx scripts/preflight-requirement-facts.ts --design <design.md>`（无套件台账时用 `--source <file> --lines <a-b>`），产出零推理候选事实表（上限/下限、必填、格式、分页/排序、枚举、状态的原文逐字引用）与覆盖闭包审计（scope 内未被引用的间隙区间及其中内容行）。主 Agent 逐条校对候选：已建模 → 对应 RULE；未建模 → 登记歧义或排除；间隙区间内的内容行必须在 `design.md` 需求索引「适用性」或「缺口与风险」显式登记（不适用/排除/语义登记），未登记即漏覆盖。候选表兜底 §3.2 红线 6 的边界建模，不替代红线 5 的平行段交叉对照。
 
@@ -156,7 +156,9 @@ reviewer 收敛后、发起用例确认前，**必须**由登记的确定性生�
 
 设计链路固定为：
 
-`source-selection → candidate-generation → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`。
+v8：`source-selection（affected 时为 impact-location）→ candidate-skeleton → CandidateGraphExpanded → candidate-fragment-* → candidate-assemble → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`。`candidate-assemble` 不调用模型：它只按冻结骨架顺序读取已校验分片，确定性拼接详情并从详情重建 `cases.md` 的统计与快速索引；缺失分片、模块标题/RULE/caseId 前缀漂移或结构校验失败时拒绝发布。
+
+旧 v7：`source-selection → candidate-generation → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`。
 
 `candidate-gate-v1` 合并结构、关系和完整度确定性检查，输出 `profile、reviewMode、effectiveWritesData、issues、warnings、digest`。精简门禁只阻止：
 

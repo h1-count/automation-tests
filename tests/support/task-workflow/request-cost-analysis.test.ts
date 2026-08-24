@@ -80,8 +80,74 @@ test("deriveRequestTimeline 配对 reviewer 派发与提交", () => {
   const span = timeline.reviewerSpans[0]!;
   assert.equal(span.batchId, "rev-r1");
   assert.equal(span.role, "combined");
+  assert.equal(span.startedAt, "2026-08-21T08:43:03.122Z");
+  assert.equal(span.endedAt, "2026-08-21T08:49:55.722Z");
   assert.equal(span.seconds, 413);
   assert.equal(span.conclusion, "findings_present");
+});
+
+test("deriveRequestTimeline reports re-review wall time and reused reviewer evidence", () => {
+  const timeline = deriveRequestTimeline([
+    event("ReviewBatchStarted", "2026-08-21T08:00:00.000Z", {
+      batchId: "rev-r2",
+      scope: {
+        baseBatchId: "rev-r1",
+        reusedReviewerEvidence: [{ activityId: "case-review-impact" }]
+      }
+    }),
+    event("ReviewerDispatched", "2026-08-21T08:01:00.000Z", { batchId: "rev-r2", role: "combined" }),
+    event("ReviewerSubmitted", "2026-08-21T08:04:00.000Z", { batchId: "rev-r2", role: "combined" })
+  ]);
+  assert.deepEqual(timeline.reviewerBatches, [{
+    batchId: "rev-r2",
+    reReview: true,
+    dispatchedReviewers: 1,
+    reusedReviewers: 1,
+    wallSeconds: 180,
+    rawInputBytes: 0,
+    slicedInputBytes: 0,
+    savedInputBytes: 0,
+    inputSavingsRatio: 0
+  }]);
+});
+
+test("deriveRequestTimeline reports reviewer packet bytes against full frozen inputs", () => {
+  const timeline = deriveRequestTimeline([
+    event("ReviewBatchStarted", "2026-08-21T08:00:00.000Z", {
+      batchId: "rev-sliced",
+      inputRefs: [
+        { path: "testcases/web/demo/plan.md", sizeBytes: 1000 },
+        { path: "testcases/web/demo/cases.md", sizeBytes: 3000 }
+      ],
+      rolePackets: [
+        { activityId: "case-review-combined", packetBytes: 900 },
+        { activityId: "case-review-impact", packetBytes: 500 }
+      ]
+    }),
+    event("ReviewerDispatched", "2026-08-21T08:01:00.000Z", {
+      batchId: "rev-sliced", role: "combined", activityId: "case-review-combined"
+    }),
+    event("ReviewerDispatched", "2026-08-21T08:01:01.000Z", {
+      batchId: "rev-sliced", role: "impact", activityId: "case-review-impact"
+    })
+  ]);
+  assert.deepEqual(timeline.reviewerBatches, [{
+    batchId: "rev-sliced",
+    reReview: false,
+    dispatchedReviewers: 0,
+    reusedReviewers: 0,
+    wallSeconds: 0,
+    rawInputBytes: 8000,
+    slicedInputBytes: 1400,
+    savedInputBytes: 6600,
+    inputSavingsRatio: 0.825
+  }]);
+  assert.match(buildCostReport({
+    timeline,
+    sessions: [],
+    degradations: [],
+    window: { startMs: 0, endMs: 0, preSlackMinutes: 0, postSlackMinutes: 0 }
+  }), /节省 6600 B（82\.5%）/);
 });
 
 test("deriveRequestTimeline 统计人工等待", () => {
@@ -141,6 +207,7 @@ test("buildCostReport 渲染双口径且不含会话标识原文", () => {
   assert.match(report, /# 请求成本报告：web\/demo\/request-1/);
   assert.match(report, /candidate-generation \| 2 \|/);
   assert.match(report, /时间口径（按尝试）/);
+  assert.match(report, /rev-r1 \| 首轮 \| 1 \| 0 \| 6\.9 min/);
   assert.match(report, /rev-r1 \| combined \| 6.9 min \| findings_present/);
   assert.match(report, /\| 总计 \| — \| 45 \| 93420 \| 25818 \| 274448 \|/);
   assert.match(report, /assistant\/message/);

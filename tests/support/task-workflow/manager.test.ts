@@ -2331,6 +2331,23 @@ test("manager persists v2 risk with combined and strict-only impact scope v3", a
       "case-review-combined",
       "case-review-impact"
     ]);
+    const packets = event?.payload.rolePackets as Array<{
+      activityId: string;
+      path: string;
+      digest: string;
+      packetBytes: number;
+      originalBytes: number;
+    }> | undefined;
+    assert.deepEqual(packets?.map((packet) => packet.activityId).sort(), [
+      "case-review-combined",
+      "case-review-impact"
+    ]);
+    assert.ok(packets?.every((packet) =>
+      packet.path.startsWith(".local/test-task-runtime/")
+      && /^[a-f0-9]{64}$/.test(packet.digest)
+      && packet.packetBytes > 0
+      && packet.originalBytes > 0
+    ));
     await manager.dispatchReviewer({
       activityId: "case-review-combined",
       batchId: "REV-MIXED-RISK-V2",

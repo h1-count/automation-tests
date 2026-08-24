@@ -1,5 +1,5 @@
 /**
- * 请求成本分析（request-cost-analysis-v2）。
+ * 请求成本分析（request-cost-analysis-v5）。
  *
  * 从运行档案 workflow-history.ndjson 派生时间口径（活动净耗时/跨度/重试浪费、
  * reviewer 批次时长、人工等待），并聚合 DSH 会话日志的逐调用 token usage
@@ -10,7 +10,7 @@
  * 不含会话内容或标识原文（会话 ID 仅以 4 位掩码呈现）。
  */
 
-export const REQUEST_COST_ANALYSIS_SCHEMA_VERSION = "request-cost-analysis-v2";
+export const REQUEST_COST_ANALYSIS_SCHEMA_VERSION = "request-cost-analysis-v5";
 
 export type HistoryEventLike = {
   type: string;
@@ -49,8 +49,33 @@ export type ActivityAttemptCost = {
 export type ReviewerSpan = {
   batchId: string;
   role: string;
+  startedAt: string;
+  endedAt: string;
   seconds: number;
   conclusion: string;
+};
+
+export type ReviewerBatchTiming = {
+  batchId: string;
+  reReview: boolean;
+  dispatchedReviewers: number;
+  reusedReviewers: number;
+  wallSeconds: number;
+  /** Full frozen inputs that dispatched reviewers would otherwise receive. */
+  rawInputBytes: number;
+  /** Actual role packet bytes issued at dispatch. */
+  slicedInputBytes: number;
+  savedInputBytes: number;
+  inputSavingsRatio: number;
+};
+
+export type CandidateGenerationTiming = {
+  skeletonSeconds: number;
+  fragmentBusySeconds: number;
+  fragmentWallSeconds: number;
+  fragmentCriticalPathSeconds: number;
+  assemblySeconds: number;
+  fragmentCount: number;
 };
 
 export type RequestTimeline = {
@@ -60,7 +85,9 @@ export type RequestTimeline = {
   completed: boolean;
   wallSeconds: number;
   activities: ActivityCost[];
+  candidateGeneration: CandidateGenerationTiming;
   reviewerSpans: ReviewerSpan[];
+  reviewerBatches: ReviewerBatchTiming[];
   humanWaitSeconds: number;
 };
 
@@ -121,6 +148,13 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
   const openDispatches = new Map<string, string[]>();
   const openCallbacks = new Map<string, string>();
   const reviewerSpans: ReviewerSpan[] = [];
+  const reviewerBatches = new Map<string, {
+    reReview: boolean;
+    reusedReviewers: number;
+    inputBytes: number;
+    packetBytesByActivity: Map<string, number>;
+  }>();
+  const reviewerDispatchActivities = new Map<string, string[]>();
   let startedAt = "";
   let endedAt = "";
   let completed = false;
@@ -205,6 +239,49 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
         const queue = openDispatches.get(key) ?? [];
         queue.push(occurredAt);
         openDispatches.set(key, queue);
+        const activityId = asString(payload.activityId);
+        if (activityId) {
+          const dispatched = reviewerDispatchActivities.get(batchId) ?? [];
+          dispatched.push(activityId);
+          reviewerDispatchActivities.set(batchId, dispatched);
+        }
+        break;
+      }
+      case "ReviewBatchStarted": {
+        const batchId = asString(payload.batchId);
+        const scope = payload.scope;
+        if (!batchId) break;
+        const scopeRecord = scope && typeof scope === "object" && !Array.isArray(scope)
+          ? scope as Record<string, unknown>
+          : undefined;
+        const reused = Array.isArray(scopeRecord?.reusedReviewerEvidence)
+          ? scopeRecord!.reusedReviewerEvidence.length
+          : 0;
+        reviewerBatches.set(batchId, {
+          reReview: typeof scopeRecord?.baseBatchId === "string",
+          reusedReviewers: reused,
+          inputBytes: Array.isArray(payload.inputRefs)
+            ? payload.inputRefs.reduce((sum, value) => {
+                const size = value && typeof value === "object" && !Array.isArray(value)
+                  ? asNumber((value as Record<string, unknown>).sizeBytes) ?? 0
+                  : 0;
+                return sum + Math.max(0, size);
+              }, 0)
+            : 0,
+          packetBytesByActivity: new Map(
+            Array.isArray(payload.rolePackets)
+              ? payload.rolePackets.flatMap((value) => {
+                  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+                  const packet = value as Record<string, unknown>;
+                  const activityId = asString(packet.activityId);
+                  const packetBytes = asNumber(packet.packetBytes);
+                  return activityId && packetBytes !== undefined && packetBytes >= 0
+                    ? [[activityId, packetBytes] as const]
+                    : [];
+                })
+              : []
+          )
+        });
         break;
       }
       case "ReviewerSubmitted": {
@@ -217,6 +294,8 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
           reviewerSpans.push({
             batchId,
             role,
+            startedAt: dispatchAt,
+            endedAt: occurredAt,
             seconds: Math.round(secondsBetween(dispatchAt, occurredAt)),
             conclusion: asString(payload.conclusion) ?? ""
           });
@@ -258,6 +337,51 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
       attemptDetails: [...record.attemptDetails].sort((left, right) => left.attempt - right.attempt)
     }))
     .sort((left, right) => left.activityId.localeCompare(right.activityId));
+  const byActivity = new Map(activities.map((item) => [item.activityId, item]));
+  const fragmentRecords = [...activity.entries()]
+    .filter(([id]) => id.startsWith("candidate-fragment-"));
+  const fragmentFirst = fragmentRecords.map(([, item]) => item.first).filter((value): value is string => Boolean(value));
+  const fragmentLast = fragmentRecords.map(([, item]) => item.last).filter((value): value is string => Boolean(value));
+  const fragmentWallSeconds = fragmentFirst.length && fragmentLast.length
+    ? Math.round(secondsBetween(fragmentFirst.sort()[0]!, fragmentLast.sort().at(-1)!))
+    : 0;
+  const candidateGeneration: CandidateGenerationTiming = {
+    skeletonSeconds: byActivity.get("candidate-skeleton")?.busySeconds ?? 0,
+    fragmentBusySeconds: fragmentRecords.reduce((sum, [, item]) => sum + Math.round(item.busy), 0),
+    fragmentWallSeconds,
+    fragmentCriticalPathSeconds: Math.max(0, ...fragmentRecords.map(([, item]) =>
+      item.first && item.last ? Math.round(secondsBetween(item.first, item.last)) : 0
+    )),
+    assemblySeconds: byActivity.get("candidate-assemble")?.busySeconds ?? 0,
+    fragmentCount: fragmentRecords.length
+  };
+  const reviewerBatchTimings: ReviewerBatchTiming[] = [...reviewerBatches.entries()]
+    .map(([batchId, metadata]) => {
+      const spans = reviewerSpans.filter((span) => span.batchId === batchId);
+      const starts = spans.map((span) => span.startedAt).sort();
+      const ends = spans.map((span) => span.endedAt).sort();
+      const dispatchedActivities = reviewerDispatchActivities.get(batchId) ?? [];
+      const rawInputBytes = metadata.inputBytes * dispatchedActivities.length;
+      const slicedInputBytes = dispatchedActivities.reduce(
+        (sum, activityId) => sum + (metadata.packetBytesByActivity.get(activityId) ?? metadata.inputBytes),
+        0
+      );
+      const savedInputBytes = rawInputBytes - slicedInputBytes;
+      return {
+        batchId,
+        reReview: metadata.reReview,
+        dispatchedReviewers: spans.length,
+        reusedReviewers: metadata.reusedReviewers,
+        wallSeconds: starts.length && ends.length
+          ? Math.round(secondsBetween(starts[0]!, ends.at(-1)!))
+          : 0,
+        rawInputBytes,
+        slicedInputBytes,
+        savedInputBytes,
+        inputSavingsRatio: rawInputBytes === 0 ? 0 : savedInputBytes / rawInputBytes
+      };
+    })
+    .sort((left, right) => left.batchId.localeCompare(right.batchId));
 
   return {
     requestId,
@@ -266,7 +390,9 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
     completed,
     wallSeconds: startedAt && endedAt ? Math.round(secondsBetween(startedAt, endedAt)) : 0,
     activities,
+    candidateGeneration,
     reviewerSpans,
+    reviewerBatches: reviewerBatchTimings,
     humanWaitSeconds: Math.round(humanWait)
   };
 }
@@ -356,7 +482,15 @@ export function buildCostReport(input: CostReportInput): string {
   lines.push(`| 终态 | ${timeline.completed ? "WorkflowCompleted" : "未终态"} |`);
   lines.push(`| 重试/漂移空闲（按活动求和，可大于 wall） | ${formatMinutes(retryWaste)}（${timeline.activities.reduce((sum, item) => sum + item.driftEvents, 0)} 次漂移） |`);
   lines.push(`| 人工等待（callback） | ${formatMinutes(timeline.humanWaitSeconds)} |`);
+  const reviewerRawBytes = timeline.reviewerBatches.reduce((sum, batch) => sum + batch.rawInputBytes, 0);
+  const reviewerSlicedBytes = timeline.reviewerBatches.reduce((sum, batch) => sum + batch.slicedInputBytes, 0);
+  const reviewerSavedBytes = reviewerRawBytes - reviewerSlicedBytes;
+  lines.push(`| reviewer 输入分片 | 原始 ${reviewerRawBytes} B · 分发 ${reviewerSlicedBytes} B · 节省 ${reviewerSavedBytes} B（${reviewerRawBytes === 0 ? "0.0" : ((reviewerSavedBytes / reviewerRawBytes) * 100).toFixed(1)}%） |`);
   lines.push(`| token 总计（窗口内） | 调用 ${totals.calls} · input ${totals.inputTokens} · output ${totals.outputTokens} · cacheRead ${totals.cacheReadTokens} |`, "");
+  lines.push("## 候选分片关键路径", "");
+  lines.push("| 骨架 | 分片数 | 分片净耗时合计 | 分片墙钟 | 分片关键路径 | 汇总 |",
+    "| --- | --- | --- | --- | --- | --- |");
+  lines.push(`| ${formatMinutes(timeline.candidateGeneration.skeletonSeconds)} | ${timeline.candidateGeneration.fragmentCount} | ${formatMinutes(timeline.candidateGeneration.fragmentBusySeconds)} | ${formatMinutes(timeline.candidateGeneration.fragmentWallSeconds)} | ${formatMinutes(timeline.candidateGeneration.fragmentCriticalPathSeconds)} | ${formatMinutes(timeline.candidateGeneration.assemblySeconds)} |`, "");
   lines.push("## 时间口径（按活动）", "");
   lines.push("| 活动 | 尝试 | 净耗时 | 跨度 | 浪费 | 漂移 | 终态 |");
   lines.push("| --- | --- | --- | --- | --- | --- | --- |");
@@ -376,6 +510,14 @@ export function buildCostReport(input: CostReportInput): string {
     lines.push(`| ${attempt.activityId} | ${attempt.attempt} | ${formatMinutes(attempt.seconds)} | ${attempt.outcome} | ${attempt.attemptInferred ? "从历史事件推断" : "事件声明"} |`);
   }
   lines.push("", "## reviewer 批次", "");
+  lines.push("| 批次 | 类型 | 已派发 | 复用免派 | 墙钟 | 原始输入 | 分片输入 | 节省 |", "| --- | --- | --- | --- | --- | --- | --- | --- |");
+  if (timeline.reviewerBatches.length === 0) {
+    lines.push("| 无 | — | — | — | — | — | — | — |");
+  }
+  for (const batch of timeline.reviewerBatches) {
+    lines.push(`| ${batch.batchId} | ${batch.reReview ? "复审" : "首轮"} | ${batch.dispatchedReviewers} | ${batch.reusedReviewers} | ${formatMinutes(batch.wallSeconds)} | ${batch.rawInputBytes} B | ${batch.slicedInputBytes} B | ${batch.savedInputBytes} B（${(batch.inputSavingsRatio * 100).toFixed(1)}%） |`);
+  }
+  lines.push("", "## reviewer 派发明细", "");
   lines.push("| 批次 | 角色 | 时长 | 结论 |", "| --- | --- | --- | --- |");
   if (timeline.reviewerSpans.length === 0) {
     lines.push("| 无 | — | — | — |");

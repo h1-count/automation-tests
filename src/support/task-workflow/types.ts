@@ -1,6 +1,7 @@
 export const workflowEventTypes = [
   "WorkflowStarted",
   "ActivitiesExpanded",
+  "CandidateGraphExpanded",
   "ActivityAttemptStarted",
   "ActivitySucceeded",
   "ActivityFailed",
@@ -105,6 +106,9 @@ export type ActivityKind =
   | "impact_location"
   | "policy_authorization"
   | "source_selection"
+  | "candidate_skeleton"
+  | "candidate_fragment"
+  | "candidate_assembly"
   | "candidate_generation"
   | "candidate_gate"
   | "plan_validation"
@@ -147,7 +151,7 @@ export interface WorkflowActivityDefinition {
    */
   requiresExternalOperation?: boolean;
   capability?: WorkflowCapability;
-  concurrencyGroup?: "reviewer" | "artifact_publish" | "business_write";
+  concurrencyGroup?: "reviewer" | "artifact_publish" | "business_write" | "candidate_generation";
   concurrencyLimit?: number;
   /** Activates a conditional branch only after the referenced decision
    * activity succeeds with one of the listed outcomes. A non-matching branch
@@ -258,6 +262,9 @@ export interface BuildWorkflowDefinitionInput {
     sharedAccount?: boolean;
   };
   definitionId?: string;
+  /** v8 is enabled by the public task entrypoint; direct engine callers keep
+   * v7 unless they explicitly opt into the dynamic candidate graph. */
+  fragmented?: boolean;
 }
 
 export interface ReusableWorkflowDefinitionInput extends BuildWorkflowDefinitionInput {

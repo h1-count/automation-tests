@@ -19,6 +19,7 @@ import {
   buildReviewPolicy,
   validateReviewPolicy
 } from "./reviewPolicy.js";
+import type { CandidateFragmentModule } from "./candidateFragments.js";
 
 function stableSegment(value: string): string {
   const ascii = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -40,7 +41,7 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition): void
     throw new Error("Workflow definition identity is incomplete.");
   }
   if (definition.reviewPolicy) validateReviewPolicy(definition.reviewPolicy);
-  if (["v3", "v4", "v5", "v6", "v7"].includes(definition.definitionVersion) && !definition.reviewPolicy) {
+  if (["v3", "v4", "v5", "v6", "v7", "v8"].includes(definition.definitionVersion) && !definition.reviewPolicy) {
     throw new Error("Workflow definition v3+ requires a pinned review policy.");
   }
   if (definition.deliveryTarget !== undefined
@@ -94,9 +95,7 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition): void
   };
   for (const id of ids) visit(id);
   const { graphDigest: _graphDigest, ...unsigned } = definition;
-  const expectedGraphDigest = createHash("sha256")
-    .update(canonicalJson(graphValue(unsigned)), "utf8")
-    .digest("hex");
+  const expectedGraphDigest = workflowGraphDigest(unsigned);
   if (expectedGraphDigest !== definition.graphDigest) {
     throw new Error("Workflow definition graphDigest does not match its pinned graph.");
   }
@@ -117,6 +116,10 @@ function graphValue(definition: Omit<WorkflowDefinition, "graphDigest">): SafeJs
   } as unknown as SafeJsonValue;
 }
 
+export function workflowGraphDigest(definition: Omit<WorkflowDefinition, "graphDigest">): string {
+  return createHash("sha256").update(canonicalJson(graphValue(definition)), "utf8").digest("hex");
+}
+
 export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): WorkflowDefinition {
   assertDigest(input.planDigest, "planDigest");
   const capabilities = unique(input.capabilities).sort() as WorkflowCapability[];
@@ -130,6 +133,7 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
     throw new Error("At least one cases.md or cases-*.md package filename is required.");
   }
   const optimizedV3 = input.planText?.includes("rule-design-ledger-v3") === true;
+  const fragmented = optimizedV3 && input.fragmented === true;
   const reviewPolicy = optimizedV3 ? buildAdaptiveReviewPolicy() : buildReviewPolicy({
     reviewerRoles: input.reviewerRoles,
     writesData: input.writesData ?? false,
@@ -145,7 +149,7 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
     maxSemanticEvolutionCycles: input.reviewPolicy?.maxSemanticEvolutionCycles
   });
   const deliveryTarget = input.deliveryTarget ?? "full_run";
-  const activities = buildV7FullActivities(
+  const activities = fragmented ? buildV8FullBootstrapActivities() : buildV7FullActivities(
     capabilities,
     input.writesData ?? false,
     casePackages,
@@ -157,7 +161,7 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
   const base: Omit<WorkflowDefinition, "graphDigest"> = {
     schemaVersion: "test-workflow-definition-v1",
     definitionId: input.definitionId ?? "durable-test-workflow",
-    definitionVersion: "v7",
+    definitionVersion: fragmented ? "v8" : "v7",
     requestId: input.requestId,
     planDigest: input.planDigest,
     capabilities,
@@ -168,7 +172,7 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
   };
   const definition: WorkflowDefinition = {
     ...base,
-    graphDigest: createHash("sha256").update(canonicalJson(graphValue(base)), "utf8").digest("hex")
+    graphDigest: workflowGraphDigest(base)
   };
   validateWorkflowDefinition(definition);
   return definition;
@@ -239,6 +243,7 @@ export function buildReusableWorkflowDefinition(
     throw new Error("At least one cases.md or cases-*.md package filename is required.");
   }
   const optimizedV3 = input.planText?.includes("rule-design-ledger-v3") === true;
+  const fragmented = optimizedV3 && input.fragmented === true;
   const reviewPolicy = optimizedV3 ? buildAdaptiveReviewPolicy() : buildReviewPolicy({
     reviewerRoles: input.reviewerRoles,
     writesData: input.writesData ?? false,
@@ -250,7 +255,10 @@ export function buildReusableWorkflowDefinition(
     maxSemanticEvolutionCycles: input.reviewPolicy?.maxSemanticEvolutionCycles
   });
   const deliveryTarget = input.deliveryTarget ?? "full_run";
-  const activities = buildV7ReusableActivities(
+  const activities = fragmented
+    && ["full_replan", "affected_rebuild"].includes(input.reuseAssessment.decision)
+    ? buildV8ReusableBootstrapActivities(input.reuseAssessment)
+    : buildV7ReusableActivities(
     capabilities,
     input.writesData ?? false,
     casePackages,
@@ -263,7 +271,9 @@ export function buildReusableWorkflowDefinition(
   const base: Omit<WorkflowDefinition, "graphDigest"> = {
     schemaVersion: "test-workflow-definition-v1",
     definitionId: input.definitionId ?? "durable-test-workflow",
-    definitionVersion: "v7",
+    definitionVersion: fragmented && ["full_replan", "affected_rebuild"].includes(input.reuseAssessment.decision)
+      ? "v8"
+      : "v7",
     requestId: input.requestId,
     planDigest: input.planDigest,
     capabilities,
@@ -274,7 +284,7 @@ export function buildReusableWorkflowDefinition(
   };
   const definition: WorkflowDefinition = {
     ...base,
-    graphDigest: createHash("sha256").update(canonicalJson(graphValue(base)), "utf8").digest("hex")
+    graphDigest: workflowGraphDigest(base)
   };
   validateWorkflowDefinition(definition);
   return definition;
@@ -970,6 +980,183 @@ function v7OptimizedDesignActivities(): WorkflowActivityDefinition[] {
       }
     }
   ];
+}
+
+function v8SkeletonActivity(dependency: string, scope: "full" | "affected"): WorkflowActivityDefinition {
+  return {
+    id: "candidate-skeleton",
+    kind: "candidate_skeleton",
+    phase: "case_generation",
+    dependencies: [dependency],
+    required: true,
+    publishesArtifacts: true,
+    metadata: {
+      scope,
+      manifestPath: "candidate-fragments/manifest.json",
+      generationPolicyVersion: "candidate-generation-policy-v1"
+    }
+  };
+}
+
+function buildV8FullBootstrapActivities(): WorkflowActivityDefinition[] {
+  return [
+    {
+      id: "source-selection",
+      kind: "source_selection",
+      phase: "planning",
+      dependencies: [],
+      required: true,
+      metadata: { sourcePolicyVersion: "request-local-source-v1" }
+    },
+    v8SkeletonActivity("source-selection", "full")
+  ];
+}
+
+function buildV8ReusableBootstrapActivities(
+  assessment: ReusableWorkflowDefinitionInput["reuseAssessment"]
+): WorkflowActivityDefinition[] {
+  const suiteMetadata: Record<string, SafeJsonValue> = {
+    suiteId: assessment.suiteId,
+    assessmentDigest: assessment.assessmentDigest,
+    decision: assessment.decision,
+    selectedCaseIds: assessment.selectedCaseIds,
+    affectedCaseIds: assessment.affectedCaseIds
+  };
+  if (assessment.suiteVersion) suiteMetadata.suiteVersion = assessment.suiteVersion;
+  const activities: WorkflowActivityDefinition[] = [{
+    id: "reuse-assessment",
+    kind: "reuse_assessment",
+    phase: "reuse_assessment",
+    dependencies: [],
+    required: true,
+    metadata: suiteMetadata
+  }];
+  if (assessment.decision === "affected_rebuild") {
+    activities.push({
+      id: "impact-location",
+      kind: "impact_location",
+      phase: "case_generation",
+      dependencies: ["reuse-assessment"],
+      required: true,
+      metadata: suiteMetadata
+    }, v8SkeletonActivity("impact-location", "affected"));
+  } else {
+    activities.push({
+      id: "source-selection",
+      kind: "source_selection",
+      phase: "planning",
+      dependencies: ["reuse-assessment"],
+      required: true,
+      metadata: { ...suiteMetadata, sourcePolicyVersion: "request-local-source-v1" }
+    }, v8SkeletonActivity("source-selection", "full"));
+  }
+  return activities;
+}
+
+/** Builds the immutable v8 candidate subgraph after a skeleton manifest has
+ * frozen module ownership. The graph is intentionally constructed only from
+ * the manifest, never from model fragment output. */
+export function buildV8CandidateExtension(input: {
+  modules: CandidateFragmentModule[];
+  scope: "full" | "affected";
+  capabilities: WorkflowCapability[];
+  writesData: boolean;
+  deliveryTarget: WorkflowDeliveryTarget;
+  reviewPolicy: ReviewPolicy;
+  executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"];
+}): WorkflowActivityDefinition[] {
+  const fragments = input.modules.map((module) => ({
+    id: `candidate-fragment-${module.id}`,
+    kind: "candidate_fragment" as const,
+    phase: "case_generation" as const,
+    dependencies: ["candidate-skeleton"],
+    required: true,
+    publishesArtifacts: true,
+    concurrencyGroup: "candidate_generation" as const,
+    concurrencyLimit: 3,
+    metadata: {
+      moduleId: module.id,
+      moduleTitle: module.title,
+      ruleIds: module.ruleIds,
+      casePrefix: module.casePrefix,
+      sourceRefs: module.sourceRefs,
+      fragmentPath: `candidate-fragments/${module.id}.md`
+    }
+  }));
+  const assemble: WorkflowActivityDefinition = {
+    id: "candidate-assemble",
+    kind: "candidate_assembly",
+    phase: "case_generation",
+    dependencies: fragments.map((fragment) => fragment.id),
+    required: true,
+    publishesArtifacts: true,
+    metadata: { package: "cases.md", scope: input.scope }
+  };
+  if (input.scope === "full") {
+    const downstream = buildV7FullActivities(
+      input.capabilities,
+      input.writesData,
+      ["cases.md"],
+      input.reviewPolicy,
+      input.deliveryTarget,
+      input.executionIsolation,
+      true
+    ).filter((activity) => !["source-selection", "candidate-generation"].includes(activity.id));
+    downstream.find((activity) => activity.id === "candidate-gate")!.dependencies = [assemble.id];
+    return [...fragments, assemble, ...downstream];
+  }
+  const activities: WorkflowActivityDefinition[] = [
+    ...fragments,
+    assemble,
+    {
+      id: "candidate-gate",
+      kind: "candidate_gate",
+      phase: "case_validation",
+      dependencies: [assemble.id],
+      required: true,
+      metadata: { gateSchemaVersion: "candidate-gate-v1", scope: "affected" }
+    },
+    {
+      id: "targeted-review",
+      kind: "review",
+      phase: "case_review",
+      dependencies: ["candidate-gate"],
+      required: true,
+      concurrencyGroup: "reviewer",
+      concurrencyLimit: 1,
+      metadata: { subflow: "affected-rebuild", role: "combined" }
+    },
+    {
+      id: "case-confirmation",
+      kind: "callback",
+      phase: "case_confirmation",
+      dependencies: ["targeted-review"],
+      required: true,
+      metadata: {
+        subjectSchemaVersion: "case-confirmation-subject-v2",
+        scope: "affected",
+        casePackages: ["cases.md"],
+        completesWorkflow: input.deliveryTarget === "testcase_only",
+        deliveryTarget: input.deliveryTarget
+      }
+    }
+  ];
+  if (input.deliveryTarget !== "testcase_only") {
+    appendBuildReadinessAndExecution(
+      activities,
+      input.capabilities,
+      input.writesData,
+      "case-confirmation",
+      input.executionIsolation,
+      true
+    );
+    if (input.deliveryTarget === "script_only") {
+      const buildIndex = activities.findIndex((activity) => activity.id === "build");
+      activities.splice(buildIndex + 1);
+      markDeliveryTerminal(activities, "build", input.deliveryTarget);
+    }
+  }
+  return activities;
 }
 
 function markDeliveryTerminal(

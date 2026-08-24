@@ -6,10 +6,19 @@ import {
   activitiesExpandedPayload,
   buildLegacyV5WorkflowDefinition,
   buildReusableWorkflowDefinition,
+  buildV8CandidateExtension,
   buildWorkflowDefinition,
+  workflowGraphDigest,
   workflowStartedPayload
 } from "./definition.js";
+import {
+  assembleCandidateFragments,
+  candidateFragmentManifestDigest,
+  parseCandidateFragmentManifest,
+  validateCandidateFragmentContent
+} from "./candidateFragments.js";
 import { canonicalJson } from "./canonicalJson.js";
+import { ActivityLeaseKeepalive } from "./activityLeaseKeepalive.js";
 import { GENESIS_DIGEST, WorkflowHistoryStore } from "./historyStore.js";
 import { reduceWorkflow } from "./reducer.js";
 import {
@@ -89,6 +98,7 @@ import {
   type ReviewBatchScope
 } from "./reviewBatchScope.js";
 import { assessCaseReviewRisk } from "./caseReviewRisk.js";
+import { routeSemanticReview } from "./reviewSemanticRouting.js";
 import { evaluateReviewReadiness } from "./reviewReadiness.js";
 import {
   evaluateCandidateGate,
@@ -102,6 +112,8 @@ import {
 } from "./resumeRecovery.js";
 import {
   CASE_RELATION_PROJECTION_MARKER_V3,
+  markdownSection,
+  markdownTableRows,
   projectRelationProjection,
   validateRuleDesignMatrix
 } from "../testcase/relationProjection.js";
@@ -276,6 +288,7 @@ export interface InitializeWorkflowInput {
   profile?: StableTestSuiteProfile;
   /** Review speed cap persisted on WorkflowStarted; default: testcase_only + no writes → fast. */
   speed?: ReviewSpeed;
+  fragmented?: boolean;
 }
 
 export interface DurableWorkflowManagerOptions {
@@ -459,6 +472,17 @@ function safeRelativePath(workspaceRoot: string, path: string): string {
     || /(^|\/)\.env(?:\.|$)/.test(rel)
   ) {
     throw new Error(`Artifact path is private or not a publishable workflow output: ${rel}`);
+  }
+  return rel;
+}
+
+/** Runtime packet locations are durable audit references, not publishable
+ * artifacts. Keep the exception narrow so history cannot point elsewhere. */
+function safeRuntimePacketReference(workspaceRoot: string, path: string): string {
+  const absolute = resolve(workspaceRoot, path);
+  const rel = relative(workspaceRoot, absolute).split(sep).join("/");
+  if (!rel.startsWith(".local/test-task-runtime/") || rel.includes("../")) {
+    throw new Error(`Reviewer packet path must stay in disposable runtime: ${path}`);
   }
   return rel;
 }
@@ -653,7 +677,8 @@ export class DurableWorkflowManager {
                   .sort()
           : parseCasePackages(plan)),
       reviewerRoles: input.reviewerRoles,
-      executionIsolation: input.executionIsolation
+      executionIsolation: input.executionIsolation,
+      fragmented: input.fragmented ?? false
     };
     // Speed defaulting happens at the CLI boundary (task:initialize --speed);
     // engine-level callers keep strict unless they opt in explicitly.
@@ -839,7 +864,7 @@ export class DurableWorkflowManager {
       if (!packages.length) {
         throw new Error(`Callback ${activityId} has no testcase package binding.`);
       }
-      if (projection.definitionVersion === "v7" && activityId === "case-confirmation") {
+      if (["v7", "v8"].includes(projection.definitionVersion) && activityId === "case-confirmation") {
         const packageSources = await Promise.all(packages.map(async (item) => ({
           ...item,
           source: await readFile(resolve(this.workspaceRoot, item.path), "utf8")
@@ -1085,6 +1110,159 @@ export class DurableWorkflowManager {
     };
   }
 
+  /**
+   * Hosts generating a candidate fragment may keep the existing foreground
+   * call alive with this helper. It has no model/provider dependency and does
+   * not execute work in the background; the host must call assertHealthy()
+   * immediately before publishing and stop() in its finally block.
+   */
+  createCandidateFragmentLeaseKeepalive(
+    activityId: string,
+    claimToken: string,
+    leaseMs = 120_000
+  ): ActivityLeaseKeepalive {
+    if (!activityId.startsWith("candidate-fragment-")) {
+      throw new Error("Lease keepalive is only available for candidate fragment activities.");
+    }
+    return new ActivityLeaseKeepalive(
+      leaseMs,
+      () => this.renewActivity(activityId, claimToken, leaseMs)
+    );
+  }
+
+  /** Freeze the validated skeleton manifest into one immutable v8 module graph.
+   * The manifest itself must already have been atomically published by
+   * candidate-skeleton; this method only records safe identities and activity
+   * definitions in durable history. */
+  async expandCandidateGraph(): Promise<WorkflowGateView> {
+    const before = await this.gate();
+    if (before.definitionVersion !== "v8") {
+      throw new Error("Candidate graph expansion is only available for new v8 workflows.");
+    }
+    if (before.activities["candidate-assemble"]) {
+      throw new Error("Candidate graph has already expanded from its frozen skeleton.");
+    }
+    const skeleton = before.activities["candidate-skeleton"];
+    if (!skeleton || skeleton.state !== "SUCCEEDED") {
+      throw new Error("candidate-skeleton must succeed before candidate graph expansion.");
+    }
+    const manifestPath = resolve(this.requestRoot, "candidate-fragments", "manifest.json");
+    if (!existsSync(manifestPath)) {
+      throw new Error("candidate-skeleton must publish candidate-fragments/manifest.json first.");
+    }
+    const content = await readFile(manifestPath, "utf8");
+    const manifest = parseCandidateFragmentManifest(content);
+    const skeletonDigest = candidateFragmentManifestDigest(manifest);
+    const manifestRelativePath = safeRelativePath(this.workspaceRoot, manifestPath);
+    const events = await this.events();
+    const skeletonSuccess = [...events].reverse().find((event) =>
+      event.type === "ActivitySucceeded" && event.payload.activityId === "candidate-skeleton"
+    );
+    const publishedDigest = Array.isArray(skeletonSuccess?.payload.outputDigests)
+      ? skeletonSuccess!.payload.outputDigests.find((item) =>
+        item && typeof item === "object"
+        && !Array.isArray(item)
+        && (item as Record<string, unknown>).path === manifestRelativePath
+      ) as Record<string, unknown> | undefined
+      : undefined;
+    if (publishedDigest?.digest !== sha256(content)) {
+      throw new Error("Candidate skeleton manifest digest does not match its published output.");
+    }
+    const expectedScope = skeleton.definition.metadata?.scope;
+    if (expectedScope !== manifest.scope) {
+      throw new Error("Candidate skeleton manifest scope does not match the bootstrap activity.");
+    }
+    const expanded = events.find((event) => event.type === "ActivitiesExpanded");
+    const capabilities = Array.isArray(expanded?.payload.capabilities)
+      ? expanded!.payload.capabilities.filter((value): value is WorkflowCapability =>
+        typeof value === "string"
+      ) as WorkflowCapability[]
+      : [];
+    if (!capabilities.length || !before.reviewPolicy || !before.deliveryTarget) {
+      throw new Error("Candidate graph expansion is missing pinned workflow inputs.");
+    }
+    const extension = buildV8CandidateExtension({
+      modules: manifest.modules,
+      scope: manifest.scope,
+      capabilities,
+      writesData: expanded?.payload.writesData === true,
+      deliveryTarget: before.deliveryTarget,
+      reviewPolicy: before.reviewPolicy
+    });
+    const definitions = Object.values(before.activities).map((activity) => activity.definition);
+    const effectiveDefinition = {
+      schemaVersion: "test-workflow-definition-v1" as const,
+      definitionId: before.definitionId,
+      definitionVersion: before.definitionVersion,
+      requestId: before.requestId,
+      planDigest: before.planDigest,
+      capabilities,
+      writesData: expanded?.payload.writesData === true,
+      deliveryTarget: before.deliveryTarget,
+      reviewPolicy: before.reviewPolicy,
+      activities: [...definitions, ...extension]
+    };
+    const graphDigest = workflowGraphDigest(effectiveDefinition);
+    await this.append(
+      "CandidateGraphExpanded",
+      "system",
+      {
+        parentGraphDigest: before.graphDigest,
+        graphDigest,
+        skeletonDigest,
+        scope: manifest.scope,
+        modules: manifest.modules as unknown as SafeJsonValue,
+        activities: extension as unknown as SafeJsonValue
+      },
+      `${before.runId}/candidate-graph-expanded/${skeletonDigest}/${graphDigest}`,
+      before.head
+    );
+    return this.gate();
+  }
+
+  /** Deterministically publish the final candidate package from frozen,
+   * independently verified fragments. No provider/model call is made here. */
+  async assembleCandidateFragments(input: {
+    claimToken: string;
+    publishId: string;
+    verification: string;
+  }): Promise<WorkflowGateView> {
+    const before = await this.gate();
+    const assembly = before.activities["candidate-assemble"];
+    if (assembly?.definition.kind !== "candidate_assembly" || assembly.state !== "RUNNING") {
+      throw new Error("candidate-assemble must be running before deterministic assembly.");
+    }
+    await this.assertCandidateAssemblyInputs(before);
+    const manifest = parseCandidateFragmentManifest(await readFile(
+      resolve(this.requestRoot, "candidate-fragments", "manifest.json"),
+      "utf8"
+    ));
+    const fragments = new Map(await Promise.all(manifest.modules.map(async (module) => [
+      module.id,
+      await readFile(resolve(this.requestRoot, "candidate-fragments", `${module.id}.md`), "utf8")
+    ] as const)));
+    const defaults = new Map(
+      markdownTableRows(markdownSection(await readFile(this.planPath, "utf8"), "## 请求默认值"))
+        .filter((row) => row.length >= 2 && row[0] !== "项目")
+        .map((row) => [row[0]!.trim(), row[1]!.replace(/`/gu, "").trim()] as const)
+    );
+    const cases = assembleCandidateFragments({
+      manifest,
+      fragments,
+      defaults: {
+        testType: defaults.get("测试类型") ?? "",
+        environment: defaults.get("目标环境") ?? "",
+        dataStrategy: defaults.get("数据策略") ?? ""
+      }
+    });
+    return this.publishArtifactsAndSucceed("candidate-assemble", {
+      claimToken: input.claimToken,
+      publishId: input.publishId,
+      verification: input.verification,
+      artifacts: [{ targetPath: this.designAssetPath("cases.md"), content: cases }]
+    });
+  }
+
   async succeedActivity(activityId: string, input: ActivitySucceedInput): Promise<WorkflowGateView> {
     return this.succeedActivityInternal(activityId, input, false);
   }
@@ -1213,7 +1391,7 @@ export class DurableWorkflowManager {
         verifiedOutputDigests.map((output) => output.path),
         before
       );
-      if (before.definitionVersion === "v7") {
+      if (["v7", "v8"].includes(before.definitionVersion)) {
         await this.assertV7DesignArtifactStructure(
           activity.definition.kind,
           activity.definition.metadata
@@ -1261,12 +1439,12 @@ export class DurableWorkflowManager {
         }
       ], before.head);
     } else if (
-      ["v5", "v6", "v7"].includes(before.definitionVersion)
+      ["v5", "v6", "v7", "v8"].includes(before.definitionVersion)
       && activity.definition.metadata?.completesWorkflow === true
       && (
         activity.definition.kind === "report"
         || (
-          before.definitionVersion === "v7"
+          ["v7", "v8"].includes(before.definitionVersion)
           && activity.definition.metadata.deliveryTarget !== undefined
         )
       )
@@ -1814,6 +1992,34 @@ export class DurableWorkflowManager {
     if (activity.definition.kind === "review_resolution") {
       await this.assertReviewResolutionOwnership(artifacts);
     }
+    if (activity.definition.kind === "candidate_fragment") {
+      const moduleId = activity.definition.metadata?.moduleId;
+      const moduleTitle = activity.definition.metadata?.moduleTitle;
+      const ruleIds = activity.definition.metadata?.ruleIds;
+      const casePrefix = activity.definition.metadata?.casePrefix;
+      const sourceRefs = activity.definition.metadata?.sourceRefs;
+      if (typeof moduleId !== "string" || typeof moduleTitle !== "string" || typeof casePrefix !== "string"
+        || !Array.isArray(ruleIds) || !Array.isArray(sourceRefs)
+        || ruleIds.some((value) => typeof value !== "string")
+        || sourceRefs.some((value) => typeof value !== "string")) {
+        throw new Error(`Candidate fragment ${activityId} has incomplete frozen module metadata.`);
+      }
+      const fragment = artifacts[0];
+      if (!fragment) throw new Error(`Candidate fragment ${activityId} has no artifact.`);
+      validateCandidateFragmentContent(
+        typeof fragment.content === "string" ? fragment.content : Buffer.from(fragment.content).toString("utf8"),
+        {
+          id: moduleId,
+          title: moduleTitle,
+          ruleIds: ruleIds as string[],
+          casePrefix,
+          sourceRefs: sourceRefs as string[]
+        }
+      );
+    }
+    if (activity.definition.kind === "candidate_assembly") {
+      await this.assertCandidateAssemblyInputs(before);
+    }
     // 发布边界校验：任何活动把 cases.md 用例包发布进工作区前，其内容必须通过
     // 当前 testcase-v6-layered 结构校验（含派生视图漂移检查）。生成时的
     // candidate-gate 只跑一次；评审演进等修订发布若无此边界，漂移会绕过门禁
@@ -1912,7 +2118,7 @@ export class DurableWorkflowManager {
     if (activity.state === "READY") {
       const subjectSchemaVersion = input.activityId === "plan-confirmation"
         ? PLAN_CONFIRMATION_SUBJECT_SCHEMA_V2
-        : before.definitionVersion === "v7" && input.activityId === "case-confirmation"
+        : ["v7", "v8"].includes(before.definitionVersion) && input.activityId === "case-confirmation"
           ? CASE_CONFIRMATION_SUBJECT_SCHEMA_V2
           : undefined;
       await this.appendSequence([
@@ -1942,7 +2148,7 @@ export class DurableWorkflowManager {
     }
     const subjectSchemaVersion = input.activityId === "plan-confirmation"
       ? activity.callbackSubjectSchemaVersion ?? PLAN_CONFIRMATION_SUBJECT_SCHEMA_V2
-      : before.definitionVersion === "v7" && input.activityId === "case-confirmation"
+      : ["v7", "v8"].includes(before.definitionVersion) && input.activityId === "case-confirmation"
         ? activity.callbackSubjectSchemaVersion ?? CASE_CONFIRMATION_SUBJECT_SCHEMA_V2
         : undefined;
     await this.append(
@@ -1982,7 +2188,7 @@ export class DurableWorkflowManager {
     const historyOnlyExecutionAuthorization = ["v6", "v7"].includes(before.definitionVersion)
       && input.activityId === "execution-authorization";
     if (
-      before.definitionVersion === "v7"
+      ["v7", "v8"].includes(before.definitionVersion)
       && input.activityId === "case-confirmation"
       && input.resolution === "rejected"
     ) {
@@ -2085,7 +2291,7 @@ export class DurableWorkflowManager {
         }
       ], before.head);
     } else if (
-      before.definitionVersion === "v7"
+      ["v7", "v8"].includes(before.definitionVersion)
       && input.resolution === "accepted"
       && activity?.definition.metadata?.completesWorkflow === true
       && activity.definition.metadata.deliveryTarget === "testcase_only"
@@ -2127,7 +2333,7 @@ export class DurableWorkflowManager {
     }
   ): Promise<WorkflowGateView> {
     if (
-      view.definitionVersion !== "v7"
+      !["v7", "v8"].includes(view.definitionVersion)
       || input.activityId !== "case-confirmation"
       || input.resolution !== "revision_requested"
     ) return view;
@@ -3395,46 +3601,11 @@ export class DurableWorkflowManager {
       )
       .sort((left, right) => left.id.localeCompare(right.id));
     const allActivityIds = reviewActivities.map((activity) => activity.id);
-    const requiredActivityIds = input.activityIds?.length
+    let requiredActivityIds = input.activityIds?.length
       ? [...new Set(input.activityIds)]
       : allActivityIds;
-    const required = new Set(requiredActivityIds);
-    const reusableEvidence: ReusedReviewerEvidence[] = [];
-    for (const activity of reviewActivities) {
-      if (required.has(activity.id)) continue;
-      if (activity.state !== "SUCCEEDED") {
-        throw new Error(
-          `Targeted review cannot reuse ${activity.id}; its durable state is ${activity.state}.`
-        );
-      }
-      const dispatch = latestReviewerDispatch(events, activity.id);
-      if (
-        !dispatch
-        || typeof dispatch.payload.batchId !== "string"
-        || typeof dispatch.payload.inputDigest !== "string"
-        || typeof dispatch.payload.role !== "string"
-      ) {
-        throw new Error(`Targeted review cannot find reusable dispatch evidence for ${activity.id}.`);
-      }
-      const submission = latestReviewerSubmission(
-        events,
-        activity.id,
-        dispatch.payload.batchId
-      );
-      if (
-        !submission
-        || typeof submission.payload.planEvidenceDigest !== "string"
-      ) {
-        throw new Error(`Targeted review cannot find reusable submission evidence for ${activity.id}.`);
-      }
-      reusableEvidence.push({
-        activityId: activity.id,
-        role: dispatch.payload.role,
-        batchId: dispatch.payload.batchId,
-        inputDigest: dispatch.payload.inputDigest,
-        planEvidenceDigest: submission.payload.planEvidenceDigest
-      });
-    }
+    let affectedRefs = input.affectedRefs;
+    let reason = input.reason;
     const packagePaths = this.reviewPackagePaths(before);
     const caseRiskAssessment = assessCaseReviewRisk(await Promise.all(
       packagePaths.map((path) => readFile(path, "utf8"))
@@ -3486,6 +3657,22 @@ export class DurableWorkflowManager {
         if (baseScope.reviewEpochDigest === reviewEpochDigest) {
           semanticEvolutionCycle = baseScope.semanticEvolutionCycle + 1;
         }
+        // A caller that supplies a predecessor but no manual reviewer scope
+        // opts into deterministic role routing. Compare role semantic digests
+        // against the frozen predecessor: unchanged roles keep their durable
+        // evidence, while only roles whose visible scope changed are reopened.
+        if (!input.activityIds?.length && !input.affectedRefs?.length) {
+          const route = routeSemanticReview({
+            scope: baseScope,
+            allActivityIds,
+            baselineRoleInputDigests: baseSnapshot.roleInputDigests ?? {},
+            currentRoleInputDigests: currentAgainstBase.roleInputDigests ?? {}
+          });
+          if (!route) return before;
+          requiredActivityIds = route.requiredActivityIds;
+          affectedRefs = route.affectedRefs;
+          reason = "semantic_role_diff";
+        }
       }
     }
     const usesSemanticReviewScope = before.reviewPolicy?.schemaVersion === "review-policy-v2"
@@ -3528,27 +3715,59 @@ export class DurableWorkflowManager {
       );
       return this.gate();
     }
+    const required = new Set(requiredActivityIds);
+    const reusableEvidence: ReusedReviewerEvidence[] = [];
+    for (const activity of reviewActivities) {
+      if (required.has(activity.id)) continue;
+      if (activity.state !== "SUCCEEDED") {
+        throw new Error(
+          `Targeted review cannot reuse ${activity.id}; its durable state is ${activity.state}.`
+        );
+      }
+      const dispatch = latestReviewerDispatch(events, activity.id);
+      if (
+        !dispatch
+        || typeof dispatch.payload.batchId !== "string"
+        || typeof dispatch.payload.inputDigest !== "string"
+        || typeof dispatch.payload.role !== "string"
+      ) {
+        throw new Error(`Targeted review cannot find reusable dispatch evidence for ${activity.id}.`);
+      }
+      const submission = latestReviewerSubmission(events, activity.id, dispatch.payload.batchId);
+      if (!submission || typeof submission.payload.planEvidenceDigest !== "string") {
+        throw new Error(`Targeted review cannot find reusable submission evidence for ${activity.id}.`);
+      }
+      reusableEvidence.push({
+        activityId: activity.id,
+        role: dispatch.payload.role,
+        batchId: dispatch.payload.batchId,
+        inputDigest: dispatch.payload.inputDigest,
+        planEvidenceDigest: submission.payload.planEvidenceDigest
+      });
+    }
     const scope = usesSemanticReviewScope
       ? buildReviewBatchScopeV3({
           allActivityIds,
           requiredActivityIds,
-          affectedRefs: input.affectedRefs,
+          affectedRefs,
           excludedRefs: input.excludedRefs,
-          reason: input.reason,
+          reason,
           baseBatchId: input.baseBatchId,
           reusableEvidence,
           caseRiskAssessment,
           activityRoles,
           reviewEpochDigest,
           semanticEvolutionCycle,
+          // combined retains its light-risk validation scope; impact remains
+          // strict-only so its evidence can be reused for lower-risk changes.
           adaptiveSemanticReview: before.reviewPolicy?.schemaVersion === "review-policy-v3"
         })
       : buildReviewBatchScopeV2({
       allActivityIds,
       requiredActivityIds,
-      affectedRefs: input.affectedRefs,
+      affectedRefs,
       excludedRefs: input.excludedRefs,
-      reason: input.reason,
+      reason,
       baseBatchId: input.baseBatchId,
       reusableEvidence,
       caseRiskAssessment,
@@ -3576,6 +3795,14 @@ export class DurableWorkflowManager {
       scope,
       scopeDigest: reviewBatchScopeDigest(scope),
       roleInputDigests: snapshot.roleInputDigests,
+      rolePackets: snapshot.rolePackets?.map((packet) => ({
+        activityId: packet.activityId,
+        role: packet.role,
+        path: safeRuntimePacketReference(this.workspaceRoot, packet.packetPath),
+        digest: packet.digest,
+        packetBytes: packet.packetBytes,
+        originalBytes: packet.originalBytes
+      })),
       readinessDigest: readiness.digest,
       readinessWarnings: readiness.warnings
     });
@@ -3769,6 +3996,12 @@ export class DurableWorkflowManager {
       if (error instanceof WorkflowRuntimeConflictError) throw error;
       return { ...view, runtimeBinding: "repair_pending" };
     }
+  }
+
+  /** The caller receives this immutable projection after successful dispatch;
+   * it must not load the full frozen originals unless auditing is required. */
+  async reviewerInputPacket(batchId: string, activityId: string) {
+    return this.reviewInputs.readRolePacket(batchId, activityId);
   }
 
   async submitReviewer(input: {
@@ -4002,6 +4235,18 @@ export class DurableWorkflowManager {
           ...(snapshot.roleInputDigests
             ? { roleInputDigests: snapshot.roleInputDigests }
             : {}),
+          ...(snapshot.rolePackets
+            ? {
+                rolePackets: snapshot.rolePackets.map((packet) => ({
+                  activityId: packet.activityId,
+                  role: packet.role,
+                  path: safeRuntimePacketReference(this.workspaceRoot, packet.packetPath),
+                  digest: packet.digest,
+                  packetBytes: packet.packetBytes,
+                  originalBytes: packet.originalBytes
+                }))
+              }
+            : {}),
           ...(nextScope
             ? {
                 scope: nextScope as unknown as SafeJsonValue,
@@ -4092,7 +4337,7 @@ export class DurableWorkflowManager {
         await readFile(path, "utf8")
       ])
     ));
-    if (view.definitionVersion === "v7") {
+    if (["v7", "v8"].includes(view.definitionVersion)) {
       this.assertV7DesignText(plan, packages);
     }
     const readiness = evaluateReviewReadiness({
@@ -4228,6 +4473,7 @@ export class DurableWorkflowManager {
     readinessDigest?: string;
     readinessWarnings?: string[];
     roleInputDigests?: Record<string, string>;
+    rolePackets?: SafeJsonValue;
     isolationProofVersion?: typeof REVIEWER_ISOLATION_PROOF_VERSION;
   }): Promise<WorkflowGateView> {
     const before = await this.gate();
@@ -5439,7 +5685,7 @@ export class DurableWorkflowManager {
     projection: WorkflowProjection
   ): void {
     const packagePaths = Object.values(projection.activities)
-      .filter((activity) => ["case_generation", "candidate_generation"].includes(activity.definition.kind))
+      .filter((activity) => ["case_generation", "candidate_generation", "candidate_assembly"].includes(activity.definition.kind))
       .map((activity) => {
         const packageName = activity.definition.metadata?.package;
         if (typeof packageName !== "string") {
@@ -5470,6 +5716,23 @@ export class DurableWorkflowManager {
       expected = [
         safeRelativePath(this.workspaceRoot, resolve(this.designAssetPath(packageName)))
       ];
+    } else if (kind === "candidate_skeleton") {
+      expected = [safeRelativePath(
+        this.workspaceRoot,
+        resolve(this.requestRoot, "candidate-fragments", "manifest.json")
+      )];
+    } else if (kind === "candidate_fragment") {
+      const fragmentPath = metadata?.fragmentPath;
+      if (typeof fragmentPath !== "string" || !/^candidate-fragments\/[a-z0-9][a-z0-9-]*\.md$/u.test(fragmentPath)) {
+        throw new Error("Candidate fragment is missing its controlled fragmentPath binding.");
+      }
+      expected = [safeRelativePath(this.workspaceRoot, resolve(this.requestRoot, fragmentPath))];
+    } else if (kind === "candidate_assembly") {
+      const packageName = metadata?.package;
+      if (packageName !== "cases.md") {
+        throw new Error("Candidate assembly must publish the single cases.md package.");
+      }
+      expected = [safeRelativePath(this.workspaceRoot, resolve(this.designAssetPath(packageName)))];
     } else if (
       kind === "relation_sync"
       || kind === "automatic_evolution"
@@ -5506,6 +5769,34 @@ export class DurableWorkflowManager {
       throw new Error(
         `${kind} must publish exactly its owned artifacts: ${required.join(", ")}.`
       );
+    }
+  }
+
+  private async assertCandidateAssemblyInputs(view: WorkflowGateView): Promise<void> {
+    const manifestPath = resolve(this.requestRoot, "candidate-fragments", "manifest.json");
+    const manifest = parseCandidateFragmentManifest(await readFile(manifestPath, "utf8"));
+    const events = await this.events();
+    for (const module of manifest.modules) {
+      const activityId = `candidate-fragment-${module.id}`;
+      if (view.activities[activityId]?.state !== "SUCCEEDED") {
+        throw new Error(`Candidate assembly requires completed fragment ${module.id}.`);
+      }
+      const path = resolve(this.requestRoot, "candidate-fragments", `${module.id}.md`);
+      const content = await readFile(path, "utf8");
+      validateCandidateFragmentContent(content, module);
+      const relativePath = safeRelativePath(this.workspaceRoot, path);
+      const success = [...events].reverse().find((event) =>
+        event.type === "ActivitySucceeded" && event.payload.activityId === activityId
+      );
+      const output = Array.isArray(success?.payload.outputDigests)
+        ? success!.payload.outputDigests.find((item) =>
+          item && typeof item === "object" && !Array.isArray(item)
+          && (item as Record<string, unknown>).path === relativePath
+        ) as Record<string, unknown> | undefined
+        : undefined;
+      if (output?.digest !== sha256(content)) {
+        throw new Error(`Candidate fragment ${module.id} differs from its published digest.`);
+      }
     }
   }
 
@@ -5929,7 +6220,7 @@ export class DurableWorkflowManager {
   ): Promise<WorkflowEvent> {
     const events = await this.events();
     const identity = eventIdentity(events);
-    if (!["v5", "v6", "v7"].includes(identity.definitionVersion)) {
+    if (!["v5", "v6", "v7", "v8"].includes(identity.definitionVersion)) {
       throw new Error("Legacy workflow histories are replay-only and cannot accept new events.");
     }
     const input: NewWorkflowEvent = {
@@ -5949,7 +6240,7 @@ export class DurableWorkflowManager {
   ): Promise<WorkflowEvent[]> {
     if (!drafts.length) throw new Error("Workflow event sequence must not be empty.");
     const identity = eventIdentity(await this.events());
-    if (!["v5", "v6", "v7"].includes(identity.definitionVersion)) {
+    if (!["v5", "v6", "v7", "v8"].includes(identity.definitionVersion)) {
       throw new Error("Legacy workflow histories are replay-only and cannot accept new events.");
     }
     let previousEventId: string | undefined;
@@ -6056,10 +6347,10 @@ export function workflowStatusText(view: WorkflowGateView): string {
     succeeded: "完成",
     failed: "失败"
   } as const;
-  const phases = view.definitionVersion === "v7"
+  const phases = ["v7", "v8"].includes(view.definitionVersion)
     ? projectV7UserPhases(view)
     : projectSimplifiedPhases(view);
-  const labels: Record<string, string> = view.definitionVersion === "v7"
+  const labels: Record<string, string> = ["v7", "v8"].includes(view.definitionVersion)
     ? {
         design: "用例设计",
         engineering: "脚本",
