@@ -212,3 +212,18 @@
 - 验证条件：下一次出现演进二批的真实请求：fast 档批次时长显著低于同轮首批且发现数与有效率不降，则扩大试点；发现质量下降则删除 preset 行回退
 - 最近更新：2026-08-20T07:54:14.294Z
 <!-- project-experience:C926826E8034:end -->
+
+<!-- project-experience:AEE6B7BA0667:start -->
+<a id="exp-aee6b7ba0667"></a>
+## 2026-08-24：需求解析的成本计量与降本护栏
+
+- 经验编号：EXP-AEE6B7BA0667
+- 适用范围：需求解析的成本计量与降本护栏
+- 证据状态：受控探索已验证
+- 观察：DSH 会话日志在 assistant/message 记录逐调用 usage（assistant/chunk 携带重复值，去重后才是真值）；registration-review-20260821 实测：主会话 198 次调用累计 29.96M cacheRead 占全请求 89%，4 片段子代理+两轮 reviewer 合计仅 1.5%；时间大头是重试/租约空闲（8.8min）与串行预工作，评审本身 r1 6.9min+r2 3.7min。跨请求基线：cacheRead 30M~258M/请求。
+- 判断：无计量不动成本旋钮：token 大头是长主会话逐调用重读累积上下文而非评审输入，优化方向是把工作下沉到子代理与确定性脚本；砍读取广度必须同时买完整度保险——行覆盖闭包审计让漏覆盖从信任模型变成机判。
+- 当前优先策略：每请求收尾跑 npm run cost:analyze 出双口径报告；骨架阶段消费 preflight-requirement-facts 零推理候选表（边界/必填/格式/枚举句式逐字引用+行号）并强制间隙区间显式登记；reviewer 派发携带 build-review-reading-map 读取图（必读区间+交叉对照配对，矛盾/存疑回退全文）；片段与 reviewer 提示稳定前缀在前命中缓存。发现率或覆盖审计劣化即回退全量上下文。
+- 证据引用：scripts/analyze-request-cost.ts、scripts/preflight-requirement-facts.ts、scripts/build-review-reading-map.ts、tests/support/task-workflow/request-cost-analysis.test.ts、tests/support/testcase-review-reading-map.test.ts、tests/support/testcase-requirement-facts.test.ts、docs/research/requirement-parsing-cost-accuracy.md（含 5 请求基线表）
+- 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
+- 最近更新：2026-08-24T01:49:38.297Z
+<!-- project-experience:AEE6B7BA0667:end -->

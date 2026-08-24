@@ -14,6 +14,9 @@
 | 用例关系 | `npm run testcases:sync-relations -- <暂存套件目录>`、`npm run testcases:sync-relations -- --check <最终套件目录>` |
 | 用例评审工作簿 | `npm run task:manage -- testcase-review-prepare --request <id> --output <model.json>`；构建：`node scripts/build-testcase-review-workbook.mjs --model <model.json> --output <staged.xlsx> --preview-dir <目录> --receipt <receipt.json>`；发布：`npm run task:manage -- testcase-review-publish --request <id> --model <model.json> --workbook <staged.xlsx> --receipt <receipt.json> --output <运行档案>/cases-review.xlsx` |
 | 交付 Excel | `npx tsx scripts/export-testcase-delivery-xlsx.ts --cases <cases.md> --design <design.md> --request <type/project/request> --output outputs/<request>/<套件业务名>测试用例.xlsx` |
+| 请求成本分析 | `npm run cost:analyze -- --request <type/project/request> [--pre-slack-min <分钟>] [--post-slack-min <分钟>] [--sessions-dir <dir>] [--out <path>]`（时间+token 双口径，报告写入运行档案 `cost-report.md`） |
+| 需求事实预提取 | `npx tsx scripts/preflight-requirement-facts.ts --design <design.md>` 或 `--source <file.md> --lines <a-b>`（零推理候选事实表 + 行覆盖闭包审计，骨架阶段校对输入） |
+| reviewer 定向读取图 | `npx tsx scripts/build-review-reading-map.ts --design <design.md> [--only-rules <id,…>] [--out <path>]`（必读区间、交叉对照配对、可选抽查区间；定向读取指导，不改变评审快照） |
 | 资料索引 | `npm run check:knowledge-index`、`npm run knowledge:search -- ...` |
 | 上传摄取 | `npm run sources:ingest`（扫描上传暂存区并刷新待审队列，只读）、`npm run sources:ingest -- apply --item <id> --mode <register\|request-scoped\|ignore> [--dry-run] [--supersedes <materialId>] [--force-new] […]`（用户确认后登记/换版/忽略）、`npm run sources:ingest -- backfill`（为 manifest 存量材料补齐 sha256，幂等） |
 | 项目经验 | `npm run knowledge:manage -- candidate-add --project <project> --scope <scope> --observation <observation> --judgment <judgment> --strategy <strategy> --evidence <ref> --validation <condition>`；验证后使用 `candidate-promote` |

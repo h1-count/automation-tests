@@ -53,7 +53,7 @@
     "test:rule-design": "tsx --test tests/support/rule-design-preflight.test.ts",
     "test:testcase-quality": "tsx --test tests/support/testcase-quality-gate.test.ts tests/support/knowledge-decision.test.ts tests/support/markdown-format.test.ts tests/support/stage-run-envelope-rules.test.ts",
     "test:project-knowledge": "tsx --test tests/support/project-knowledge-candidates.test.ts",
-    "test:testcase-relations": "tsx --test tests/support/testcase-relation-projections.test.ts tests/support/testcase-document-v6-layered.test.ts tests/support/testcase-review-workbook.test.ts",
+    "test:testcase-relations": "tsx --test tests/support/testcase-relation-projections.test.ts tests/support/testcase-document-v6-layered.test.ts tests/support/testcase-review-workbook.test.ts tests/support/testcase-review-reading-map.test.ts tests/support/testcase-requirement-facts.test.ts",
     "testcases:sync-relations": "tsx scripts/sync-testcase-relations.ts",
     "testcases:revision-tier": "tsx scripts/check-revision-tier.ts",
     "task:status": "tsx src/support/task-workflow/cli/status.ts",
@@ -66,7 +66,8 @@
     "report:playwright": "playwright show-report artifacts/playwright-report",
     "report:allure": "allure generate artifacts/allure-results --clean -o artifacts/allure-report",
     "report": "npm run report:playwright",
-    "testcases:reproject": "tsx scripts/reproject-testcases.ts"
+    "testcases:reproject": "tsx scripts/reproject-testcases.ts",
+    "cost:analyze": "tsx scripts/analyze-request-cost.ts"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
