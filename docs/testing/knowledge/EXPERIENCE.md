@@ -20,17 +20,17 @@
 
 <!-- project-experience:D481E5946181:start -->
 <a id="exp-d481e5946181"></a>
-## 2026-08-19：测试工程用例集修订的评审路径选择与耗时控制
+## 2026-08-24：测试工程用例集修订的评审路径选择与耗时控制
 
 - 经验编号：EXP-D481E5946181
 - 适用范围：测试工程用例集修订的评审路径选择与耗时控制
-- 证据状态：待验证
-- 观察：create-product-20260819-r2 全程 141.8 分钟中有效 LLM 评审仅 13.6 分钟：40.3 分钟消耗在仅验证 2 个结构修复却被派发为全量复审（未带 affectedRef）的批次，64.4 分钟为需求歧义（F-06）拖到评审后才升级的中途用户等待；11 项评审发现中 8 项属可确定性拦截类别（计数漂移、模块归属错位、no_write 写动词、必填空值行、枚举口径）。
-- 判断：评审-修订回路的主要浪费不是生成或 LLM 慢，而是三类结构问题：结构级缺陷漏进 LLM 评审、有界修正被派发为全量复审、需求歧义未在 plan 停点前置裁决。
-- 当前优先策略：修订先跑 npm run testcases:revision-tier 对照已接受快照分级：structural 用 reviewer-dispatch/submit --deterministic 零 LLM 收口，scoped 用 --base-batch --affected-ref 定向单轮，substantive 才完整链；review-batch-start 必须声明 --activity/--affected-ref（同纪元全量复审有防呆警告）；plan 用「需求歧义与未定义预期」节把矛盾前移到 plan 确认回调一次裁决。
-- 证据引用：commit 179c0c2 修订分层 fast-lane 与收敛断路器修复（含 r2 时间轴复盘依据的测试）、tests/support/task-workflow/revision-tiers.test.ts
-- 验证条件：下一次修订轮按分层路径执行：structural 档零 LLM 收口、scoped 档单轮收敛，非用户等待相对 r2 显著缩短。
-- 最近更新：2026-08-19T07:44:12.325Z
+- 证据状态：正式执行已验证
+- 观察：r2-0824 域补全按分层路径完整执行一轮：substantive 全链评审（combined 5+impact 5=10 项发现）→ 修复演进 → --base-batch --affected-ref 定向复审（9 用例+4 规则切片，combined 4+impact 3=7 项）→ 口径闭合轮以 structural 档 --deterministic --classifier-digest 零 LLM 收口收敛。有效性实证：定向复审输入冻结无漂移、口径闭合未再派发 LLM 即收敛。残余缺口：首轮修复自身引入的跨请求视角问题（reusable_fixture 复用与「本请求造数」删除口径冲突、企业B 上线写入授权未闭合）仍需一轮 LLM 定向复审才暴露——「修复引入面」的新口径缝隙无法纯机判。
+- 判断：分层路径把收敛成本从「每轮全量 LLM」降为「首轮全链 + 定向复审 + 确定性收口」三级；结构类可机判项应在作者自检阶段拦截（本轮 sourceRef 行号漂移即冻结时转录失准，本可 sed 对照机验）；修复引入面必须再定向复审一轮，但纯口径闭合（不动断言主句）可确定性收口。
+- 当前优先策略：保持三级分层：结构类（计数漂移、行号对照、no_write 动词、参数化契约）进作者自检脚本化前置；修复演进后按「修复引入面」声明 affected-ref 定向复审一轮；复审员输入裁剪时把可机判项（基线重叠 git diff+sync-relations、原文自包含 grep）显式留给委托方确定性工具核验，避免评审员因输入不全报「无法机判」；纯口径闭合走 structural 零 LLM 收口。
+- 证据引用：commit 179c0c2（修订分层 fast-lane 与收敛断路器）；commit a8f02b3（r2-0824 套件演进产物，26 例含参数化）；tests/support/task-workflow/revision-tiers.test.ts
+- 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
+- 最近更新：2026-08-24T06:28:52.135Z
 <!-- project-experience:D481E5946181:end -->
 
 <!-- project-experience:EC6FEBC23D0C:start -->
@@ -227,3 +227,33 @@
 - 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
 - 最近更新：2026-08-24T01:49:38.297Z
 <!-- project-experience:AEE6B7BA0667:end -->
+
+<!-- project-experience:A85DA02E135C:start -->
+<a id="exp-a85da02e135c"></a>
+## 2026-08-24：测试工程 Durable 工作流手动推进的操作契约与产物所有权
+
+- 经验编号：EXP-A85DA02E135C
+- 适用范围：测试工程 Durable 工作流手动推进的操作契约与产物所有权
+- 证据状态：受控探索已验证
+- 观察：r2-0824 域补全请求手动推进中反复命中六类拒绝：等待回调期间编辑 plan 边界区导致主题漂移链（append-only 断言→subject changed→reopen 无子流→幂等冲突→请求作废重开）；向活动发布其不拥有的产物（case-generation 仅 cases.md，relation-sync/automatic_evolution 仅运行档案 plan+cases，套件文件只读）；120s 活动租约在修复+门禁耗时后过期；正式用户决定写入评审决定表被拒（需专属「## 正式用户决定」节：决定类型/subjectDigest/正式决定三列）；resolution=evolve 后 case-confirmation 因 activation 仅认 converged 保持 CANCELLED，必须再跑定向复审；确定性收口一员提交后批次轮转（新 id 带 r<hash> 后缀），旧批次 id 再派发触发幂等冲突。
+- 判断：手动推进的失败几乎都不是引擎缺陷而是契约未读：每类活动有封闭的产物所有权集合；回调等待期等于主题冻结期；正式决定区与评审记录区是两张表；evolve 是「再评审」信号而非「通过」信号；批次轮转后旧 id 即失效。
+- 当前优先策略：等待回调期间绝不编辑 plan 边界区，决定只经 callback-resolve 候选文件追加；发布前核对活动 owned artifacts 清单，套件文件仅在确认后手动落位；activity-start 与 artifact-publish-succeed 放同一命令串防租约过期，过期则 resume→reconcile retry→重领；正式决定先查先例 plan 的「## 正式用户决定」三列表；resolution=evolve 后按 --base-batch --affected-ref 规划定向复审，converged 才激活确认；批次轮转后从 workflow-history 尾部取最新批次 id 重绑评审员；纯口径闭合走 structural 档 --deterministic --classifier-digest 零 LLM 收口。
+- 证据引用：src/support/task-workflow/callbackDecision.ts（正式决定区校验）；src/support/task-workflow/definition.ts（activation 契约）；docs/testing/automation-guideline.md §3.14（Durable 生命周期与恢复）；commit 179c0c2（分层与断路器）
+- 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
+- 最近更新：2026-08-24T06:28:28.333Z
+<!-- project-experience:A85DA02E135C:end -->
+
+<!-- project-experience:0B78341B637A:start -->
+<a id="exp-0b78341b637a"></a>
+## 2026-08-24：测试工程参数化用例拆行的数据编号与操作列契约
+
+- 经验编号：EXP-0B78341B637A
+- 适用范围：测试工程参数化用例拆行的数据编号与操作列契约
+- 证据状态：受控探索已验证
+- 观察：新增参数化用例首次以 D1/D2 编号、两实例各占不同步骤号且操作列文本各异，被发布边界结构校验连续三次拒绝：数据编号须 D01-D99 两位定长；每数据实例步骤必须从 1 连续递增且步骤集合跨实例一致；同步骤号在不同数据实例中的操作列必须逐字一致。修正为 D01/D02、统一操作列、差异只落数据列后通过。
+- 判断：参数化拆行的机判契约是「编号两位定长 + 每实例独立且同构的步骤序列 + 操作列跨实例恒等 + 差异仅允许在数据与预期列」，这是派生区与执行行展开确定性的前提；手工拼装参数化块时最易在操作列顺手改写。
+- 当前优先策略：生成参数化块先写操作骨架，复制实例后只改数据列与预期列；两实例操作确需不同时拆为独立用例而非参数化；发布前依赖 artifact publish 内置结构校验拦截（勿试图绕过）。
+- 证据引用：tests/support/task-workflow 的 v6 分层文档校验测试；scripts/sync-testcase-relations.ts（派生区同步）；docs/testing/testcase-guideline.md 参数化拆行规范；commit a8f02b3（含合规参数化块 OPEN-LIST-004 的套件演进）
+- 验证条件：已通过当前证据验证；后续发现同范围冲突时以最新可审查记录更新
+- 最近更新：2026-08-24T06:28:38.852Z
+<!-- project-experience:0B78341B637A:end -->
