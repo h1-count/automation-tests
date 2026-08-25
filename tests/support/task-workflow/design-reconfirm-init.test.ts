@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
@@ -94,22 +95,6 @@ test("initialize materializes the design_reconfirm chain from a design-tier mani
   const root = await createDesignSuiteHarness();
   const requestRoot = resolve(root, ".local/test-runs/web/demo/reconfirm-run");
   await mkdir(requestRoot, { recursive: true });
-  await writeFile(resolve(requestRoot, "plan.md"), [
-    "# 运行意图：演示登录设计复验",
-    "",
-    "## 请求默认值",
-    "",
-    "| 项目 | 内容 |",
-    "| --- | --- |",
-    "| 测试请求 | web/demo/reconfirm-run |",
-    "| 测试类型 | Web |",
-    "| 目标环境 | test |",
-    "| 数据策略 | no_write |",
-    "",
-    "## 测试范围",
-    "",
-    "- 演示登录功能已确认设计套件的零漂移复验。"
-  ].join("\n"));
 
   const manager = new DurableWorkflowManager("web/demo/reconfirm-run", root);
   const gate = await manager.initialize({
@@ -119,7 +104,7 @@ test("initialize materializes the design_reconfirm chain from a design-tier mani
     deliveryTarget: "testcase_only"
   });
 
-  assert.equal(gate.definitionVersion, "v7");
+  assert.equal(gate.definitionVersion, "v9");
   assert.equal(gate.activities["reuse-assessment"]?.state, "SUCCEEDED");
   assert.equal(gate.activities["reuse-assessment"]?.outcome, "design_reconfirm");
   assert.equal(gate.activities["design-revalidation"]?.state, "SUCCEEDED");
@@ -130,8 +115,12 @@ test("initialize materializes the design_reconfirm chain from a design-tier mani
   assert.equal(confirmation.definition.metadata?.scope, "reconfirm");
   assert.deepEqual(confirmation.definition.metadata?.casePackages, ["cases.md"]);
   assert.equal(gate.activities["source-selection"], undefined);
+  assert.equal(gate.activities["candidate-skeleton"], undefined);
+  assert.equal(gate.activities["targeted-review"], undefined);
   assert.equal(gate.activities.build, undefined);
   assert.equal(gate.activities.readiness, undefined);
+  assert.equal(existsSync(resolve(requestRoot, "plan.md")), false);
+  assert.equal(existsSync(resolve(requestRoot, "run-intent.json")), true);
 
   const started = (await manager.events())[0]!;
   assert.equal(
@@ -144,18 +133,6 @@ test("the reconfirm case-confirmation subject binds the suite cases through the 
   const root = await createDesignSuiteHarness();
   const requestRoot = resolve(root, ".local/test-runs/web/demo/reconfirm-run-2");
   await mkdir(requestRoot, { recursive: true });
-  await writeFile(resolve(requestRoot, "plan.md"), [
-    "# 运行意图：演示登录设计复验",
-    "",
-    "## 请求默认值",
-    "",
-    "| 项目 | 内容 |",
-    "| --- | --- |",
-    "| 测试请求 | web/demo/reconfirm-run-2 |",
-    "| 测试类型 | Web |",
-    "| 目标环境 | test |",
-    "| 数据策略 | no_write |"
-  ].join("\n"));
 
   const manager = new DurableWorkflowManager("web/demo/reconfirm-run-2", root);
   await manager.initialize({
@@ -169,6 +146,22 @@ test("the reconfirm case-confirmation subject binds the suite cases through the 
   assert.match(subjectDigest, /^[a-f0-9]{64}$/u);
   // The subject must be stable across recomputation from the frozen suite assets.
   assert.equal(await manager.callbackSubjectDigest("case-confirmation"), subjectDigest);
+});
+
+test("a missing v9 run intent is rebuilt from the durable summary without appending history", async () => {
+  const root = await createDesignSuiteHarness();
+  const requestRoot = resolve(root, ".local/test-runs/web/demo/reconfirm-run-recovery");
+  await mkdir(requestRoot, { recursive: true });
+  const manager = new DurableWorkflowManager("web/demo/reconfirm-run-recovery", root);
+  await manager.initialize({
+    suiteId: "web/demo/registration", reuse: "auto", environment: "test", deliveryTarget: "testcase_only"
+  });
+  const before = await manager.events();
+  await rm(resolve(requestRoot, "run-intent.json"));
+  const recovered = await manager.recoverRunIntent();
+  assert.equal(recovered.reuseDecision, "design_reconfirm");
+  assert.equal((await manager.events()).length, before.length);
+  assert.equal(existsSync(resolve(requestRoot, "run-intent.json")), true);
 });
 
 test("initialize routes design-tier source drift into an isolated affected rebuild", async () => {
@@ -199,16 +192,39 @@ test("initialize routes design-tier source drift into an isolated affected rebui
   assert.equal(await readFile(stableCasesPath, "utf8"), stableCases);
 });
 
-test("initialize of a design_reconfirm run requires the run plan.md", async () => {
+test("an unprovable affected closure activates the same-request full candidate branch", async () => {
+  const root = await createDesignSuiteHarness();
+  const requestRoot = resolve(root, ".local/test-runs/web/demo/affected-fallback");
+  await mkdir(requestRoot, { recursive: true });
+  await writeFile(resolve(requestRoot, "plan.md"), "# 候选计划\n");
+  await writeFile(resolve(root, "sources/requirements/demo/requirement.md"), "requirement body v2\n");
+  const manager = new DurableWorkflowManager("web/demo/affected-fallback", root);
+  await manager.initialize({
+    suiteId: "web/demo/registration", reuse: "auto", environment: "test", deliveryTarget: "testcase_only"
+  });
+  const impact = await manager.startActivity("impact-location", "host");
+  await manager.succeedActivity("impact-location", { claimToken: impact.claimToken, verification: "impact located" });
+  const intent = await manager.startActivity("run-intent-derive", "host");
+  await manager.deriveCurrentRunIntent(intent.claimToken);
+  await rm(resolve(root, "testcases/web/demo/suites/registration/design.md"));
+  const closure = await manager.startActivity("impact-closure-build", "host");
+  const result = await manager.buildImpactClosure(closure.claimToken);
+  assert.equal(result.activities["impact-closure-build"]?.outcome, "full_replan");
+  assert.equal(result.activities["delta-preflight"]?.state, "CANCELLED");
+  assert.equal(result.activities["full-source-selection"]?.state, "READY");
+  assert.equal(result.activities["candidate-preflight"]?.state, "PENDING");
+});
+
+test("initialize of a design_reconfirm run derives run-intent without a run plan.md", async () => {
   const root = await createDesignSuiteHarness();
   const manager = new DurableWorkflowManager("web/demo/reconfirm-run-4", root);
-  await assert.rejects(
-    manager.initialize({
-      suiteId: "web/demo/registration",
-      reuse: "auto",
-      environment: "test",
-      deliveryTarget: "testcase_only"
-    }),
-    /Workflow initialization requires plan\.md/u
-  );
+  const gate = await manager.initialize({
+    suiteId: "web/demo/registration",
+    reuse: "auto",
+    environment: "test",
+    deliveryTarget: "testcase_only"
+  });
+  assert.equal(gate.definitionVersion, "v9");
+  assert.equal(existsSync(resolve(root, ".local/test-runs/web/demo/reconfirm-run-4/plan.md")), false);
+  assert.equal(existsSync(resolve(root, ".local/test-runs/web/demo/reconfirm-run-4/run-intent.json")), true);
 });

@@ -1,5 +1,5 @@
 /**
- * 请求成本分析（request-cost-analysis-v5）。
+ * 请求成本分析（request-cost-analysis-v6）。
  *
  * 从运行档案 workflow-history.ndjson 派生时间口径（活动净耗时/跨度/重试浪费、
  * reviewer 批次时长、人工等待），并聚合 DSH 会话日志的逐调用 token usage
@@ -10,7 +10,7 @@
  * 不含会话内容或标识原文（会话 ID 仅以 4 位掩码呈现）。
  */
 
-export const REQUEST_COST_ANALYSIS_SCHEMA_VERSION = "request-cost-analysis-v5";
+export const REQUEST_COST_ANALYSIS_SCHEMA_VERSION = "request-cost-analysis-v6";
 
 export type HistoryEventLike = {
   type: string;
@@ -31,7 +31,8 @@ export type ActivityCost = {
   attempts: number;
   busySeconds: number;
   wallSeconds: number;
-  wasteSeconds: number;
+  /** Only retry/reconciliation idle intervals, never unrelated reviewer wait. */
+  retryIdleSeconds: number;
   driftEvents: number;
   outcome: string;
   attemptDetails: ActivityAttemptCost[];
@@ -44,6 +45,8 @@ export type ActivityAttemptCost = {
   seconds: number;
   outcome: "succeeded" | "failed";
   attemptInferred: boolean;
+  /** Missing for old histories; it is intentionally not inferred as zero. */
+  modelSeconds?: number;
 };
 
 export type ReviewerSpan = {
@@ -53,6 +56,15 @@ export type ReviewerSpan = {
   endedAt: string;
   seconds: number;
   conclusion: string;
+};
+
+export type ReviewerModelCallTiming = {
+  batchId: string;
+  activityId: string;
+  attempt: number;
+  supplemental: boolean;
+  seconds?: number;
+  completed: boolean;
 };
 
 export type ReviewerBatchTiming = {
@@ -67,15 +79,23 @@ export type ReviewerBatchTiming = {
   slicedInputBytes: number;
   savedInputBytes: number;
   inputSavingsRatio: number;
+  modelCalls: number;
+  modelSeconds: number;
+  budgetHits: number;
+  unclosedCalls: number;
 };
 
 export type CandidateGenerationTiming = {
   skeletonSeconds: number;
+  skeletonModelSeconds: number;
   fragmentBusySeconds: number;
+  fragmentModelSeconds: number;
   fragmentWallSeconds: number;
   fragmentCriticalPathSeconds: number;
   assemblySeconds: number;
   fragmentCount: number;
+  modelTimingCapturedActivities: number;
+  modelTimingExpectedActivities: number;
 };
 
 export type RequestTimeline = {
@@ -87,8 +107,16 @@ export type RequestTimeline = {
   activities: ActivityCost[];
   candidateGeneration: CandidateGenerationTiming;
   reviewerSpans: ReviewerSpan[];
+  reviewerModelCalls: ReviewerModelCallTiming[];
   reviewerBatches: ReviewerBatchTiming[];
+  runIntent?: {
+    decision: string;
+    suiteId: string;
+    digest: string;
+    designModelCalls: number;
+  };
   humanWaitSeconds: number;
+  retryIdleSeconds: number;
 };
 
 export type UsageTotals = {
@@ -136,6 +164,9 @@ export function parseJsonl(text: string): HistoryEventLike[] {
  */
 export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeline {
   const activityStarts = new Map<string, Map<number, string>>();
+  const generationStarts = new Map<string, Map<number, string>>();
+  const retryStarts = new Map<string, string[]>();
+  const retryIntervals: Array<{ start: string; end: string }> = [];
   const activity = new Map<string, {
     attempts: number;
     busy: number;
@@ -143,11 +174,14 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
     last?: string;
     outcome: string;
     drift: number;
+    retryIdle: number;
     attemptDetails: ActivityAttemptCost[];
   }>();
   const openDispatches = new Map<string, string[]>();
   const openCallbacks = new Map<string, string>();
   const reviewerSpans: ReviewerSpan[] = [];
+  const reviewerModelCalls: ReviewerModelCallTiming[] = [];
+  const openReviewerModelCalls = new Map<string, { call: ReviewerModelCallTiming; startedAt: string }>();
   const reviewerBatches = new Map<string, {
     reReview: boolean;
     reusedReviewers: number;
@@ -155,6 +189,7 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
     packetBytesByActivity: Map<string, number>;
   }>();
   const reviewerDispatchActivities = new Map<string, string[]>();
+  let runIntent: RequestTimeline["runIntent"];
   let startedAt = "";
   let endedAt = "";
   let completed = false;
@@ -167,6 +202,7 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
       busy: 0,
       outcome: "",
       drift: 0,
+      retryIdle: 0,
       attemptDetails: []
     };
     activity.set(id, current);
@@ -202,7 +238,31 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
         activityStarts.set(activityId, openAttempts);
         started.attempts += 1;
         started.first = started.first ?? occurredAt;
+        const pendingRetry = retryStarts.get(activityId)?.shift();
+        if (pendingRetry) {
+          const seconds = Math.round(secondsBetween(pendingRetry, occurredAt));
+          started.retryIdle += seconds;
+          retryIntervals.push({ start: pendingRetry, end: occurredAt });
+        }
         break;
+      case "CandidateGenerationStarted": {
+        if (!activityId || !occurredAt) break;
+        const attempt = asNumber(payload.attempt);
+        if (!Number.isInteger(attempt) || attempt! <= 0) break;
+        const starts = generationStarts.get(activityId) ?? new Map<number, string>();
+        starts.set(attempt!, occurredAt);
+        generationStarts.set(activityId, starts);
+        break;
+      }
+      case "RunIntentDerived": {
+        const decision = asString(payload.decision);
+        const suiteId = asString(payload.suiteId);
+        const digest = asString(payload.digest);
+        if (decision && suiteId && digest) {
+          runIntent = { decision, suiteId, digest, designModelCalls: 0 };
+        }
+        break;
+      }
       case "ActivitySucceeded":
       case "ActivityFailed": {
         if (!activityId || !occurredAt) break;
@@ -219,8 +279,12 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
             attempt,
             seconds,
             outcome: event.type === "ActivitySucceeded" ? "succeeded" : "failed",
-            attemptInferred
+            attemptInferred,
+            ...(generationStarts.get(activityId)?.get(attempt)
+              ? { modelSeconds: Math.round(secondsBetween(generationStarts.get(activityId)!.get(attempt)!, occurredAt)) }
+              : {})
           });
+          generationStarts.get(activityId)?.delete(attempt);
           openAttempts?.delete(attempt);
           if (openAttempts?.size === 0) activityStarts.delete(activityId);
         }
@@ -230,6 +294,13 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
       }
       case "ArtifactDriftDetected":
         if (activityId) touch(activityId).drift += 1;
+        break;
+      case "RetryScheduled":
+        if (activityId && occurredAt) {
+          const starts = retryStarts.get(activityId) ?? [];
+          starts.push(occurredAt);
+          retryStarts.set(activityId, starts);
+        }
         break;
       case "ReviewerDispatched": {
         const batchId = asString(payload.batchId);
@@ -302,6 +373,32 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
         }
         break;
       }
+      case "ReviewerModelCallStarted": {
+        const batchId = asString(payload.batchId);
+        const attempt = asNumber(payload.attempt);
+        if (!occurredAt || !batchId || !activityId || !Number.isInteger(attempt) || attempt! <= 0) break;
+        const call: ReviewerModelCallTiming = {
+          batchId,
+          activityId,
+          attempt: attempt!,
+          supplemental: payload.supplemental === true,
+          completed: false
+        };
+        reviewerModelCalls.push(call);
+        openReviewerModelCalls.set(`${activityId}/${attempt}`, { call, startedAt: occurredAt });
+        break;
+      }
+      case "ReviewerModelCallCompleted": {
+        const attempt = asNumber(payload.attempt);
+        if (!occurredAt || !activityId || !Number.isInteger(attempt) || attempt! <= 0) break;
+        const open = openReviewerModelCalls.get(`${activityId}/${attempt}`);
+        if (open) {
+          open.call.completed = true;
+          open.call.seconds = Math.round(secondsBetween(open.startedAt, occurredAt));
+          openReviewerModelCalls.delete(`${activityId}/${attempt}`);
+        }
+        break;
+      }
       case "CallbackRequested": {
         const callbackId = asString(payload.callbackId);
         if (callbackId && occurredAt) openCallbacks.set(callbackId, occurredAt);
@@ -323,15 +420,31 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
     if (occurredAt && (!endedAt || occurredAt > endedAt)) endedAt = occurredAt;
   }
 
+  const mergedRetryIdleSeconds = (() => {
+    const intervals = retryIntervals
+      .map((interval) => ({ start: Date.parse(interval.start), end: Date.parse(interval.end) }))
+      .filter((interval) => !Number.isNaN(interval.start) && !Number.isNaN(interval.end) && interval.end >= interval.start)
+      .sort((left, right) => left.start - right.start);
+    let total = 0;
+    let current: { start: number; end: number } | undefined;
+    for (const interval of intervals) {
+      if (!current || interval.start > current.end) {
+        if (current) total += current.end - current.start;
+        current = interval;
+      } else {
+        current.end = Math.max(current.end, interval.end);
+      }
+    }
+    if (current) total += current.end - current.start;
+    return Math.round(total / 1000);
+  })();
   const activities: ActivityCost[] = [...activity.entries()]
     .map(([id, record]) => ({
       activityId: id,
       attempts: record.attempts,
       busySeconds: Math.round(record.busy),
       wallSeconds: record.first && record.last ? Math.round(secondsBetween(record.first, record.last)) : 0,
-      wasteSeconds: record.first && record.last
-        ? Math.max(0, Math.round(secondsBetween(record.first, record.last) - record.busy))
-        : 0,
+      retryIdleSeconds: record.retryIdle,
       driftEvents: record.drift,
       outcome: record.outcome,
       attemptDetails: [...record.attemptDetails].sort((left, right) => left.attempt - right.attempt)
@@ -339,21 +452,33 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
     .sort((left, right) => left.activityId.localeCompare(right.activityId));
   const byActivity = new Map(activities.map((item) => [item.activityId, item]));
   const fragmentRecords = [...activity.entries()]
-    .filter(([id]) => id.startsWith("candidate-fragment-"));
+    .filter(([id]) => /^(?:delta-)?candidate-fragment-/u.test(id));
+  const skeletonRecords = [...activity.entries()]
+    .filter(([id]) => /^(?:delta-)?candidate-skeleton$/u.test(id));
+  const assemblyRecords = [...activity.entries()]
+    .filter(([id]) => /^(?:delta-)?candidate-assemble$/u.test(id));
   const fragmentFirst = fragmentRecords.map(([, item]) => item.first).filter((value): value is string => Boolean(value));
   const fragmentLast = fragmentRecords.map(([, item]) => item.last).filter((value): value is string => Boolean(value));
   const fragmentWallSeconds = fragmentFirst.length && fragmentLast.length
     ? Math.round(secondsBetween(fragmentFirst.sort()[0]!, fragmentLast.sort().at(-1)!))
     : 0;
   const candidateGeneration: CandidateGenerationTiming = {
-    skeletonSeconds: byActivity.get("candidate-skeleton")?.busySeconds ?? 0,
+    skeletonSeconds: skeletonRecords.reduce((sum, [, item]) => sum + Math.round(item.busy), 0),
+    skeletonModelSeconds: skeletonRecords.reduce((sum, [, item]) => sum + item.attemptDetails
+      .reduce((attemptSum, attempt) => attemptSum + (attempt.modelSeconds ?? 0), 0), 0),
     fragmentBusySeconds: fragmentRecords.reduce((sum, [, item]) => sum + Math.round(item.busy), 0),
+    fragmentModelSeconds: fragmentRecords.reduce((sum, [, item]) => sum + item.attemptDetails
+      .reduce((attemptSum, attempt) => attemptSum + (attempt.modelSeconds ?? 0), 0), 0),
     fragmentWallSeconds,
     fragmentCriticalPathSeconds: Math.max(0, ...fragmentRecords.map(([, item]) =>
       item.first && item.last ? Math.round(secondsBetween(item.first, item.last)) : 0
     )),
-    assemblySeconds: byActivity.get("candidate-assemble")?.busySeconds ?? 0,
-    fragmentCount: fragmentRecords.length
+    assemblySeconds: assemblyRecords.reduce((sum, [, item]) => sum + Math.round(item.busy), 0),
+    fragmentCount: fragmentRecords.length,
+    modelTimingCapturedActivities: [...skeletonRecords.map(([id]) => id), ...fragmentRecords.map(([id]) => id)]
+      .filter((id) => byActivity.get(id)?.attemptDetails.some((item) => item.modelSeconds !== undefined)).length,
+    modelTimingExpectedActivities: [...skeletonRecords.map(([id]) => id), ...fragmentRecords.map(([id]) => id)]
+      .filter((id) => byActivity.has(id)).length
   };
   const reviewerBatchTimings: ReviewerBatchTiming[] = [...reviewerBatches.entries()]
     .map(([batchId, metadata]) => {
@@ -379,6 +504,11 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
         slicedInputBytes,
         savedInputBytes,
         inputSavingsRatio: rawInputBytes === 0 ? 0 : savedInputBytes / rawInputBytes
+        ,modelCalls: reviewerModelCalls.filter((call) => call.batchId === batchId).length
+        ,modelSeconds: reviewerModelCalls.filter((call) => call.batchId === batchId)
+          .reduce((sum, call) => sum + (call.seconds ?? 0), 0)
+        ,budgetHits: reviewerModelCalls.filter((call) => call.batchId === batchId && call.supplemental).length
+        ,unclosedCalls: reviewerModelCalls.filter((call) => call.batchId === batchId && !call.completed).length
       };
     })
     .sort((left, right) => left.batchId.localeCompare(right.batchId));
@@ -392,8 +522,11 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
     activities,
     candidateGeneration,
     reviewerSpans,
+    reviewerModelCalls,
     reviewerBatches: reviewerBatchTimings,
-    humanWaitSeconds: Math.round(humanWait)
+    ...(runIntent ? { runIntent } : {}),
+    humanWaitSeconds: Math.round(humanWait),
+    retryIdleSeconds: mergedRetryIdleSeconds
   };
 }
 
@@ -462,7 +595,6 @@ function formatMinutes(seconds: number): string {
 
 export function buildCostReport(input: CostReportInput): string {
   const { timeline, sessions, degradations, window } = input;
-  const retryWaste = timeline.activities.reduce((sum, item) => sum + item.wasteSeconds, 0);
   const totals = sessions.reduce<UsageTotals>(
     (acc, item) => ({
       calls: acc.calls + item.totals.calls,
@@ -480,42 +612,45 @@ export function buildCostReport(input: CostReportInput): string {
   lines.push("| 指标 | 值 |", "| --- | --- |");
   lines.push(`| 工作流窗口 | ${timeline.startedAt} → ${timeline.endedAt}（${formatMinutes(timeline.wallSeconds)}） |`);
   lines.push(`| 终态 | ${timeline.completed ? "WorkflowCompleted" : "未终态"} |`);
-  lines.push(`| 重试/漂移空闲（按活动求和，可大于 wall） | ${formatMinutes(retryWaste)}（${timeline.activities.reduce((sum, item) => sum + item.driftEvents, 0)} 次漂移） |`);
+  lines.push(`| 重试/对账空闲（区间并集） | ${formatMinutes(timeline.retryIdleSeconds)}（${timeline.activities.reduce((sum, item) => sum + item.driftEvents, 0)} 次漂移） |`);
   lines.push(`| 人工等待（callback） | ${formatMinutes(timeline.humanWaitSeconds)} |`);
   const reviewerRawBytes = timeline.reviewerBatches.reduce((sum, batch) => sum + batch.rawInputBytes, 0);
   const reviewerSlicedBytes = timeline.reviewerBatches.reduce((sum, batch) => sum + batch.slicedInputBytes, 0);
   const reviewerSavedBytes = reviewerRawBytes - reviewerSlicedBytes;
   lines.push(`| reviewer 输入分片 | 原始 ${reviewerRawBytes} B · 分发 ${reviewerSlicedBytes} B · 节省 ${reviewerSavedBytes} B（${reviewerRawBytes === 0 ? "0.0" : ((reviewerSavedBytes / reviewerRawBytes) * 100).toFixed(1)}%） |`);
   lines.push(`| token 总计（窗口内） | 调用 ${totals.calls} · input ${totals.inputTokens} · output ${totals.outputTokens} · cacheRead ${totals.cacheReadTokens} |`, "");
+  if (timeline.runIntent) {
+    lines.push(`- 运行意图：${timeline.runIntent.decision} · 套件 ${timeline.runIntent.suiteId} · 设计侧 LLM 调用数 = ${timeline.runIntent.designModelCalls}。`, "");
+  }
   lines.push("## 候选分片关键路径", "");
-  lines.push("| 骨架 | 分片数 | 分片净耗时合计 | 分片墙钟 | 分片关键路径 | 汇总 |",
-    "| --- | --- | --- | --- | --- | --- |");
-  lines.push(`| ${formatMinutes(timeline.candidateGeneration.skeletonSeconds)} | ${timeline.candidateGeneration.fragmentCount} | ${formatMinutes(timeline.candidateGeneration.fragmentBusySeconds)} | ${formatMinutes(timeline.candidateGeneration.fragmentWallSeconds)} | ${formatMinutes(timeline.candidateGeneration.fragmentCriticalPathSeconds)} | ${formatMinutes(timeline.candidateGeneration.assemblySeconds)} |`, "");
+  lines.push("| 骨架编排 | 骨架模型 | 分片数 | 分片编排合计 | 分片模型合计 | 分片墙钟 | 分片关键路径 | 汇总 | 模型计时采集 |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |");
+  lines.push(`| ${formatMinutes(timeline.candidateGeneration.skeletonSeconds)} | ${formatMinutes(timeline.candidateGeneration.skeletonModelSeconds)} | ${timeline.candidateGeneration.fragmentCount} | ${formatMinutes(timeline.candidateGeneration.fragmentBusySeconds)} | ${formatMinutes(timeline.candidateGeneration.fragmentModelSeconds)} | ${formatMinutes(timeline.candidateGeneration.fragmentWallSeconds)} | ${formatMinutes(timeline.candidateGeneration.fragmentCriticalPathSeconds)} | ${formatMinutes(timeline.candidateGeneration.assemblySeconds)} | ${timeline.candidateGeneration.modelTimingCapturedActivities}/${timeline.candidateGeneration.modelTimingExpectedActivities}${timeline.candidateGeneration.modelTimingCapturedActivities === timeline.candidateGeneration.modelTimingExpectedActivities ? "" : "（未采集不按 0 计）"} |`, "");
   lines.push("## 时间口径（按活动）", "");
-  lines.push("| 活动 | 尝试 | 净耗时 | 跨度 | 浪费 | 漂移 | 终态 |");
+  lines.push("| 活动 | 尝试 | 编排净耗时 | 跨度 | 重试/对账空闲 | 漂移 | 终态 |");
   lines.push("| --- | --- | --- | --- | --- | --- | --- |");
   for (const item of timeline.activities) {
-    lines.push(`| ${item.activityId} | ${item.attempts} | ${formatMinutes(item.busySeconds)} | ${formatMinutes(item.wallSeconds)} | ${formatMinutes(item.wasteSeconds)} | ${item.driftEvents} | ${item.outcome || "—"} |`);
+    lines.push(`| ${item.activityId} | ${item.attempts} | ${formatMinutes(item.busySeconds)} | ${formatMinutes(item.wallSeconds)} | ${formatMinutes(item.retryIdleSeconds)} | ${item.driftEvents} | ${item.outcome || "—"} |`);
   }
   lines.push("", "## 时间口径（按尝试）", "");
-  lines.push("| 活动 | 尝试 | 耗时 | 结束 | attempt 来源 |", "| --- | --- | --- | --- | --- |");
+  lines.push("| 活动 | 尝试 | 编排耗时 | 模型耗时 | 结束 | attempt 来源 |", "| --- | --- | --- | --- | --- |");
   const attempts = timeline.activities.flatMap((item) => item.attemptDetails.map((attempt) => ({
     activityId: item.activityId,
     ...attempt
   })));
   if (!attempts.length) {
-    lines.push("| 无可配对尝试 | — | — | — | — |");
+    lines.push("| 无可配对尝试 | — | — | — | — | — |");
   }
   for (const attempt of attempts) {
-    lines.push(`| ${attempt.activityId} | ${attempt.attempt} | ${formatMinutes(attempt.seconds)} | ${attempt.outcome} | ${attempt.attemptInferred ? "从历史事件推断" : "事件声明"} |`);
+    lines.push(`| ${attempt.activityId} | ${attempt.attempt} | ${formatMinutes(attempt.seconds)} | ${attempt.modelSeconds === undefined ? "未采集" : formatMinutes(attempt.modelSeconds)} | ${attempt.outcome} | ${attempt.attemptInferred ? "从历史事件推断" : "事件声明"} |`);
   }
   lines.push("", "## reviewer 批次", "");
-  lines.push("| 批次 | 类型 | 已派发 | 复用免派 | 墙钟 | 原始输入 | 分片输入 | 节省 |", "| --- | --- | --- | --- | --- | --- | --- | --- |");
+  lines.push("| 批次 | 类型 | 已派发 | 复用免派 | 墙钟 | 模型调用/墙钟 | 补充调用 | 未闭合 | 原始输入 | 分片输入 | 节省 |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
   if (timeline.reviewerBatches.length === 0) {
-    lines.push("| 无 | — | — | — | — | — | — | — |");
+    lines.push("| 无 | — | — | — | — | 未采集 | — | — | — | — | — |");
   }
   for (const batch of timeline.reviewerBatches) {
-    lines.push(`| ${batch.batchId} | ${batch.reReview ? "复审" : "首轮"} | ${batch.dispatchedReviewers} | ${batch.reusedReviewers} | ${formatMinutes(batch.wallSeconds)} | ${batch.rawInputBytes} B | ${batch.slicedInputBytes} B | ${batch.savedInputBytes} B（${(batch.inputSavingsRatio * 100).toFixed(1)}%） |`);
+    lines.push(`| ${batch.batchId} | ${batch.reReview ? "复审" : "首轮"} | ${batch.dispatchedReviewers} | ${batch.reusedReviewers} | ${formatMinutes(batch.wallSeconds)} | ${batch.modelCalls ? `${batch.modelCalls}/${formatMinutes(batch.modelSeconds)}` : "未采集"} | ${batch.budgetHits} | ${batch.unclosedCalls} | ${batch.rawInputBytes} B | ${batch.slicedInputBytes} B | ${batch.savedInputBytes} B（${(batch.inputSavingsRatio * 100).toFixed(1)}%） |`);
   }
   lines.push("", "## reviewer 派发明细", "");
   lines.push("| 批次 | 角色 | 时长 | 结论 |", "| --- | --- | --- | --- |");
@@ -534,6 +669,7 @@ export function buildCostReport(input: CostReportInput): string {
   lines.push(`| 总计 | — | ${totals.calls} | ${totals.inputTokens} | ${totals.outputTokens} | ${totals.cacheReadTokens} |`);
   lines.push("", "## 降级与口径说明", "");
   lines.push("- token 去重口径：仅计会话日志 `assistant/message` 记录（每模型调用一条）；`assistant/chunk` 携带的 usage 与之重复，不计数。");
+  lines.push("- 模型耗时只由 v8 专用 CandidateGenerationStarted 与 ReviewerModelCallStarted/Completed 事件计量；旧运行显示“未采集”，不推断为 0。重试/对账空闲只统计 RetryScheduled 到下一次尝试开始的区间并集。");
   lines.push("- 会话扫描按时间窗过滤；与请求并发的外部会话可能混入，按行人工甄别（标签列标注 reviewer 映射）。");
   if (degradations.length > 0) {
     for (const note of degradations) lines.push(`- ${note}`);

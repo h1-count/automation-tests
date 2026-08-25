@@ -232,16 +232,32 @@ function roleCaseScope(
   activityId: string,
   role: string,
   assessment: CaseReviewRiskAssessment,
-  adaptiveSemanticReview = false
+  adaptiveSemanticReview = false,
+  affectedRefs: readonly string[] = []
 ): ReviewRoleCaseScope {
   assertActivityId(activityId);
   const normalizedRole = role.trim();
   if (!normalizedRole) throw new Error("Review role scope requires a role.");
-  const selected = normalizedRole === "impact"
+  const baseline = normalizedRole === "impact"
     ? assessment.cases.filter((item) => item.level === "strict")
     : normalizedRole === "combined"
       ? assessment.cases.filter((item) => adaptiveSemanticReview || item.level !== "light")
       : assessment.cases;
+  // A scoped revision receives only its REQ -> RULE -> case closure. Empty,
+  // global or broad closures intentionally fall back to the baseline scope:
+  // narrowing ambiguous security/default-policy changes would hide risk.
+  const refs = new Set(affectedRefs.map((value) => value.trim()).filter(Boolean));
+  const globalRef = [...refs].some((value) => /请求默认值|数据策略|权限|安全|环境|default|security|permission/iu.test(value));
+  const closure = refs.size && !globalRef
+    ? assessment.cases.filter((item) =>
+      refs.has(item.caseId)
+      || item.requirementRefs.some((ref) => refs.has(ref))
+      || item.ruleRefs.some((ref) => refs.has(ref))
+    )
+    : [];
+  const selected = closure.length > 0 && closure.length <= 8
+    ? baseline.filter((item) => closure.some((target) => target.caseId === item.caseId))
+    : baseline;
   if (!selected.length && normalizedRole !== "impact") {
     throw new Error(`Review role ${normalizedRole} has no applicable case scope.`);
   }
@@ -327,7 +343,8 @@ export function buildReviewBatchScopeV3(
         activityId,
         role,
         input.caseRiskAssessment,
-        input.adaptiveSemanticReview
+        input.adaptiveSemanticReview,
+        input.affectedRefs
       )
     ),
     reviewEpochDigest: input.reviewEpochDigest,

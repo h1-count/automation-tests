@@ -114,13 +114,13 @@ setup → 正式测试 → teardown → 报告
 
 事件至少包含 `schemaVersion`、`eventId`、`seq`、`runId`、`requestId`、`definitionId`、`definitionVersion`、`type`、`occurredAt`、`actorType`、`idempotencyKey`、`payload`、`prevDigest` 和 `digest`。核心类型包括：
 
-- 工作流：`WorkflowStarted`、`ActivitiesExpanded`、`WorkflowSuspended`、`WorkflowResumed`、`WorkflowCompleted`、`WorkflowCancelled`。历史中已存在的 `LegacyStateImported` 只允许 replay，事件追加和 CLI 均不提供迁移入口。
+- 工作流：`WorkflowStarted`、`ActivitiesExpanded`、`RunIntentDerived`、`ImpactClosureBuilt`、`DesignDeltaPrepared`、`WorkflowSuspended`、`WorkflowResumed`、`WorkflowCompleted`、`WorkflowCancelled`。历史中已存在的 `LegacyStateImported` 只允许 replay，事件追加和 CLI 均不提供迁移入口。
 - Activity：`ActivityAttemptStarted`、`ActivitySucceeded`、`ActivityFailed`、`RetryScheduled`、`ActivitiesInvalidated`。
 - 产物与副作用：`ArtifactPublishPrepared`、`ArtifactDriftDetected`、`ExternalOperationStarted`、`ExternalOperationReconciled`。
 - 人工与阻塞：`CallbackRequested`、`CallbackResolved`、`PlanConfirmationCarriedForward`、`BlockerRaised`、`BlockerResolved`。
-- 评审：`ReviewBatchStarted`、`ReviewerDispatched`、`ReviewerSubmitted`、`ReviewBatchInvalidated`。
+- 评审：`ReviewBatchStarted`、`ReviewerDispatched`、`ReviewerModelCallStarted`、`ReviewerModelCallCompleted`、`ReviewerSubmitted`、`ReviewBatchInvalidated`。
 
-事件禁止保存密码、验证码、Cookie、Token、真实用户数据、宿主任务或会话 ID、reviewer/Agent 任务标识、claim token 与 lease。宿主 reviewer 绑定只写 `.local/test-task-runtime/`；history 只保存角色、Activity、输入摘要和派发/提交语义，`plan.md` 只保存设计索引、正式决定和评审结论。新请求使用 v7；已有 v5/v6 history 按其展开定义继续恢复，不迁移、不重写；v3、v4、`vnext-1` 和含 `LegacyStateImported` 的旧历史只读 replay。
+事件禁止保存密码、验证码、Cookie、Token、真实用户数据、宿主任务或会话 ID、reviewer/Agent 任务标识、claim token 与 lease。宿主 reviewer 绑定只写 `.local/test-task-runtime/`；history 只保存角色、Activity、输入摘要和派发/提交语义，`plan.md` 只保存设计索引、正式决定和评审结论。新建复用请求使用 v9：`direct_execute`/`design_reconfirm` 以 `run-intent-v1` 替代运行 plan，设计侧 LLM 调用数必须为零；affected 分支在初始化时固定 delta/full-replan 双分支，闭包结果只激活其中一个，历史图不得事后改写。v7/v8 与已有 v5/v6 history 按其展开定义继续恢复，不迁移、不重写；v3、v4、`vnext-1` 和含 `LegacyStateImported` 的旧历史只读 replay。
 
 #### Activity、工作流与测试结果
 
@@ -164,7 +164,7 @@ v7 分支固定为：
 
 #### 完整设计分支、Activity 命令与恢复
 
-v8 `full_replan` 的用户可见设计交互固定为：“读取资料 → 自动生成完整候选用例集 → 自动门禁与评审 → 一次用例确认”。内部使用 `source-selection → candidate-skeleton → 分片子图 → candidate-assemble → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`；骨架成功后只允许一次 `CandidateGraphExpanded`，其模块、RULE 归属和图摘要不可再变。`candidate-assemble` 是仓库内确定性控制面：宿主只需领取它并调用 `task:manage candidate-assemble --claim <lease> --publish <id> --verified <evidence>`，工具从已发布分片重建并原子发布 `cases.md`，不再请求模型汇总。旧 v7/v2 history 仍按原图回放。`case-confirmation` 前不得创建其他 callback、请求用户发送“继续”或分批确认 REQ、RULE、计划或用例包。
+v8 `full_replan` 的用户可见设计交互固定为：“读取资料 → 自动生成完整候选用例集 → 自动门禁与评审 → 一次用例确认”。内部使用 `source-selection → candidate-preflight → candidate-skeleton → 分片子图 → candidate-assemble → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`（affected 分支以 `impact-location` 替换 source-selection）。预检仅以宿主的暂存 plan 原子发布通过版本，不通过则记录可重试失败；骨架和每个分片必须以 `candidate-generation-start` 启动，原子登记模型计时，通用 `activity-start` 不适用。骨架成功后只允许一次 `CandidateGraphExpanded`，其模块、RULE 归属和图摘要不可再变。`candidate-assemble` 是仓库内确定性控制面：宿主只需领取它并调用 `task:manage candidate-assemble --claim <lease> --publish <id> --verified <evidence>`，工具从已发布分片重建并原子发布 `cases.md`，不再请求模型汇总。旧 v7/v2 history 仍按原图回放。`case-confirmation` 前不得创建其他 callback、请求用户发送“继续”或分批确认 REQ、RULE、计划或用例包。
 
 复审必须优先传入前序 `baseBatchId`。未手工指定 reviewer 范围时，系统以冻结的角色级语义摘要计算变化：仅重新派发摘要变化的角色，未变化角色复用已收敛的证据；无角色级语义变化时不新建复审批次。手工 `--activity/--affected-ref` 仍是显式覆盖，严格范围与受影响重建的既有约束不变。
 
@@ -333,9 +333,11 @@ Web/H5 在 `build` Activity 内按“资格满足时的只读真实页面候选�
 
 新精简流程冻结 `candidate-gate-v1` 和 `review-policy-v3`。`deterministic_only` 不创建 reviewer 事件；`combined/impact` 只由语义风险触发。硬缺口在 reviewer 派发前一次性返回。适用角色、发现项和可提交标准只由[用例规范](./testcase-guideline.md)定义。
 
-批次输入由 manager 从 `plan.md`、定义声明的用例集和计划实际引用的受控/请求内来源读取并计算，调用方不得注入摘要。`review-input-snapshot-v3` 同时冻结完整原件、语义输入摘要、角色输入摘要和 `reviewer-input-packet-v1`：派发仅提供该角色的用例块、REQ/RULE 台账行、可定位的来源摘录及全局边界；完整原件只用于恢复与审计。history 只登记 packet 的 runtime 路径、摘要和字节数，不写正文。`review-batch-scope-v3` 冻结 epoch、语义演进轮次和角色 scope。reviewer 记录、workflow、工程和报告区块不进入语义输入。新 v3 的 `combined` 读取语义触发的相关 case，包括因冲突或待确认而触发的 light case；`impact` 读取写入/strict case 及安全邻域。旧 v1/v2 批次保留原输入语义并只读回放。
+批次输入由 manager 从 `plan.md`、定义声明的用例集和计划实际引用的受控/请求内来源读取并计算，调用方不得注入摘要。新 v8 `ReviewBatchStarted` 固定 `inputDigestAlgorithm: review-input-digest-v4`；缺少该字段的旧 v8 批次仅按历史摘要、路径和后续 dispatch/submit 一致性只读回放，不把当前算法反算为历史错误。`review-input-snapshot-v3` 同时冻结完整原件、语义输入摘要、角色输入摘要和 `reviewer-input-packet-v1`：派发仅提供该角色的用例块、REQ/RULE 台账行、可定位的来源摘录及全局边界；完整原件只用于恢复与审计。history 只登记 packet 的 runtime 路径、摘要和字节数，不写正文。`review-batch-scope-v3` 冻结 epoch、语义演进轮次和角色 scope。reviewer 记录、workflow、工程和报告区块不进入语义输入。新 v3 的 `combined` 读取语义触发的相关 case，包括因冲突或待确认而触发的 light case；`impact` 读取写入/strict case 及安全邻域。旧 v1/v2 批次保留原输入语义并只读回放。
 
 每次 `reviewer-dispatch` 和 `reviewer-submit` 都必须携带宿主创建真实只读子 Agent 后返回的 `agentTaskId`。该标识必须与主 session/thread 不同，只写 runtime；提交前 manager 必须验证同一 `batchId + activityId + role` 的 running binding。新 `ReviewerSubmitted` 只持久化不含标识的隔离证明版本。缺少绑定、runtime 丢失或绑定不一致时不写提交事件，gate 输出 rebind；durable 派发已成功但 runtime 写入失败时仍只保留一次派发。旧 history 继续回放，但缺少新隔离证明的旧批次不能冒充修复后的真实隔离证据。
+
+新 v8 批次还固定 `reviewer-execution-policy-v1`：宿主在每次实际 LLM 调用前以专用 CLI 领取该 reviewer attempt 的调用配额并记录开始，完成后只记录结果摘要与耗时。每 attempt 默认一次主调用；仅首响结构无效、失效摘要已登记且剩余墙钟允许时可补充一次。自首个调用开始到提交不得超过 10 分钟；确定性 structural reviewer 不能登记模型调用。调用事件不保存模型正文、密钥或宿主任务标识；成本报告把 reviewer 模型墙钟、补充预算命中、未闭合调用和批次关键路径分开列示。
 
 初审批次默认覆盖当前草案的完整适用范围；自动演进后的批次优先使用定向复审。每个定向 scope 必须绑定 `affectedRefs`、`baseBatchId`、复审原因、明确排除引用，以及所有未重审角色的可复用 `ReviewerSubmitted` 证据；缺少任一未重审角色证据时安全失败，不能把“未派发”视为沿用通过。只有变更跨业务域、触及共享规则邻域、数据/执行边界或安全影响，或者无法证明局部影响时，才扩大受影响引用或回到完整适用评审。
 

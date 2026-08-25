@@ -38,6 +38,8 @@
 
 Activity、重试、等待、完整度和终态只来自 `workflow-history.ndjson` 与真实产物，不写入 `plan.md`。设计台账（REQ、RULE、来源登记、缺口与风险、变更记录）在套件 `design.md` 维护，不在运行档案中重复。不再维护平行覆盖矩阵、用例包目录或重复 caseId 清单。
 
+v9 的 `direct_execute` 和 `design_reconfirm` 不创建 `plan.md`：运行档案改用 `run-intent.json`（`run-intent-v1`），仅记录套件/版本、复用结论、环境、交付目标、选中 caseId、来源与边界摘要以及安全路径引用。`affected_rebuild` 同时保留本轮候选 `plan.md` 与运行意图；它的 plan 只能经候选预检原子发布。运行意图不是稳定设计资产，也不得记录业务需求正文、授权、账号、能力、数据台账、清理结论或执行结果。删除本机文件后可由 `RunIntentDerived` 与稳定套件重新派生，恢复不得追加 history。
+
 ### 2.2 来源登记
 
 用户直接指定的 Word、PDF、原型或附件可直接按 `request-local-source-v1` 登记为请求内来源（记录在运行档案 plan.md，供该次运行引用），不要求预先写入 `sources/manifest.yaml`。每份实际引用的来源计算一次 SHA-256，并记录：
@@ -63,10 +65,10 @@ Activity、重试、等待、完整度和终态只来自 `workflow-history.ndjso
 
 ### 3.1 v8 candidate-generation 分片并行
 
-新建 v8 请求按“冻结骨架 → 并行片段 → 确定性拼装”执行。`candidate-skeleton` 原子发布 `candidate-fragments/manifest.json` 后，`CandidateGraphExpanded` 把模块清单冻结为一次不可变子图；每个 `candidate-fragment-<moduleId>` 是独立可续租、重试和限流的 Activity，默认最多并发 3 个。旧 v7 history 仍按单一 `candidate-generation` Activity 只读回放。
+新建 v8 请求按“严格预检 → 冻结骨架 → 并行片段 → 确定性拼装”执行。`candidate-preflight` 只接受宿主准备的 plan 暂存文件；通过 `candidate-plan-preflight-v1` 后才原子发布 `plan.md` 并允许骨架开始。`candidate-skeleton` 原子发布 `candidate-fragments/manifest.json` 后，`CandidateGraphExpanded` 把模块清单冻结为一次不可变子图；每个 `candidate-fragment-<moduleId>` 是独立可续租、重试和限流的 Activity，默认最多并发 3 个。旧 v7 history 仍按单一 `candidate-generation` Activity 只读回放。
 
 1. **冻结骨架**：先产出 plan 草案，确定模块清单、`REQ → RULE` 台账、每条 RULE 的设计方法，并按模块为 `RULE/caseId` 分配唯一前缀段。骨架一旦冻结就是各片段的唯一分工依据；片段不得改动骨架、跨段补号或引用其他模块的 case。
-2. **并行片段**：每个模块一个独立生成请求，输入只含该模块的骨架切片（模块名、关联 `RULE` 与来源引用、前缀段、优先级与风险指引）和命中的冻结来源；输出只写该模块 `## 模块：…` 下的折叠详情，不含文件头、统计行、快速索引。片段之间不共享推理，跨模块依赖只能回到骨架表达。宿主对可能超过 120 秒的调用必须用 `createCandidateFragmentLeaseKeepalive()` 每租约三分之一续约；续约失败后停止新调用与发布，`assertHealthy()` 失败即交由既有对账恢复。
+2. **并行片段**：每个模块一个独立生成请求，输入只含该模块的骨架切片（模块名、关联 `RULE` 与来源引用、前缀段、优先级与风险指引）和命中的冻结来源；输出只写该模块 `## 模块：…` 下的折叠详情，不含文件头、统计行、快速索引。骨架及分片必须由 `task:manage candidate-generation-start` 领取；该命令以同一原子事件序列登记租约、尝试和模型调用开始，发布前缺少当前 attempt 计时即拒绝。片段之间不共享推理，跨模块依赖只能回到骨架表达。宿主对可能超过 120 秒的骨架或分片调用必须用 `createCandidateGenerationLeaseKeepalive()` 每租约三分之一续约；续约失败后停止新调用与发布，`assertHealthy()` 失败即交由既有对账恢复。
 3. **确定性拼装**：按骨架顺序把运行档案 `candidate-fragments/<moduleId>.md` 拼成单一 `cases.md`；统计、快速索引与 `RULE → caseId` 投影一律由工具从折叠详情确定性重建（派生区契约见 §4.2），禁止手写或修改派生区。片段被确定性检查判无效时只重新生成该模块片段，不重跑整份生成，也不因片段失败扩大或缩小骨架范围。片段正文不写 workflow history，只登记路径与 SHA-256；不得直接改写稳定套件。
 
 骨架阶段的需求事实预提取（`requirement-facts-v1`，2026-08-21 起）：冻结骨架前先对命中的冻结来源运行 `npx tsx scripts/preflight-requirement-facts.ts --design <design.md>`（无套件台账时用 `--source <file> --lines <a-b>`），产出零推理候选事实表（上限/下限、必填、格式、分页/排序、枚举、状态的原文逐字引用）与覆盖闭包审计（scope 内未被引用的间隙区间及其中内容行）。主 Agent 逐条校对候选：已建模 → 对应 RULE；未建模 → 登记歧义或排除；间隙区间内的内容行必须在 `design.md` 需求索引「适用性」或「缺口与风险」显式登记（不适用/排除/语义登记），未登记即漏覆盖。候选表兜底 §3.2 红线 6 的边界建模，不替代红线 5 的平行段交叉对照。
@@ -156,7 +158,9 @@ reviewer 收敛后、发起用例确认前，**必须**由登记的确定性生�
 
 设计链路固定为：
 
-v8：`source-selection（affected 时为 impact-location）→ candidate-skeleton → CandidateGraphExpanded → candidate-fragment-* → candidate-assemble → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`。`candidate-assemble` 不调用模型：它只按冻结骨架顺序读取已校验分片，确定性拼接详情并从详情重建 `cases.md` 的统计与快速索引；缺失分片、模块标题/RULE/caseId 前缀漂移或结构校验失败时拒绝发布。
+v8：`source-selection（affected 时为 impact-location）→ candidate-preflight → candidate-skeleton → CandidateGraphExpanded → candidate-fragment-* → candidate-assemble → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`。预检校验请求默认值、必要章节、来源 ID/路径/SHA、RULE sourceRef、规则台账，以及显式 `原文：SRC-<ID>「逐字文本」`：只扫描此格式，且文本必须在同一受控 SRC 的原生文本或 DOCX 正文中逐字出现；不可校验或漂移均阻断，不自动修复业务文本。`candidate-assemble` 不调用模型：它只按冻结骨架顺序读取已校验分片，确定性拼接详情并从详情重建 `cases.md` 的统计与快速索引；缺失分片、模块标题/RULE/caseId 前缀漂移或结构校验失败时拒绝发布。
+
+v9：`direct_execute` 为 `run-intent-derive → suite-validation → readiness → authorization → run → report`，`design_reconfirm` 为 `run-intent-derive → design-revalidation → case-confirmation`；两者没有候选计划、候选分片、candidate gate、设计 reviewer 或设计侧模型调用。`affected_rebuild` 的图在初始化时预声明双分支：有界闭包走 `impact-location → run-intent-derive → impact-closure-build → delta-preflight → delta-skeleton → delta candidate fragments → delta-assemble`，然后进入 targeted gate/review；无法证明闭包时 `impact-closure-build` 以 `full_replan` 成功，取消 delta 分支并在同一 request 激活独立的完整候选链路。delta 绑定稳定基线、模块、RULE、caseId 与来源；只替换命中 RULE 的 case block，汇总前后逐一比较未命中 case 的语义正文，任何漂移都拒绝发布。闭包为空、超过 8 个语义用例、映射不完整或涉及默认值、环境、数据、权限、安全边界时必须回退 full replan。
 
 旧 v7：`source-selection → candidate-generation → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`。
 
@@ -183,6 +187,8 @@ v8：`source-selection（affected 时为 impact-location）→ candidate-skeleto
 评审产物与生成结构不变量（引擎强制，2026-08-19 起）：
 
 - **评审发现文件契约（`review-findings-evidence-v1`）**：任何 `reviewer-submit`（含 LLM 隔离评审员）必须带 `--findings`；文件骨架为「## 结论」（converged/findings_present 枚举）+「## 发现项」（findings_present 时必须为非空表）。引擎校验骨架并把 findingsDigest 与 conclusion 写入 ReviewerSubmitted 事件——评审轮结束后发现文件缺失或结论非法不再产生整轮返工。
+- **reviewer 执行预算（`reviewer-execution-policy-v1`）**：新 v8 批次为每个 reviewer attempt 冻结一次主模型调用和 10 分钟墙钟；只有首个响应结构无效且仍在墙钟内，才可携带失效响应摘要登记一次补充调用。宿主必须在实际调用前执行 `reviewer-model-call-start`，完成后执行 `reviewer-model-call-complete`；未闭合、越次数、超时或 stale attempt 的调用都不能 `reviewer-submit`。structural 档保持零模型调用。
+- **定向复审闭包**：scoped 修订仅向角色 packet 放入 `affectedRefs` 命中的 `REQ → RULE → caseId` 闭包、关联台账行、来源摘录及全局数据/安全边界。闭包为空、超过 8 个语义用例、触及请求默认值/数据策略/权限安全边界或范围不可判定时必须回退完整评审；combined 与 impact 仍可并行，自动语义复审至多一轮。
 - **派生区唯一作者**：cases.md 统计行与快速索引由 `projectTestcaseV6DerivedView` 从用例体确定性生成，禁止手写。candidate-gate 与一切用例包发布边界（含评审演进修订）都会执行重投影等价校验，漂移（陈旧计数、索引与正文模块错位）确定性拒绝。结构修复用 `npm run testcases:reproject -- <cases.md>`（`--dry-run` 预览；按原始快速索引的模块声明归位正文块，产物必须通过结构校验才落盘）。
 - **覆盖 lint**：no_write 用例操作列含业务写动词（创建/新增/提交/修改/编辑/更新/删除/上传/写入）为阻断 issue——需要写动作的步骤必须拆分为 ephemeral_cleanup 用例并受执行授权约束；RULE 台账「条件/输入」声明必填但关联参数化用例无空值数据行为 warning，交 reviewer/用户裁决。
 - **歧义前置**：plan.md 必须含「## 需求歧义与未定义预期」节（无歧义显式写「无」）；每条歧义登记冲突的 REQ 对、资料出处与建议默认口径，在 plan 确认回调一次裁决——不在评审后才升级为用户裁决。

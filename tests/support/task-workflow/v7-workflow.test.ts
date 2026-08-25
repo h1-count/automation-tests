@@ -107,6 +107,7 @@ test("v8 v3 workflow freezes only the skeleton before expanding candidate fragme
   assert.equal(definition.definitionVersion, "v8");
   assert.deepEqual(definition.activities.map((activity) => activity.id), [
     "source-selection",
+    "candidate-preflight",
     "candidate-skeleton"
   ]);
 });
@@ -134,12 +135,14 @@ test("v8 reuses the dynamic skeleton only for full and affected rebuilds", () =>
   assert.deepEqual(full.activities.map((activity) => activity.id), [
     "reuse-assessment",
     "source-selection",
+    "candidate-preflight",
     "candidate-skeleton"
   ]);
   assert.equal(affected.definitionVersion, "v8");
   assert.deepEqual(affected.activities.map((activity) => activity.id), [
     "reuse-assessment",
     "impact-location",
+    "candidate-preflight",
     "candidate-skeleton"
   ]);
   assert.equal(direct.definitionVersion, "v7");

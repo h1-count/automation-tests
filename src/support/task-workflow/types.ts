@@ -1,8 +1,12 @@
 export const workflowEventTypes = [
   "WorkflowStarted",
   "ActivitiesExpanded",
+  "RunIntentDerived",
+  "ImpactClosureBuilt",
+  "DesignDeltaPrepared",
   "CandidateGraphExpanded",
   "ActivityAttemptStarted",
+  "CandidateGenerationStarted",
   "ActivitySucceeded",
   "ActivityFailed",
   "ArtifactPublishPrepared",
@@ -17,6 +21,8 @@ export const workflowEventTypes = [
   "ExternalOperationReconciled",
   "ReviewBatchStarted",
   "ReviewerDispatched",
+  "ReviewerModelCallStarted",
+  "ReviewerModelCallCompleted",
   "ReviewerSubmitted",
   "ReviewerWaived",
   "ReviewBatchInvalidated",
@@ -101,11 +107,17 @@ export type WorkflowPhase = (typeof workflowPhases)[number];
 
 export type ActivityKind =
   | "reuse_assessment"
+  | "run_intent_derive"
   | "suite_validation"
   | "design_revalidation"
   | "impact_location"
+  | "impact_closure"
+  | "delta_preflight"
+  | "delta_skeleton"
+  | "delta_assembly"
   | "policy_authorization"
   | "source_selection"
+  | "candidate_preflight"
   | "candidate_skeleton"
   | "candidate_fragment"
   | "candidate_assembly"
@@ -268,6 +280,8 @@ export interface BuildWorkflowDefinitionInput {
 }
 
 export interface ReusableWorkflowDefinitionInput extends BuildWorkflowDefinitionInput {
+  /** New request-only reuse protocol. Omitted callers preserve v7/v8 graphs. */
+  reuseProtocol?: "v9";
   reuseAssessment: {
     schemaVersion: "test-suite-reuse-assessment-v1";
     suiteId: string;
@@ -365,6 +379,18 @@ export interface WorkflowProjection {
   definitionVersion: string;
   graphDigest: string;
   planDigest: string;
+  runIntent?: {
+    decision: string;
+    suiteId: string;
+    suiteVersion?: string;
+    digest: string;
+    environment?: string;
+    deliveryTarget?: WorkflowDeliveryTarget;
+    selectedCaseIds?: string[];
+    affectedCaseIds?: string[];
+    sourceDigest?: string;
+    boundaryDigest?: string;
+  };
   deliveryTarget?: WorkflowDeliveryTarget;
   reviewPolicy?: ReviewPolicy;
   head: WorkflowHistoryHead;

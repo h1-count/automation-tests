@@ -65,6 +65,8 @@ import {
   type WorkflowGateView
 } from "../workflowManager.js";
 import { assertTestcaseReviewExportReady } from "../testcaseReviewGate.js";
+import { candidateRepairChecklist } from "../candidatePreflight.js";
+import { runIntentDigest } from "../runIntent.js";
 import type {
   StableTestSuiteManifest,
   StableTestSuiteProfile
@@ -629,12 +631,16 @@ async function main(): Promise<void> {
     process.stdout.write([
       "Usage: task:manage <command> --request <type/project/request> ...",
       "Reuse: init --delivery-target <testcase_only|script_only|full_run> --suite <type/project/feature> --reuse auto --environment <test|pre> [--profile <profile>], suite-promote --suite <type/project/feature>",
-      "Core: init, resume, activity-start, activity-renew, candidate-graph-expand, candidate-assemble, candidate-gate, activity-succeed, artifact-publish-succeed, activity-invalidate, activity-fail",
+      "Core: init, resume, activity-start, activity-renew, run-intent-derive, run-intent-recover, impact-closure-build, delta-preflight, candidate-generation-start, candidate-preflight, candidate-graph-expand, candidate-assemble, candidate-gate, activity-succeed, artifact-publish-succeed, activity-invalidate, activity-fail",
+      "  candidate-generation-start --activity <candidate-skeleton|candidate-fragment-*> [--owner <name>] [--lease-ms <ms>]  # atomically starts the model timer",
+      "  candidate-preflight --claim <lease> --source <staged-plan.md> --publish <id> --verified <evidence>  # strict plan/source/quote validation",
       "Waits: callback-request, callback-resolve, callback-reopen, block, resolve, reconcile, suspend",
       "  callback-resolve --callback <id> --resolution <accepted|rejected|revision_requested|cancelled> --plan-source <updated-plan.md>  # required for formal callbacks",
-      "Review: review-batch-start, reviewer-dispatch/submit/fail, review-batch-invalidate",
+      "Review: review-batch-start, reviewer-dispatch, reviewer-model-call-start/complete, reviewer-submit/fail, review-batch-invalidate",
       "  review-batch-start --batch <id> [--activity <review-id> --affected-ref <REQ|RULE|case|section> --excluded-ref <ref> --base-batch <id> --reason <text>]",
       "  reviewer-dispatch --batch <id> --activity <review-id> --agent-task <host-task-id>",
+      "  reviewer-model-call-start --batch <id> --activity <review-id> --agent-task <host-task-id> [--supplemental --invalid-response-digest <sha256>]",
+      "  reviewer-model-call-complete --batch <id> --activity <review-id> --agent-task <host-task-id> --result-digest <sha256>",
       "  reviewer-submit --batch <id> --activity <review-id> --agent-task <host-task-id> [--plan-evidence <plan.md>]",
       "  review-batch-invalidate --batch <id> --reason <text> [--activity <review-id> --revision-digest <sha256> --findings-digest <sha256>]",
       "Testcase review: testcase-review-prepare --output <model.json>, testcase-review-publish --model <model.json> --workbook <staged.xlsx> --receipt <receipt.json> --output <cases-review.xlsx>",
@@ -803,6 +809,61 @@ async function main(): Promise<void> {
       parsePositiveInteger(option(args, "--lease-ms"), "--lease-ms", 120_000)
     );
     output(args, result, `Activity ${activityId} 已开始；claim=${result.claimToken}`);
+    return;
+  }
+
+  if (command === "candidate-generation-start") {
+    const activityId = resolveActivityId(await manager.gate(), required(args, "--activity"));
+    const result = await manager.startCandidateGeneration(
+      activityId,
+      option(args, "--owner") ?? "task-cli",
+      parsePositiveInteger(option(args, "--lease-ms"), "--lease-ms", 120_000)
+    );
+    output(args, result, `候选生成 ${activityId} 已开始并登记模型计时；claim=${result.claimToken}`);
+    return;
+  }
+
+  if (command === "run-intent-derive") {
+    const view = await manager.deriveCurrentRunIntent(required(args, "--claim"));
+    output(args, view, "运行意图已登记；未创建完整 plan.md。");
+    return;
+  }
+
+  if (command === "run-intent-recover") {
+    const intent = await manager.recoverRunIntent();
+    output(args, { digest: runIntentDigest(intent), suiteId: intent.suiteId, decision: intent.reuseDecision }, "运行意图已从 history 与稳定套件恢复；未追加事件。");
+    return;
+  }
+
+  if (command === "impact-closure-build") {
+    const view = await manager.buildImpactClosure(required(args, "--claim"));
+    output(args, view, "影响闭包已冻结；可继续受影响设计增量预检。");
+    return;
+  }
+
+  if (command === "delta-preflight") {
+    const view = await manager.preflightDesignDelta(
+      required(args, "--claim"),
+      await readFile(required(args, "--source"), "utf8")
+    );
+    output(args, view, "设计增量已校验并冻结；可生成受影响模块骨架。");
+    return;
+  }
+
+  if (command === "candidate-preflight") {
+    const result = await manager.preflightCandidatePlan({
+      claimToken: required(args, "--claim"),
+      publishId: required(args, "--publish"),
+      verification: required(args, "--verified"),
+      plan: await readFile(required(args, "--source"), "utf8")
+    });
+    output(
+      args,
+      result,
+      result.report.complete
+        ? "候选计划预检通过，plan.md 已原子发布。"
+        : `候选计划预检未通过，已安排重试：${candidateRepairChecklist(result.report.issues).map((item) => `[${item.category}] ${item.issues.join("；")}`).join(" ")}`
+    );
     return;
   }
 
@@ -1983,6 +2044,38 @@ async function main(): Promise<void> {
         ? `确定性评审已收口（${activityId}，structural 档）。`
         : `Reviewer ${activityId} 的正式 plan.md 证据已提交。`
     );
+    return;
+  }
+
+  if (command === "reviewer-model-call-start") {
+    const before = await manager.gate();
+    const activityId = reviewerActivity(before, args, ["RUNNING"]);
+    const activity = before.activities[activityId]!;
+    const supplemental = option(args, "--supplemental") !== undefined;
+    const view = await manager.startReviewerModelCall({
+      activityId,
+      batchId: required(args, "--batch"),
+      role: option(args, "--role") ?? String(activity.definition.metadata?.role ?? "reviewer"),
+      agentTaskId: required(args, "--agent-task"),
+      supplemental,
+      ...(supplemental ? { invalidResponseDigest: required(args, "--invalid-response-digest") } : {})
+    });
+    output(args, view, supplemental ? "Reviewer 补充模型调用已登记。" : "Reviewer 主模型调用已登记。");
+    return;
+  }
+
+  if (command === "reviewer-model-call-complete") {
+    const before = await manager.gate();
+    const activityId = reviewerActivity(before, args, ["RUNNING"]);
+    const activity = before.activities[activityId]!;
+    const view = await manager.completeReviewerModelCall({
+      activityId,
+      batchId: required(args, "--batch"),
+      role: option(args, "--role") ?? String(activity.definition.metadata?.role ?? "reviewer"),
+      agentTaskId: required(args, "--agent-task"),
+      resultDigest: required(args, "--result-digest")
+    });
+    output(args, view, "Reviewer 模型调用已完成并记录摘要。");
     return;
   }
 

@@ -4,8 +4,8 @@ export function assertTestcaseReviewExportReady(
   view: WorkflowGateView,
   callbackSubjectDigest: string
 ): void {
-  if (view.definitionVersion !== "v7") {
-    throw new Error("Testcase review workbooks are only available for version-7 requests.");
+  if (!["v7", "v8"].includes(view.definitionVersion)) {
+    throw new Error("Testcase review workbooks are only available for version-7 or version-8 requests.");
   }
   const resolution = view.activities["case-review-resolution"];
   // The design_reconfirm branch revalidates a registered, user-accepted design

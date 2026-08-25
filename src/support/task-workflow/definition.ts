@@ -41,7 +41,7 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition): void
     throw new Error("Workflow definition identity is incomplete.");
   }
   if (definition.reviewPolicy) validateReviewPolicy(definition.reviewPolicy);
-  if (["v3", "v4", "v5", "v6", "v7", "v8"].includes(definition.definitionVersion) && !definition.reviewPolicy) {
+  if (["v3", "v4", "v5", "v6", "v7", "v8", "v9"].includes(definition.definitionVersion) && !definition.reviewPolicy) {
     throw new Error("Workflow definition v3+ requires a pinned review policy.");
   }
   if (definition.deliveryTarget !== undefined
@@ -255,7 +255,26 @@ export function buildReusableWorkflowDefinition(
     maxSemanticEvolutionCycles: input.reviewPolicy?.maxSemanticEvolutionCycles
   });
   const deliveryTarget = input.deliveryTarget ?? "full_run";
-  const activities = fragmented
+  const v9ZeroModelReuse = input.reuseProtocol === "v9"
+    && ["direct_execute", "design_reconfirm"].includes(input.reuseAssessment.decision);
+  const v9AffectedReuse = input.reuseProtocol === "v9"
+    && input.reuseAssessment.decision === "affected_rebuild";
+  const v9FullReplan = input.reuseProtocol === "v9"
+    && input.reuseAssessment.decision === "full_replan";
+  const activities = v9ZeroModelReuse
+    ? buildV9ZeroModelReuseActivities(
+        capabilities,
+        input.writesData ?? false,
+        casePackages,
+        input.reuseAssessment,
+        deliveryTarget,
+        input.executionIsolation
+      )
+    : v9AffectedReuse
+      ? buildV9AffectedBootstrapActivities(input.reuseAssessment)
+      : v9FullReplan
+        ? buildV9FullReplanBootstrapActivities(input.reuseAssessment)
+      : fragmented
     && ["full_replan", "affected_rebuild"].includes(input.reuseAssessment.decision)
     ? buildV8ReusableBootstrapActivities(input.reuseAssessment)
     : buildV7ReusableActivities(
@@ -271,9 +290,11 @@ export function buildReusableWorkflowDefinition(
   const base: Omit<WorkflowDefinition, "graphDigest"> = {
     schemaVersion: "test-workflow-definition-v1",
     definitionId: input.definitionId ?? "durable-test-workflow",
-    definitionVersion: fragmented && ["full_replan", "affected_rebuild"].includes(input.reuseAssessment.decision)
-      ? "v8"
-      : "v7",
+    definitionVersion: v9ZeroModelReuse || v9AffectedReuse || v9FullReplan
+      ? "v9"
+      : fragmented && ["full_replan", "affected_rebuild"].includes(input.reuseAssessment.decision)
+        ? "v8"
+        : "v7",
     requestId: input.requestId,
     planDigest: input.planDigest,
     capabilities,
@@ -993,8 +1014,20 @@ function v8SkeletonActivity(dependency: string, scope: "full" | "affected"): Wor
     metadata: {
       scope,
       manifestPath: "candidate-fragments/manifest.json",
-      generationPolicyVersion: "candidate-generation-policy-v1"
+      generationPolicyVersion: "candidate-generation-policy-v2"
     }
+  };
+}
+
+function v8PreflightActivity(dependency: string): WorkflowActivityDefinition {
+  return {
+    id: "candidate-preflight",
+    kind: "candidate_preflight",
+    phase: "planning",
+    dependencies: [dependency],
+    required: true,
+    publishesArtifacts: true,
+    metadata: { preflightSchemaVersion: "candidate-plan-preflight-v1" }
   };
 }
 
@@ -1008,7 +1041,8 @@ function buildV8FullBootstrapActivities(): WorkflowActivityDefinition[] {
       required: true,
       metadata: { sourcePolicyVersion: "request-local-source-v1" }
     },
-    v8SkeletonActivity("source-selection", "full")
+    v8PreflightActivity("source-selection"),
+    v8SkeletonActivity("candidate-preflight", "full")
   ];
 }
 
@@ -1039,7 +1073,7 @@ function buildV8ReusableBootstrapActivities(
       dependencies: ["reuse-assessment"],
       required: true,
       metadata: suiteMetadata
-    }, v8SkeletonActivity("impact-location", "affected"));
+    }, v8PreflightActivity("impact-location"), v8SkeletonActivity("candidate-preflight", "affected"));
   } else {
     activities.push({
       id: "source-selection",
@@ -1048,8 +1082,102 @@ function buildV8ReusableBootstrapActivities(
       dependencies: ["reuse-assessment"],
       required: true,
       metadata: { ...suiteMetadata, sourcePolicyVersion: "request-local-source-v1" }
-    }, v8SkeletonActivity("source-selection", "full"));
+    }, v8PreflightActivity("source-selection"), v8SkeletonActivity("candidate-preflight", "full"));
   }
+  return activities;
+}
+
+function buildV9AffectedBootstrapActivities(
+  assessment: ReusableWorkflowDefinitionInput["reuseAssessment"]
+): WorkflowActivityDefinition[] {
+  const metadata: Record<string, SafeJsonValue> = {
+    suiteId: assessment.suiteId,
+    ...(assessment.suiteVersion ? { suiteVersion: assessment.suiteVersion } : {}),
+    assessmentDigest: assessment.assessmentDigest,
+    selectedCaseIds: assessment.selectedCaseIds,
+    affectedCaseIds: assessment.affectedCaseIds,
+    decision: assessment.decision
+  };
+  return [
+    { id: "reuse-assessment", kind: "reuse_assessment", phase: "reuse_assessment", dependencies: [], required: true, metadata },
+    { id: "impact-location", kind: "impact_location", phase: "case_validation", dependencies: ["reuse-assessment"], required: true, metadata },
+    { id: "run-intent-derive", kind: "run_intent_derive", phase: "reuse_assessment", dependencies: ["impact-location"], required: true, metadata: { ...metadata, schemaVersion: "run-intent-v1" } },
+    { id: "impact-closure-build", kind: "impact_closure", phase: "case_validation", dependencies: ["run-intent-derive"], required: true, metadata: { ...metadata, schemaVersion: "impact-closure-v1", maxSemanticCases: 8 } },
+    {
+      id: "delta-preflight", kind: "delta_preflight", phase: "planning", dependencies: ["impact-closure-build"], required: true,
+      activation: { activityId: "impact-closure-build", outcomes: ["bounded"] },
+      metadata: { ...metadata, schemaVersion: "design-delta-v1" }
+    },
+    {
+      id: "delta-skeleton", kind: "delta_skeleton", phase: "case_generation", dependencies: ["delta-preflight"], required: true,
+      activation: { activityId: "impact-closure-build", outcomes: ["bounded"] },
+      metadata: { ...metadata, schemaVersion: "design-delta-v1" }
+    },
+    {
+      ...v8PreflightActivity("delta-skeleton"),
+      id: "delta-candidate-preflight",
+      activation: { activityId: "impact-closure-build", outcomes: ["bounded"] },
+      metadata: { ...metadata, preflightSchemaVersion: "candidate-plan-preflight-v1", candidateNamespace: "delta" }
+    },
+    {
+      ...v8SkeletonActivity("delta-candidate-preflight", "affected"),
+      id: "delta-candidate-skeleton",
+      activation: { activityId: "impact-closure-build", outcomes: ["bounded"] },
+      metadata: {
+        ...metadata,
+        scope: "affected",
+        manifestPath: "delta-candidate-fragments/manifest.json",
+        generationPolicyVersion: "candidate-generation-policy-v2",
+        candidateNamespace: "delta"
+      }
+    },
+    {
+      id: "full-source-selection", kind: "source_selection", phase: "planning", dependencies: ["impact-closure-build"], required: true,
+      activation: { activityId: "impact-closure-build", outcomes: ["full_replan"] },
+      metadata: { ...metadata, sourcePolicyVersion: "request-local-source-v1", fallbackFrom: "affected_rebuild" }
+    },
+    {
+      ...v8PreflightActivity("full-source-selection"),
+      activation: { activityId: "impact-closure-build", outcomes: ["full_replan"] },
+      metadata: { ...metadata, preflightSchemaVersion: "candidate-plan-preflight-v1", fallbackFrom: "affected_rebuild" }
+    },
+    {
+      ...v8SkeletonActivity("candidate-preflight", "full"),
+      activation: { activityId: "impact-closure-build", outcomes: ["full_replan"] },
+      metadata: {
+        ...metadata,
+        scope: "full",
+        manifestPath: "candidate-fragments/manifest.json",
+        generationPolicyVersion: "candidate-generation-policy-v2",
+        fallbackFrom: "affected_rebuild"
+      }
+    }
+  ];
+}
+
+function buildV9FullReplanBootstrapActivities(
+  assessment: ReusableWorkflowDefinitionInput["reuseAssessment"]
+): WorkflowActivityDefinition[] {
+  const activities = buildV8ReusableBootstrapActivities(assessment);
+  const source = activities.find((activity) => activity.id === "source-selection");
+  if (!source) throw new Error("v9 full_replan requires source-selection.");
+  source.dependencies = ["run-intent-derive"];
+  activities.splice(1, 0, {
+    id: "run-intent-derive",
+    kind: "run_intent_derive",
+    phase: "reuse_assessment",
+    dependencies: ["reuse-assessment"],
+    required: true,
+    metadata: {
+      suiteId: assessment.suiteId,
+      ...(assessment.suiteVersion ? { suiteVersion: assessment.suiteVersion } : {}),
+      assessmentDigest: assessment.assessmentDigest,
+      selectedCaseIds: assessment.selectedCaseIds,
+      affectedCaseIds: assessment.affectedCaseIds,
+      decision: assessment.decision,
+      schemaVersion: "run-intent-v1"
+    }
+  });
   return activities;
 }
 
@@ -1064,12 +1192,21 @@ export function buildV8CandidateExtension(input: {
   deliveryTarget: WorkflowDeliveryTarget;
   reviewPolicy: ReviewPolicy;
   executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"];
+  /** Pinned from candidate-skeleton so historical v8 graph expansions replay
+   * exactly; newly built v8 graphs use v2. */
+  generationPolicyVersion?: "candidate-generation-policy-v1" | "candidate-generation-policy-v2";
+  /** v9 delta uses a separate fragment and assembly namespace; full v8/v9
+   * keeps the historical identifiers unchanged. */
+  candidateNamespace?: "delta";
 }): WorkflowActivityDefinition[] {
+  const prefix = input.candidateNamespace ? `${input.candidateNamespace}-` : "";
+  const skeletonId = `${prefix}candidate-skeleton`;
+  const fragmentRoot = `${prefix}candidate-fragments`;
   const fragments = input.modules.map((module) => ({
-    id: `candidate-fragment-${module.id}`,
+    id: `${prefix}candidate-fragment-${module.id}`,
     kind: "candidate_fragment" as const,
     phase: "case_generation" as const,
-    dependencies: ["candidate-skeleton"],
+    dependencies: [skeletonId],
     required: true,
     publishesArtifacts: true,
     concurrencyGroup: "candidate_generation" as const,
@@ -1080,17 +1217,21 @@ export function buildV8CandidateExtension(input: {
       ruleIds: module.ruleIds,
       casePrefix: module.casePrefix,
       sourceRefs: module.sourceRefs,
-      fragmentPath: `candidate-fragments/${module.id}.md`
+      fragmentPath: `${fragmentRoot}/${module.id}.md`,
+      ...(input.candidateNamespace ? { candidateNamespace: input.candidateNamespace } : {}),
+      ...((input.generationPolicyVersion ?? "candidate-generation-policy-v2") === "candidate-generation-policy-v2"
+        ? { generationPolicyVersion: "candidate-generation-policy-v2" }
+        : {})
     }
   }));
   const assemble: WorkflowActivityDefinition = {
-    id: "candidate-assemble",
+    id: `${prefix}candidate-assemble`,
     kind: "candidate_assembly",
     phase: "case_generation",
     dependencies: fragments.map((fragment) => fragment.id),
     required: true,
     publishesArtifacts: true,
-    metadata: { package: "cases.md", scope: input.scope }
+    metadata: { package: "cases.md", scope: input.scope, ...(input.candidateNamespace ? { candidateNamespace: input.candidateNamespace } : {}) }
   };
   if (input.scope === "full") {
     const downstream = buildV7FullActivities(
@@ -1171,6 +1312,139 @@ function markDeliveryTerminal(
     completesWorkflow: true,
     deliveryTarget
   };
+}
+
+/** v9 reuse branches are intentionally graph-level proof that design LLM work
+ * is absent. The run-intent artifact binds the request to the stable suite;
+ * no plan/candidate/reviewer activity is present in either branch. */
+function buildV9ZeroModelReuseActivities(
+  capabilities: WorkflowCapability[],
+  writesData: boolean,
+  casePackages: string[],
+  reuseAssessment: ReusableWorkflowDefinitionInput["reuseAssessment"],
+  deliveryTarget: WorkflowDeliveryTarget,
+  executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"]
+): WorkflowActivityDefinition[] {
+  const metadata = {
+    suiteId: reuseAssessment.suiteId,
+    ...(reuseAssessment.suiteVersion ? { suiteVersion: reuseAssessment.suiteVersion } : {}),
+    assessmentDigest: reuseAssessment.assessmentDigest,
+    selectedCaseIds: reuseAssessment.selectedCaseIds,
+    affectedCaseIds: reuseAssessment.affectedCaseIds,
+    decision: reuseAssessment.decision,
+    reuseProtocol: "run-intent-v1"
+  } as Record<string, SafeJsonValue>;
+  const intent: WorkflowActivityDefinition = {
+    id: "run-intent-derive",
+    kind: "run_intent_derive",
+    phase: "reuse_assessment",
+    dependencies: ["reuse-assessment"],
+    required: true,
+    metadata: { ...metadata, schemaVersion: "run-intent-v1" }
+  };
+  const assessment: WorkflowActivityDefinition = {
+    id: "reuse-assessment",
+    kind: "reuse_assessment",
+    phase: "reuse_assessment",
+    dependencies: [],
+    required: true,
+    metadata: { ...metadata, schemaVersion: reuseAssessment.schemaVersion, decision: reuseAssessment.decision }
+  };
+  if (reuseAssessment.decision === "design_reconfirm") {
+    const activities: WorkflowActivityDefinition[] = [
+      assessment,
+      intent,
+      {
+        id: "design-revalidation",
+        kind: "design_revalidation",
+        phase: "case_validation",
+        dependencies: [intent.id],
+        required: true,
+        metadata: { ...metadata, tier: "design", scope: "reconfirm" }
+      },
+      {
+        id: "case-confirmation",
+        kind: "callback",
+        phase: "case_confirmation",
+        dependencies: ["design-revalidation"],
+        required: true,
+        metadata: {
+          ...metadata,
+          subjectSchemaVersion: "case-confirmation-subject-v2",
+          scope: "reconfirm",
+          casePackages,
+          completesWorkflow: true,
+          deliveryTarget: "testcase_only"
+        }
+      }
+    ];
+    return activities;
+  }
+  const activities: WorkflowActivityDefinition[] = [
+    assessment,
+    intent,
+    {
+      id: "suite-validation",
+      kind: "suite_validation",
+      phase: "engineering",
+      dependencies: [intent.id],
+      required: true,
+      metadata
+    },
+    {
+      id: "readiness",
+      kind: "readiness",
+      phase: "script_review",
+      dependencies: ["suite-validation"],
+      required: true,
+      publishesArtifacts: true,
+      metadata: {
+        ...metadata,
+        outputArtifact: "execution-authorization.json",
+        outputSchemaVersion: "execution-authorization-v5",
+        readinessPolicyVersion: "execution-readiness-v1",
+        zeroRunnablePolicy: "block_before_authorization"
+      }
+    },
+    {
+      id: "execution-authorization",
+      kind: !writesData ? "policy_authorization" : "execution_authorization",
+      phase: "execution_authorization",
+      dependencies: ["readiness"],
+      required: true,
+      metadata: {
+        ...metadata,
+        decisionMode: !writesData ? "policy_auto_no_write" : "user_confirmed",
+        callbackSubjectArtifact: "execution-authorization.json",
+        callbackSubjectFormat: "canonical_json_digest_v1",
+        callbackSubjectSchemaVersion: "execution-authorization-v5",
+        publisherActivityId: "readiness"
+      }
+    },
+    {
+      id: "run",
+      kind: "run",
+      phase: "execution",
+      dependencies: ["execution-authorization"],
+      required: true,
+      metadata: { ...metadata, completionContract: "formal-execution-completion-seal-v1", maxWorkers: 1 },
+      ...(writesData ? { requiresExternalOperation: true, concurrencyGroup: "business_write" as const, concurrencyLimit: 1 } : {})
+    },
+    {
+      id: "report",
+      kind: "report",
+      phase: "reporting",
+      dependencies: ["run"],
+      required: true,
+      publishesArtifacts: true,
+      metadata: { ...metadata, completionContract: "formal-execution-completion-seal-v1", completesWorkflow: true }
+    }
+  ];
+  if (deliveryTarget !== "full_run") {
+    activities.splice(activities.findIndex((activity) => activity.id === "readiness"));
+    markDeliveryTerminal(activities, "suite-validation", deliveryTarget);
+  }
+  return activities;
 }
 
 function buildV7ReusableActivities(

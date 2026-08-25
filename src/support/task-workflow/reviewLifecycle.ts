@@ -245,6 +245,10 @@ export interface ReviewLifecycleEventInput {
   readinessDigest?: string;
   readinessWarnings?: string[];
   roleInputDigests?: Record<string, string>;
+  /** New v8 batches persist the exact replay algorithm used for input refs. */
+  inputDigestAlgorithm?: "review-input-digest-v4";
+  /** Frozen per-attempt reviewer LLM call and wall-clock budget. */
+  reviewerExecutionPolicy?: "reviewer-execution-policy-v1";
   /** Safe runtime references and aggregate sizes only; never packet content. */
   rolePackets?: SafeJsonValue;
   isolationProofVersion?: typeof REVIEWER_ISOLATION_PROOF_VERSION;
@@ -359,6 +363,8 @@ export function prepareReviewLifecycleEvent(
       ? { readinessWarnings: input.readinessWarnings }
       : {}),
     ...(input.roleInputDigests ? { roleInputDigests: input.roleInputDigests } : {}),
+    ...(input.inputDigestAlgorithm ? { inputDigestAlgorithm: input.inputDigestAlgorithm } : {}),
+    ...(input.reviewerExecutionPolicy ? { reviewerExecutionPolicy: input.reviewerExecutionPolicy } : {}),
     ...(input.rolePackets ? { rolePackets: input.rolePackets } : {}),
     ...(input.isolationProofVersion
       ? { isolationProofVersion: input.isolationProofVersion }

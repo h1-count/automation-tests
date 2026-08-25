@@ -21,6 +21,7 @@ const events: HistoryEventLike[] = [
   event("ActivityAttemptStarted", "2026-08-21T08:21:48.425Z", { activityId: "candidate-generation", attempt: 1 }),
   event("ArtifactDriftDetected", "2026-08-21T08:35:59.918Z", { activityId: "candidate-generation", attempt: 1 }),
   event("ActivityFailed", "2026-08-21T08:36:43.347Z", { activityId: "candidate-generation", attempt: 1 }),
+  event("RetryScheduled", "2026-08-21T08:36:43.347Z", { activityId: "candidate-generation", attempt: 1 }),
   event("ActivityAttemptStarted", "2026-08-21T08:37:08.626Z", { activityId: "candidate-generation", attempt: 2 }),
   event("ActivitySucceeded", "2026-08-21T08:39:42.388Z", { activityId: "candidate-generation", attempt: 2 }),
   event("ReviewBatchStarted", "2026-08-21T08:42:29.571Z", { batchId: "rev-r1" }),
@@ -37,7 +38,7 @@ test("parseJsonl 跳过空行与坏行", () => {
   assert.equal(parsed[0]?.type, "A");
 });
 
-test("deriveRequestTimeline 汇总活动净耗时/跨度/浪费与漂移", () => {
+test("deriveRequestTimeline 仅把 RetryScheduled 到重试领取计入重试空闲", () => {
   const timeline = deriveRequestTimeline(events);
   assert.equal(timeline.requestId, "web/demo/request-1");
   assert.equal(timeline.completed, true);
@@ -48,7 +49,8 @@ test("deriveRequestTimeline 汇总活动净耗时/跨度/浪费与漂移", () =>
   // attempt1: 08:21:48→08:36:43 = 894.9s；attempt2: 08:37:08→08:39:42 = 153.8s
   assert.equal(candidate.busySeconds, 1049);
   assert.equal(candidate.wallSeconds, 1074);
-  assert.equal(candidate.wasteSeconds, 25);
+  assert.equal(candidate.retryIdleSeconds, 25);
+  assert.equal(timeline.retryIdleSeconds, 25);
   assert.equal(candidate.driftEvents, 1);
   assert.equal(candidate.outcome, "ActivitySucceeded");
   assert.deepEqual(candidate.attemptDetails, [
@@ -57,21 +59,65 @@ test("deriveRequestTimeline 汇总活动净耗时/跨度/浪费与漂移", () =>
   ]);
 });
 
+test("v9 run intent reports zero design model calls without treating old data as zero", () => {
+  const timeline = deriveRequestTimeline([
+    event("WorkflowStarted", "2026-08-21T08:00:00.000Z"),
+    event("RunIntentDerived", "2026-08-21T08:00:01.000Z", {
+      decision: "direct_execute", suiteId: "web/demo/login", digest: "a".repeat(64)
+    })
+  ]);
+  assert.deepEqual(timeline.runIntent, {
+    decision: "direct_execute", suiteId: "web/demo/login", digest: "a".repeat(64), designModelCalls: 0
+  });
+  assert.match(buildCostReport({
+    timeline, sessions: [], degradations: [], window: { startMs: 0, endMs: 0, preSlackMinutes: 0, postSlackMinutes: 0 }
+  }), /设计侧 LLM 调用数 = 0/u);
+});
+
 test("legacy success without attempt pairs with the latest open attempt", () => {
   const timeline = deriveRequestTimeline([
     event("ActivityAttemptStarted", "2026-08-21T08:00:00.000Z", { activityId: "candidate-generation", attempt: 1 }),
     event("ActivityFailed", "2026-08-21T08:01:00.000Z", { activityId: "candidate-generation", attempt: 1 }),
+    event("RetryScheduled", "2026-08-21T08:01:00.000Z", { activityId: "candidate-generation", attempt: 1 }),
     event("ActivityAttemptStarted", "2026-08-21T08:02:00.000Z", { activityId: "candidate-generation", attempt: 2 }),
     event("ActivitySucceeded", "2026-08-21T08:05:00.000Z", { activityId: "candidate-generation" })
   ]);
   const candidate = timeline.activities.find((item) => item.activityId === "candidate-generation");
   assert.ok(candidate);
   assert.equal(candidate.busySeconds, 240);
-  assert.equal(candidate.wasteSeconds, 60);
+  assert.equal(candidate.retryIdleSeconds, 60);
   assert.deepEqual(candidate.attemptDetails, [
     { attempt: 1, seconds: 60, outcome: "failed", attemptInferred: false },
     { attempt: 2, seconds: 180, outcome: "succeeded", attemptInferred: true }
   ]);
+});
+
+test("reviewer 或 callback 等待不会被误归因为重试空闲", () => {
+  const timeline = deriveRequestTimeline([
+    event("ActivityAttemptStarted", "2026-08-21T08:00:00.000Z", { activityId: "candidate-generation", attempt: 1 }),
+    event("ActivitySucceeded", "2026-08-21T08:01:00.000Z", { activityId: "candidate-generation", attempt: 1 }),
+    event("ReviewerDispatched", "2026-08-21T08:02:00.000Z", { batchId: "r1", role: "combined" }),
+    event("ReviewerSubmitted", "2026-08-21T08:42:00.000Z", { batchId: "r1", role: "combined" }),
+    event("CallbackRequested", "2026-08-21T08:43:00.000Z", { callbackId: "cb" }),
+    event("CallbackResolved", "2026-08-21T09:43:00.000Z", { callbackId: "cb" })
+  ]);
+  assert.equal(timeline.retryIdleSeconds, 0);
+  assert.equal(timeline.humanWaitSeconds, 3600);
+});
+
+test("old v8 candidate events are reported as uncollected model timing", () => {
+  const timeline = deriveRequestTimeline([
+    event("ActivityAttemptStarted", "2026-08-21T08:00:00.000Z", { activityId: "candidate-skeleton", attempt: 1 }),
+    event("ActivitySucceeded", "2026-08-21T08:02:00.000Z", { activityId: "candidate-skeleton", attempt: 1 })
+  ]);
+  assert.equal(timeline.candidateGeneration.modelTimingCapturedActivities, 0);
+  assert.equal(timeline.candidateGeneration.modelTimingExpectedActivities, 1);
+  assert.match(buildCostReport({
+    timeline,
+    sessions: [],
+    degradations: [],
+    window: { startMs: 0, endMs: 0, preSlackMinutes: 0, postSlackMinutes: 0 }
+  }), /0\/1（未采集不按 0 计）/u);
 });
 
 test("deriveRequestTimeline 配对 reviewer 派发与提交", () => {
@@ -107,7 +153,11 @@ test("deriveRequestTimeline reports re-review wall time and reused reviewer evid
     rawInputBytes: 0,
     slicedInputBytes: 0,
     savedInputBytes: 0,
-    inputSavingsRatio: 0
+    inputSavingsRatio: 0,
+    modelCalls: 0,
+    modelSeconds: 0,
+    budgetHits: 0,
+    unclosedCalls: 0
   }]);
 });
 
@@ -140,7 +190,11 @@ test("deriveRequestTimeline reports reviewer packet bytes against full frozen in
     rawInputBytes: 8000,
     slicedInputBytes: 1400,
     savedInputBytes: 6600,
-    inputSavingsRatio: 0.825
+    inputSavingsRatio: 0.825,
+    modelCalls: 0,
+    modelSeconds: 0,
+    budgetHits: 0,
+    unclosedCalls: 0
   }]);
   assert.match(buildCostReport({
     timeline,
@@ -148,6 +202,29 @@ test("deriveRequestTimeline reports reviewer packet bytes against full frozen in
     degradations: [],
     window: { startMs: 0, endMs: 0, preSlackMinutes: 0, postSlackMinutes: 0 }
   }), /节省 6600 B（82\.5%）/);
+});
+
+test("deriveRequestTimeline captures reviewer model wall time and supplemental budget hits", () => {
+  const timeline = deriveRequestTimeline([
+    event("ReviewBatchStarted", "2026-08-21T08:00:00.000Z", { batchId: "rev-v8" }),
+    event("ReviewerModelCallStarted", "2026-08-21T08:01:00.000Z", {
+      batchId: "rev-v8", activityId: "case-review-combined", attempt: 1, supplemental: false
+    }),
+    event("ReviewerModelCallCompleted", "2026-08-21T08:04:00.000Z", {
+      batchId: "rev-v8", activityId: "case-review-combined", attempt: 1
+    }),
+    event("ReviewerModelCallStarted", "2026-08-21T08:04:10.000Z", {
+      batchId: "rev-v8", activityId: "case-review-combined", attempt: 1, supplemental: true
+    }),
+    event("ReviewerModelCallCompleted", "2026-08-21T08:05:10.000Z", {
+      batchId: "rev-v8", activityId: "case-review-combined", attempt: 1
+    })
+  ]);
+  assert.equal(timeline.reviewerModelCalls.length, 2);
+  assert.equal(timeline.reviewerModelCalls[0]?.seconds, 180);
+  assert.equal(timeline.reviewerBatches[0]?.modelCalls, 2);
+  assert.equal(timeline.reviewerBatches[0]?.modelSeconds, 240);
+  assert.equal(timeline.reviewerBatches[0]?.budgetHits, 1);
 });
 
 test("deriveRequestTimeline 统计人工等待", () => {

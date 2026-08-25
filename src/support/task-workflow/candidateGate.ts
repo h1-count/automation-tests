@@ -3,6 +3,7 @@ import { canonicalJson } from "./canonicalJson.js";
 import { evaluateReviewReadiness } from "./reviewReadiness.js";
 import { assessCaseReviewRisk } from "./caseReviewRisk.js";
 import { capReviewMode, type ReviewSpeed } from "./speedProfile.js";
+import { candidateRepairChecklist } from "./candidatePreflight.js";
 import {
   markdownSection,
   markdownTableRows,
@@ -32,6 +33,7 @@ export interface CandidateGateReport {
   effectiveWritesData: boolean;
   effectiveDataStrategies: string[];
   issues: string[];
+  repairCategories: string[];
   warnings: string[];
   digest: string;
 }
@@ -300,6 +302,7 @@ export function evaluateCandidateGate(input: CandidateGateInput): CandidateGateR
     effectiveWritesData,
     effectiveDataStrategies: strategies,
     issues: unique(issues),
+    repairCategories: candidateRepairChecklist(issues).map((item) => item.category),
     warnings
   };
   return {

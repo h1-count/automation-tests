@@ -81,6 +81,9 @@ interface ReducerRuntime {
   }>;
   externalOperationsStarted: Map<string, Set<string>>;
   externalOperationsReconciled: Map<string, Set<string>>;
+  candidateGenerationStartedAttempts: Map<string, Set<number>>;
+  reviewerModelCalls: Map<string, { attempt: number; startedAt: string; completedAt?: string; supplemental: boolean }[]>;
+  reviewerBudgetedBatches: Set<string>;
   reviewPolicy?: ReviewPolicy;
   lastReviewRevisionSignature?: string;
   unchangedReviewRevisionCycles: number;
@@ -473,6 +476,26 @@ function applyActivityEvent(
       runtime.preparedArtifacts.delete(activity.id);
       runtime.externalOperationsStarted.set(activity.id, new Set());
       runtime.externalOperationsReconciled.set(activity.id, new Set());
+      activity.lastEventSeq = event.seq;
+      return;
+    }
+    case "CandidateGenerationStarted": {
+      const activity = activityFor(activities, payload);
+      const attempt = payload.attempt;
+      if (!["v8", "v9"].includes(event.definitionVersion)
+        || !["candidate_skeleton", "candidate_fragment"].includes(activity.definition.kind)
+        || activity.definition.metadata?.generationPolicyVersion !== "candidate-generation-policy-v2") {
+        throw new WorkflowTransitionError("CandidateGenerationStarted is only valid for new v8/v9 candidate generation activities.");
+      }
+      if (activity.state !== "RUNNING" || !Number.isInteger(attempt) || attempt !== activity.attempt) {
+        throw new WorkflowTransitionError("CandidateGenerationStarted must belong to the current running attempt.");
+      }
+      const attempts = runtime.candidateGenerationStartedAttempts.get(activity.id) ?? new Set<number>();
+      if (attempts.has(attempt)) {
+        throw new WorkflowTransitionError(`CandidateGenerationStarted already exists for ${activity.id} attempt ${attempt}.`);
+      }
+      attempts.add(attempt);
+      runtime.candidateGenerationStartedAttempts.set(activity.id, attempts);
       activity.lastEventSeq = event.seq;
       return;
     }
@@ -1075,11 +1098,22 @@ function applyActivityEvent(
             `Review batch ${batchId} v3 scope requires semanticDigest for every inputRef.`
           );
         }
-        const computedInputDigest = isSemanticSnapshot
-          ? semanticReviewInputDigest(event.requestId, refs, scopeDigest)
-          : reviewInputDigest(event.requestId, refs, scopeDigest);
-        if (computedInputDigest !== inputDigest) {
-          throw new WorkflowTransitionError(`Review batch ${batchId} inputRefs do not match inputDigest.`);
+        const algorithm = payload.inputDigestAlgorithm;
+        if (algorithm !== undefined && algorithm !== "review-input-digest-v4") {
+          throw new WorkflowTransitionError(`Review batch ${batchId} has unsupported inputDigestAlgorithm.`);
+        }
+        const legacyV8ReviewDigest = event.definitionVersion === "v8" && algorithm === undefined;
+        // Pre-v4 v8 histories were written before the digest algorithm was
+        // durable. They remain read-only evidence: preserve their immutable
+        // digest and validate all later events against it, but do not reject
+        // replay by applying a newer implementation to old input refs.
+        if (!legacyV8ReviewDigest) {
+          const computedInputDigest = isSemanticSnapshot
+            ? semanticReviewInputDigest(event.requestId, refs, scopeDigest)
+            : reviewInputDigest(event.requestId, refs, scopeDigest);
+          if (computedInputDigest !== inputDigest) {
+            throw new WorkflowTransitionError(`Review batch ${batchId} inputRefs do not match inputDigest.`);
+          }
         }
         if (isSemanticSnapshot) {
           const rawRoleDigests = payload.roleInputDigests;
@@ -1088,7 +1122,6 @@ function applyActivityEvent(
               `Review batch ${batchId} v3 scope requires roleInputDigests.`
             );
           }
-          const expected = reviewRoleInputDigests(event.requestId, refs, scopeDigest, semanticScope);
           const actual = Object.fromEntries(Object.entries(rawRoleDigests).map(([activityId, digest]) => {
             if (typeof digest !== "string") {
               throw new WorkflowTransitionError(
@@ -1097,7 +1130,9 @@ function applyActivityEvent(
             }
             return [activityId, requireDigest(digest, `roleInputDigest for ${activityId}`)];
           }));
-          if (JSON.stringify(Object.entries(actual).sort()) !== JSON.stringify(Object.entries(expected).sort())) {
+          const expected = reviewRoleInputDigests(event.requestId, refs, scopeDigest, semanticScope);
+          if (!legacyV8ReviewDigest
+            && JSON.stringify(Object.entries(actual).sort()) !== JSON.stringify(Object.entries(expected).sort())) {
             throw new WorkflowTransitionError(
               `Review batch ${batchId} roleInputDigests do not match its role scopes.`
             );
@@ -1146,6 +1181,9 @@ function applyActivityEvent(
         batchId,
         inputDigest === undefined ? undefined : requireDigest(inputDigest, "inputDigest")
       );
+      if (payload.reviewerExecutionPolicy === "reviewer-execution-policy-v1") {
+        runtime.reviewerBudgetedBatches.add(batchId);
+      }
       return;
     }
     case "ReviewerDispatched": {
@@ -1236,6 +1274,52 @@ function applyActivityEvent(
       activity.lastEventSeq = event.seq;
       return;
     }
+    case "ReviewerModelCallStarted": {
+      const activity = activityFor(activities, payload);
+      if (event.definitionVersion !== "v8" || activity.definition.kind !== "review"
+        || !runtime.reviewerBudgetedBatches.has(stringField(payload, "batchId"))) {
+        throw new WorkflowTransitionError("ReviewerModelCallStarted is only valid for new v8 review activities.");
+      }
+      requireState(activity, ["RUNNING"], event);
+      const attempt = payload.attempt;
+      const batchId = stringField(payload, "batchId");
+      if (!Number.isInteger(attempt) || attempt !== activity.attempt
+        || runtime.reviewerBatchByActivity.get(activity.id) !== batchId) {
+        throw new WorkflowTransitionError("ReviewerModelCallStarted must belong to the current dispatched reviewer attempt.");
+      }
+      const supplemental = payload.supplemental === true;
+      const calls = runtime.reviewerModelCalls.get(activity.id) ?? [];
+      const current = calls.filter((call) => call.attempt === attempt);
+      if (current.some((call) => !call.completedAt) || current.length >= (supplemental ? 2 : 1)
+        || (supplemental && (current.length !== 1 || payload.priorResponseInvalid !== true
+          || !sha256Pattern.test(stringField(payload, "invalidResponseDigest"))))) {
+        throw new WorkflowTransitionError("Reviewer model call exceeds its frozen call budget.");
+      }
+      calls.push({ attempt, startedAt: event.occurredAt, supplemental });
+      runtime.reviewerModelCalls.set(activity.id, calls);
+      activity.lastEventSeq = event.seq;
+      return;
+    }
+    case "ReviewerModelCallCompleted": {
+      const activity = activityFor(activities, payload);
+      if (event.definitionVersion !== "v8" || activity.definition.kind !== "review"
+        || !runtime.reviewerBudgetedBatches.has(runtime.reviewerBatchByActivity.get(activity.id) ?? "")) {
+        throw new WorkflowTransitionError("ReviewerModelCallCompleted is only valid for new v8 review activities.");
+      }
+      const attempt = payload.attempt;
+      const batchId = stringField(payload, "batchId");
+      if (!Number.isInteger(attempt) || attempt !== activity.attempt
+        || runtime.reviewerBatchByActivity.get(activity.id) !== batchId) {
+        throw new WorkflowTransitionError("ReviewerModelCallCompleted must belong to the current reviewer attempt.");
+      }
+      const calls = runtime.reviewerModelCalls.get(activity.id) ?? [];
+      const current = [...calls].reverse().find((call) => call.attempt === attempt && !call.completedAt);
+      if (!current) throw new WorkflowTransitionError("Reviewer model call completion has no open call.");
+      requireDigest(stringField(payload, "resultDigest"), "resultDigest");
+      current.completedAt = event.occurredAt;
+      activity.lastEventSeq = event.seq;
+      return;
+    }
     case "ReviewerSubmitted": {
       const activity = activityFor(activities, payload);
       if (activity.definition.kind !== "review") {
@@ -1244,6 +1328,21 @@ function applyActivityEvent(
         );
       }
       requireState(activity, ["RUNNING"], event);
+      const budgetedReview = runtime.reviewerBudgetedBatches.has(runtime.reviewerBatchByActivity.get(activity.id) ?? "");
+      if (budgetedReview && payload.deterministic !== undefined) {
+        const calls = runtime.reviewerModelCalls.get(activity.id)?.filter((call) => call.attempt === activity.attempt) ?? [];
+        if (calls.length > 0) throw new WorkflowTransitionError("Deterministic reviewer must not record model calls.");
+      }
+      if (budgetedReview && payload.deterministic === undefined) {
+        const calls = runtime.reviewerModelCalls.get(activity.id)?.filter((call) => call.attempt === activity.attempt) ?? [];
+        if (!calls.length || calls.some((call) => !call.completedAt)) {
+          throw new WorkflowTransitionError("Reviewer submission requires one completed model call for the current attempt.");
+        }
+        const elapsed = Date.parse(event.occurredAt) - Date.parse(calls[0]!.startedAt);
+        if (Number.isFinite(elapsed) && elapsed > 10 * 60_000) {
+          throw new WorkflowTransitionError("Reviewer submission exceeded the 10 minute execution budget.");
+        }
+      }
       const batchId = stringField(payload, "batchId");
       if (runtime.reviewerBatchByActivity.get(activity.id) !== batchId) {
         throw new WorkflowTransitionError(
@@ -1406,6 +1505,7 @@ function applyActivityEvent(
           runtime.reviewerDispatches.delete(activityId);
           runtime.reviewerSubmissions.delete(activityId);
           runtime.reviewerBatchByActivity.delete(activityId);
+          runtime.reviewerModelCalls.delete(activityId);
         }
         activity.lastEventSeq = event.seq;
         runtime.preparedArtifacts.delete(activityId);
@@ -1593,6 +1693,9 @@ export function reduceWorkflow(
     preparedArtifacts: new Map(),
     externalOperationsStarted: new Map(),
     externalOperationsReconciled: new Map(),
+    candidateGenerationStartedAttempts: new Map(),
+    reviewerModelCalls: new Map(),
+    reviewerBudgetedBatches: new Set(),
     reviewPolicy: pinnedDefinition?.reviewPolicy ?? expandedDefinition.reviewPolicy,
     unchangedReviewRevisionCycles: 0
   };
@@ -1612,6 +1715,10 @@ export function reduceWorkflow(
   }
   let sawExpanded = false;
   let sawCandidateGraph = false;
+  let sawRunIntent = false;
+  let sawImpactClosure = false;
+  let sawDesignDelta = false;
+  let runIntent: WorkflowProjection["runIntent"];
 
   for (const event of events) {
     if (event.runId !== identity.runId
@@ -1634,14 +1741,19 @@ export function reduceWorkflow(
       continue;
     }
     if (event.type === "CandidateGraphExpanded") {
-      if (identity.definitionVersion !== "v8") {
-        throw new WorkflowTransitionError("CandidateGraphExpanded is only valid for v8 workflows.");
+      if (!["v8", "v9"].includes(identity.definitionVersion)) {
+        throw new WorkflowTransitionError("CandidateGraphExpanded is only valid for v8/v9 workflows.");
       }
       if (sawCandidateGraph) {
         throw new WorkflowTransitionError("CandidateGraphExpanded may occur only once.");
       }
-      if (!runtime.succeededActivityDetails.has("candidate-skeleton")) {
-        throw new WorkflowTransitionError("CandidateGraphExpanded requires candidate-skeleton to succeed first.");
+      const rootActivityId = typeof event.payload.rootActivityId === "string"
+        ? event.payload.rootActivityId
+        : "candidate-skeleton";
+      const rootActivity = activities[rootActivityId];
+      if (!rootActivity || rootActivity.definition.kind !== "candidate_skeleton"
+        || !runtime.succeededActivityDetails.has(rootActivityId)) {
+        throw new WorkflowTransitionError("CandidateGraphExpanded requires its candidate skeleton to succeed first.");
       }
       if (stringField(event.payload, "parentGraphDigest") !== effectiveGraphDigest) {
         throw new WorkflowTransitionError("CandidateGraphExpanded parentGraphDigest does not match the active graph.");
@@ -1676,7 +1788,12 @@ export function reduceWorkflow(
         capabilities: expandedDefinition.capabilities,
         writesData: expandedDefinition.writesData,
         deliveryTarget: expandedDefinition.deliveryTarget ?? "full_run",
-        reviewPolicy: expandedDefinition.reviewPolicy!
+        reviewPolicy: expandedDefinition.reviewPolicy!,
+        generationPolicyVersion: rootActivity.definition
+          ?.metadata?.generationPolicyVersion as "candidate-generation-policy-v1" | "candidate-generation-policy-v2" | undefined
+        ,...(rootActivity.definition.metadata?.candidateNamespace === "delta"
+          ? { candidateNamespace: "delta" as const }
+          : {})
       });
       if (
         canonicalJson(additions as unknown as SafeJsonValue)
@@ -1719,6 +1836,83 @@ export function reduceWorkflow(
       effectiveGraphDigest = candidate.graphDigest;
       sawCandidateGraph = true;
       materializeReady(activities, identity.definitionVersion);
+      continue;
+    }
+    if (event.type === "RunIntentDerived") {
+      if (identity.definitionVersion !== "v9") {
+        throw new WorkflowTransitionError("RunIntentDerived is only valid for v9 workflows.");
+      }
+      if (sawRunIntent) throw new WorkflowTransitionError("RunIntentDerived may occur only once.");
+      const activity = activityFor(activities, event.payload);
+      if (activity.id !== "run-intent-derive" || activity.state !== "RUNNING") {
+        throw new WorkflowTransitionError("RunIntentDerived requires the current run-intent-derive attempt.");
+      }
+      if (event.payload.attempt !== activity.attempt
+        || event.payload.schemaVersion !== "run-intent-v1") {
+        throw new WorkflowTransitionError("RunIntentDerived attempt or schema does not match the active run intent.");
+      }
+      requireDigest(stringField(event.payload, "digest"), "runIntent digest");
+      const path = stringField(event.payload, "path");
+      if (!path.startsWith(".local/test-runs/") || path.includes("..")) {
+        throw new WorkflowTransitionError("RunIntentDerived path must be a safe local run archive path.");
+      }
+      const decision = stringField(event.payload, "decision");
+      if (decision !== activity.definition.metadata?.decision) {
+        throw new WorkflowTransitionError("RunIntentDerived decision differs from the frozen reuse assessment.");
+      }
+      runIntent = {
+        decision,
+        suiteId: stringField(event.payload, "suiteId"),
+        digest: stringField(event.payload, "digest"),
+        ...(typeof event.payload.suiteVersion === "string" ? { suiteVersion: event.payload.suiteVersion } : {}),
+        ...(typeof event.payload.environment === "string" ? { environment: event.payload.environment } : {}),
+        ...(event.payload.deliveryTarget === "testcase_only" || event.payload.deliveryTarget === "script_only" || event.payload.deliveryTarget === "full_run"
+          ? { deliveryTarget: event.payload.deliveryTarget }
+          : {}),
+        ...(Array.isArray(event.payload.selectedCaseIds) ? { selectedCaseIds: event.payload.selectedCaseIds.filter((value): value is string => typeof value === "string") } : {}),
+        ...(Array.isArray(event.payload.affectedCaseIds) ? { affectedCaseIds: event.payload.affectedCaseIds.filter((value): value is string => typeof value === "string") } : {}),
+        ...(typeof event.payload.sourceDigest === "string" ? { sourceDigest: event.payload.sourceDigest } : {}),
+        ...(typeof event.payload.boundaryDigest === "string" ? { boundaryDigest: event.payload.boundaryDigest } : {})
+      };
+      sawRunIntent = true;
+      continue;
+    }
+    if (event.type === "ImpactClosureBuilt") {
+      if (identity.definitionVersion !== "v9" || sawImpactClosure) {
+        throw new WorkflowTransitionError("ImpactClosureBuilt is valid once for a v9 workflow only.");
+      }
+      const activity = activityFor(activities, event.payload);
+      if (activity.id !== "impact-closure-build" || activity.state !== "RUNNING"
+        || event.payload.attempt !== activity.attempt
+        || event.payload.schemaVersion !== "impact-closure-v1") {
+        throw new WorkflowTransitionError("ImpactClosureBuilt does not match the active closure attempt.");
+      }
+      requireDigest(stringField(event.payload, "digest"), "impact closure digest");
+      requireDigest(stringField(event.payload, "baselineVersion"), "impact closure baselineVersion");
+      if (!Array.isArray(event.payload.caseIds) || !event.payload.caseIds.length || event.payload.caseIds.length > 8) {
+        throw new WorkflowTransitionError("ImpactClosureBuilt must freeze 1 to 8 semantic cases.");
+      }
+      sawImpactClosure = true;
+      continue;
+    }
+    if (event.type === "DesignDeltaPrepared") {
+      if (identity.definitionVersion !== "v9" || sawDesignDelta || !sawImpactClosure) {
+        throw new WorkflowTransitionError("DesignDeltaPrepared requires one prior v9 impact closure.");
+      }
+      const activity = activityFor(activities, event.payload);
+      if (activity.id !== "delta-preflight" || activity.state !== "RUNNING"
+        || event.payload.attempt !== activity.attempt
+        || event.payload.schemaVersion !== "design-delta-v1") {
+        throw new WorkflowTransitionError("DesignDeltaPrepared does not match the active delta preflight attempt.");
+      }
+      requireDigest(stringField(event.payload, "digest"), "design delta digest");
+      requireDigest(stringField(event.payload, "baselineVersion"), "design delta baselineVersion");
+      if (!Array.isArray(event.payload.caseIds) || !event.payload.caseIds.length
+        || !Array.isArray(event.payload.ruleIds) || !event.payload.ruleIds.length
+        || !Array.isArray(event.payload.moduleIds) || !event.payload.moduleIds.length) {
+        throw new WorkflowTransitionError("DesignDeltaPrepared must bind a non-empty case scope and explicit RULE scope.");
+      }
+      sawDesignDelta = true;
       continue;
     }
     if (!sawExpanded && event.type !== "LegacyStateImported") {
@@ -1851,6 +2045,7 @@ export function reduceWorkflow(
     definitionVersion: identity.definitionVersion,
     graphDigest: effectiveGraphDigest,
     planDigest,
+    ...(runIntent ? { runIntent } : {}),
     ...(expandedDefinition.deliveryTarget
       ? { deliveryTarget: expandedDefinition.deliveryTarget }
       : {}),

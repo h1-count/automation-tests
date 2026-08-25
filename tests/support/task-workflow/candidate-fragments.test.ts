@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 import {
+  assembleCandidateDelta,
   assembleCandidateFragments,
   candidateFragmentManifestDigest,
   parseCandidateFragmentManifest,
@@ -94,6 +95,37 @@ test("deterministic assembly keeps frozen module order and rebuilds the derived 
   }), /missing fragment profile/u);
 });
 
+test("affected delta replaces only frozen RULE blocks and preserves unrelated raw semantics", () => {
+  const baselineManifest = parseCandidateFragmentManifest(manifestText);
+  const baseline = assembleCandidateFragments({
+    manifest: baselineManifest,
+    fragments: new Map(baselineManifest.modules.map((module) => [module.id, fragmentMarkdown(module)])),
+    defaults: { testType: "Web", environment: "test", dataStrategy: "no_write" }
+  });
+  const affectedManifest = parseCandidateFragmentManifest(JSON.stringify({
+    schemaVersion: "candidate-fragment-manifest-v1",
+    scope: "affected",
+    modules: [baselineManifest.modules[0]]
+  }));
+  const changed = fragmentMarkdown(affectedManifest.modules[0]!).replace("验证账号规则", "验证账号规则（增量）");
+  const merged = assembleCandidateDelta({
+    baseline,
+    manifest: affectedManifest,
+    fragments: new Map([["account", changed]]),
+    affectedRuleIds: ["RULE-DEMO-ACCOUNT"],
+    unaffectedCaseIds: ["DEMO-PROFILE-001"]
+  });
+  assert.match(merged, /验证账号规则（增量）/u);
+  assert.match(merged, /验证资料规则/u);
+  assert.throws(() => assembleCandidateDelta({
+    baseline,
+    manifest: affectedManifest,
+    fragments: new Map([["account", changed]]),
+    affectedRuleIds: ["RULE-UNKNOWN"],
+    unaffectedCaseIds: ["DEMO-PROFILE-001"]
+  }), /absent from the stable baseline/u);
+});
+
 test("fragment lease keeper renews at one third and blocks publication after renewal failure", async () => {
   let renewals = 0;
   const keeper = new ActivityLeaseKeepalive(900, async () => {
@@ -162,7 +194,67 @@ test("v8 skeleton expands once and independently publishes every frozen fragment
     claimToken: source.claimToken,
     verification: "sources selected"
   });
-  const skeleton = await manager.startActivity("candidate-skeleton", "host");
+  const preflight = await manager.startActivity("candidate-preflight", "host");
+  const preflightPlan = `# 测试计划
+
+> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
+
+## 请求默认值
+
+| 项目 | 内容 |
+| --- | --- |
+| 测试类型 | Web |
+| 目标环境 | test |
+| 数据策略 | no_write |
+
+## 测试范围
+
+候选分片。
+
+## 请求内来源
+
+| 来源 ID | 路径 | 摘要 |
+| --- | --- | --- |
+| SRC-DEMO-ACCOUNT | [受控说明](../../../../sources/demo.md) | ${"a".repeat(64)} |
+
+## 需求索引
+
+| 需求 | 来源 |
+| --- | --- |
+| REQ-DEMO-ACCOUNT | SRC-DEMO-ACCOUNT |
+
+## 规则设计台账
+
+rule-design-ledger-v3
+
+| RULE | 说明 | sourceRef |
+| --- | --- | --- |
+| RULE-DEMO-ACCOUNT | 账号 | SRC-DEMO-ACCOUNT |
+
+## 需求歧义与未定义预期
+
+无。
+
+## 缺口与风险
+
+无。
+
+## 评审与正式决定
+
+待评审。
+`;
+  const preflightResult = await manager.preflightCandidatePlan({
+    claimToken: preflight.claimToken,
+    publishId: "candidate-preflight-v8",
+    verification: "plan preflight",
+    plan: preflightPlan
+  });
+  assert.equal(preflightResult.report.complete, true);
+  await assert.rejects(
+    manager.startActivity("candidate-skeleton", "host"),
+    /candidate-generation-start/u
+  );
+  const skeleton = await manager.startCandidateGeneration("candidate-skeleton", "host");
   await manager.publishArtifactsAndSucceed("candidate-skeleton", {
     claimToken: skeleton.claimToken,
     publishId: "candidate-skeleton-v8",
@@ -183,6 +275,24 @@ test("v8 skeleton expands once and independently publishes every frozen fragment
   );
   await assert.rejects(manager.expandCandidateGraph(), /already expanded/u);
   const events = await manager.events();
+  const generationStarted = events.find((event) => event.type === "CandidateGenerationStarted");
+  assert.ok(generationStarted);
+  const generationIndex = events.findIndex((event) => event.eventId === generationStarted!.eventId);
+  assert.throws(
+    () => reduceWorkflow([
+      ...events.slice(0, generationIndex + 1),
+      { ...generationStarted!, eventId: "evt-duplicate-generation" },
+      ...events.slice(generationIndex + 1)
+    ]),
+    /already exists/u
+  );
+  assert.throws(
+    () => reduceWorkflow([
+      ...events.filter((event) => event.eventId !== generationStarted!.eventId),
+      generationStarted!
+    ]),
+    /current running attempt/u
+  );
   const tamperedParent = events.map((event) => event.type === "CandidateGraphExpanded"
     ? { ...event, payload: { ...event.payload, parentGraphDigest: "0".repeat(64) } }
     : event
@@ -211,7 +321,7 @@ test("v8 skeleton expands once and independently publishes every frozen fragment
 
   for (const module of parseCandidateFragmentManifest(manifestText).modules) {
     const activityId = `candidate-fragment-${module.id}`;
-    const fragment = await manager.startActivity(activityId, "host");
+    const fragment = await manager.startCandidateGeneration(activityId, "host");
     await manager.publishArtifactsAndSucceed(activityId, {
       claimToken: fragment.claimToken,
       publishId: `${activityId}-v8`,
@@ -239,18 +349,25 @@ test("v8 skeleton expands once and independently publishes every frozen fragment
 test("cost analysis reports fragment wall time separately from aggregate work", () => {
   const timeline = deriveRequestTimeline([
     { type: "ActivityAttemptStarted", occurredAt: "2026-08-24T00:00:00.000Z", payload: { activityId: "candidate-skeleton", attempt: 1 } },
+    { type: "CandidateGenerationStarted", occurredAt: "2026-08-24T00:00:10.000Z", payload: { activityId: "candidate-skeleton", attempt: 1 } },
     { type: "ActivitySucceeded", occurredAt: "2026-08-24T00:01:00.000Z", payload: { activityId: "candidate-skeleton", attempt: 1 } },
     { type: "ActivityAttemptStarted", occurredAt: "2026-08-24T00:01:00.000Z", payload: { activityId: "candidate-fragment-a", attempt: 1 } },
+    { type: "CandidateGenerationStarted", occurredAt: "2026-08-24T00:01:10.000Z", payload: { activityId: "candidate-fragment-a", attempt: 1 } },
     { type: "ActivityAttemptStarted", occurredAt: "2026-08-24T00:01:00.000Z", payload: { activityId: "candidate-fragment-b", attempt: 1 } },
+    { type: "CandidateGenerationStarted", occurredAt: "2026-08-24T00:01:05.000Z", payload: { activityId: "candidate-fragment-b", attempt: 1 } },
     { type: "ActivitySucceeded", occurredAt: "2026-08-24T00:03:00.000Z", payload: { activityId: "candidate-fragment-a", attempt: 1 } },
     { type: "ActivitySucceeded", occurredAt: "2026-08-24T00:04:00.000Z", payload: { activityId: "candidate-fragment-b", attempt: 1 } }
   ]);
   assert.deepEqual(timeline.candidateGeneration, {
     skeletonSeconds: 60,
+    skeletonModelSeconds: 50,
     fragmentBusySeconds: 300,
+    fragmentModelSeconds: 285,
     fragmentWallSeconds: 180,
     fragmentCriticalPathSeconds: 180,
     assemblySeconds: 0,
-    fragmentCount: 2
+    fragmentCount: 2,
+    modelTimingCapturedActivities: 3,
+    modelTimingExpectedActivities: 3
   });
 });

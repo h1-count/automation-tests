@@ -7,7 +7,7 @@ import {
   parseReviewBatchScope,
   reviewBatchScopeDigest
 } from "../../../src/support/task-workflow/reviewBatchScope.js";
-import { assessCaseReviewRisk } from "../../../src/support/task-workflow/caseReviewRisk.js";
+import { assessCaseReviewRisk, caseReviewRiskDigest } from "../../../src/support/task-workflow/caseReviewRisk.js";
 import { routeSemanticReview } from "../../../src/support/task-workflow/reviewSemanticRouting.js";
 
 const activities = [
@@ -172,4 +172,36 @@ test("v1 review scope parsing and digest stay backward compatible", () => {
   assert.equal(scope.schemaVersion, "review-batch-scope-v1");
   assert.deepEqual(parseReviewBatchScope(scope), scope);
   assert.equal(reviewBatchScopeDigest(parseReviewBatchScope(scope)), reviewBatchScopeDigest(scope));
+});
+
+test("v3 scoped revision slices the REQ/RULE/case closure and fails closed for global or broad refs", () => {
+  const assessment = {
+    schemaVersion: "case-review-risk-v2" as const,
+    cases: Array.from({ length: 9 }, (_, index) => ({
+      caseId: `OPEN-REG-${String(index + 1).padStart(3, "0")}`,
+      level: "standard" as const,
+      reasons: ["semantic_change"],
+      requirementRefs: [`REQ-REG-${String(index + 1).padStart(3, "0")}`],
+      ruleRefs: [`RULE-REG-${String(index + 1).padStart(3, "0")}`]
+    })),
+    counts: { light: 0, standard: 9, strict: 0 },
+    distribution: "uniform" as const,
+    maxLevel: "standard" as const,
+    digest: ""
+  };
+  // Use the production assessor digest contract rather than an arbitrary test hash.
+  assessment.digest = caseReviewRiskDigest(assessment);
+  const input = {
+    allActivityIds: ["case-review-combined"],
+    caseRiskAssessment: assessment,
+    activityRoles: [{ activityId: "case-review-combined", role: "combined" }],
+    reviewEpochDigest: "d".repeat(64),
+    semanticEvolutionCycle: 1
+  };
+  assert.deepEqual(buildReviewBatchScopeV3({ ...input, affectedRefs: ["RULE-REG-001"] })
+    .roleScopes[0]?.caseIds, ["OPEN-REG-001"]);
+  assert.equal(buildReviewBatchScopeV3({ ...input, affectedRefs: ["请求默认值"] })
+    .roleScopes[0]?.caseIds.length, 9);
+  assert.equal(buildReviewBatchScopeV3({ ...input, affectedRefs: assessment.cases.map((item) => item.caseId) })
+    .roleScopes[0]?.caseIds.length, 9);
 });

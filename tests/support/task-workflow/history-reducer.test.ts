@@ -44,6 +44,18 @@ function definition(
   });
 }
 
+function v8Definition(): WorkflowDefinition {
+  return buildWorkflowDefinition({
+    requestId: "web/open-platform/login-register-20260824-fixture",
+    planDigest,
+    capabilities: ["web"],
+    casePackages: ["cases.md"],
+    deliveryTarget: "testcase_only",
+    fragmented: true,
+    planText: "rule-design-ledger-v3"
+  });
+}
+
 function minimalFormalWorkflow(marked = true): WorkflowDefinition {
   const base = definition();
   const completionMetadata: Record<string, SafeJsonValue> = marked
@@ -119,6 +131,19 @@ function eventInput(
   };
 }
 
+function replayEvent(input: NewWorkflowEvent, seq: number): WorkflowEvent {
+  return {
+    ...input,
+    schemaVersion: "test-workflow-event-v1",
+    eventId: `fixture-${seq}`,
+    seq,
+    occurredAt: input.occurredAt ?? "2026-08-24T00:00:00.000Z",
+    payload: input.payload ?? {},
+    prevDigest: GENESIS_DIGEST,
+    digest: "0".repeat(64)
+  };
+}
+
 async function initialized(
   root: string,
   workflow = definition()
@@ -136,6 +161,31 @@ async function initialized(
   ], { seq: 0, digest: GENESIS_DIGEST });
   return store;
 }
+
+test("old v8 reviewer fixture replays its durable digest without applying v4 recomputation", () => {
+  const workflow = v8Definition();
+  const batch = eventInput(workflow, "ReviewBatchStarted", "legacy-v8-review", {
+    batchId: "rev-login-register-legacy",
+    // This intentionally differs from the current calculation: the original
+    // history predates durable inputDigestAlgorithm and must stay readable.
+    inputDigest: "b".repeat(64),
+    inputRefs: [{
+      path: "testcases/web/open-platform/login-register-20260824-fixture/plan.md",
+      digest: "c".repeat(64),
+      sizeBytes: 17
+    }]
+  });
+  const events = [
+    eventInput(workflow, "WorkflowStarted", "start", workflowStartedPayload(workflow), "system"),
+    eventInput(workflow, "ActivitiesExpanded", "expand", activitiesExpandedPayload(workflow), "system"),
+    batch
+  ].map(replayEvent);
+  assert.doesNotThrow(() => reduceWorkflow(events, workflow));
+  assert.throws(() => reduceWorkflow([
+    ...events.slice(0, 2),
+    { ...events[2]!, payload: { ...events[2]!.payload, inputDigestAlgorithm: "review-input-digest-v4" } }
+  ], workflow), /inputRefs do not match inputDigest/u);
+});
 
 async function appendActivitySuccess(
   store: WorkflowHistoryStore,

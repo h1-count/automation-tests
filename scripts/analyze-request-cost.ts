@@ -172,7 +172,7 @@ console.log(JSON.stringify({
   request,
   report: outPath,
   wallMinutes: Number((timeline.wallSeconds / 60).toFixed(1)),
-  retryWasteMinutes: Number((timeline.activities.reduce((sum, item) => sum + item.wasteSeconds, 0) / 60).toFixed(1)),
+  retryIdleMinutes: Number((timeline.retryIdleSeconds / 60).toFixed(1)),
   humanWaitMinutes: Number((timeline.humanWaitSeconds / 60).toFixed(1)),
   reviewerSpans: timeline.reviewerSpans,
   tokenTotals: totals,

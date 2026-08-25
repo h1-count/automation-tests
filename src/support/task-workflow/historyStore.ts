@@ -16,7 +16,7 @@ import {
 } from "./types.js";
 
 export const GENESIS_DIGEST = "0".repeat(64);
-export const WRITABLE_WORKFLOW_DEFINITION_VERSIONS = ["v5", "v6", "v7", "v8"] as const;
+export const WRITABLE_WORKFLOW_DEFINITION_VERSIONS = ["v5", "v6", "v7", "v8", "v9"] as const;
 
 export type WorkflowHistoryCandidateValidator = (
   events: readonly WorkflowEvent[]
@@ -224,9 +224,9 @@ export class WorkflowHistoryStore {
   ): Promise<WorkflowEvent[]> {
     if (!inputs.length) throw new Error("Workflow history append batch must not be empty.");
     for (const input of inputs) {
-      if (!WRITABLE_WORKFLOW_DEFINITION_VERSIONS.includes(input.definitionVersion as "v5" | "v6" | "v7" | "v8")) {
+      if (!WRITABLE_WORKFLOW_DEFINITION_VERSIONS.includes(input.definitionVersion as "v5" | "v6" | "v7" | "v8" | "v9")) {
         throw new WorkflowHistoryIntegrityError(
-          `Workflow history append requires definitionVersion v5, v6, v7, or v8; ${input.definitionVersion} is replay-only.`
+          `Workflow history append requires definitionVersion v5, v6, v7, v8, or v9; ${input.definitionVersion} is replay-only.`
         );
       }
       if (input.type === "LegacyStateImported") {
@@ -250,7 +250,7 @@ export class WorkflowHistoryStore {
         );
       }
       const legacyDefinitionEvent = events.find(
-        (event) => !WRITABLE_WORKFLOW_DEFINITION_VERSIONS.includes(event.definitionVersion as "v5" | "v6" | "v7")
+        (event) => !WRITABLE_WORKFLOW_DEFINITION_VERSIONS.includes(event.definitionVersion as "v5" | "v6" | "v7" | "v8" | "v9")
       );
       if (legacyDefinitionEvent) {
         throw new WorkflowHistoryIntegrityError(

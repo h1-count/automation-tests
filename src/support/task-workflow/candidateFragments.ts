@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { canonicalJson } from "./canonicalJson.js";
 import type { SafeJsonValue } from "./types.js";
 import {
+  isCurrentTestcaseDocumentVersion,
+  parseTestcaseDocument,
   projectTestcaseV6DerivedView,
   validateTestcaseV6Layered
 } from "../testcase/testcaseDocument.js";
@@ -147,4 +149,49 @@ export function assembleCandidateFragments(input: {
     throw new Error(`Candidate assembly produced invalid testcase-v6-layered content: ${issues.join(" ")}`);
   }
   return `${content.trimEnd()}\n`;
+}
+
+/** Apply a verified affected delta without rewriting unrelated testcase
+ * bodies. The final derived view is always regenerated; non-affected semantic
+ * bodies must retain their exact digest-equivalent raw content. */
+export function assembleCandidateDelta(input: {
+  baseline: string;
+  manifest: CandidateFragmentManifest;
+  fragments: ReadonlyMap<string, string>;
+  affectedRuleIds: string[];
+  unaffectedCaseIds: string[];
+}): string {
+  const baselineDocument = parseTestcaseDocument(input.baseline);
+  if (!isCurrentTestcaseDocumentVersion(baselineDocument.version)) {
+    throw new Error("Delta assembly requires a testcase-v6-layered stable baseline.");
+  }
+  const affected = new Set(input.affectedRuleIds);
+  const baselineRules = new Set(baselineDocument.cases.flatMap((testcase) => testcase.ruleIds));
+  if ([...affected].some((ruleId) => !baselineRules.has(ruleId))) {
+    throw new Error("Delta assembly references a RULE absent from the stable baseline.");
+  }
+  const fragmentSections = input.manifest.modules.map((module) => {
+    const content = input.fragments.get(module.id);
+    if (!content) throw new Error(`Candidate delta is missing fragment ${module.id}.`);
+    validateCandidateFragmentContent(content, module);
+    return content.trim();
+  });
+  const withoutAffected = input.baseline
+    .replace(/^##\s+模块[：:]\s*.+?\s*\n\n(<details(?:\s+open)?>([\s\S]*?)<\/details>)\s*/gmu, (block) => {
+      const rules = [...block.matchAll(/\bRULE-[A-Z0-9]+(?:-[A-Z0-9]+)+\b/gu)].map((match) => match[0]!);
+      return rules.some((ruleId) => affected.has(ruleId)) ? "" : block;
+    })
+    .trimEnd();
+  const candidate = projectTestcaseV6DerivedView(`${withoutAffected}\n\n${fragmentSections.join("\n\n")}\n`);
+  const issues = validateTestcaseV6Layered(candidate);
+  if (issues.length) throw new Error(`Delta assembly produced invalid testcase-v6-layered content: ${issues.join(" ")}`);
+  const actual = parseTestcaseDocument(candidate);
+  const before = new Map(baselineDocument.cases.map((testcase) => [testcase.caseId, testcase.rawBody]));
+  for (const caseId of input.unaffectedCaseIds) {
+    const after = actual.cases.find((testcase) => testcase.caseId === caseId)?.rawBody;
+    if (!after || after !== before.get(caseId)) {
+      throw new Error(`Delta assembly changed unaffected testcase semantics: ${caseId}.`);
+    }
+  }
+  return `${candidate.trimEnd()}\n`;
 }
