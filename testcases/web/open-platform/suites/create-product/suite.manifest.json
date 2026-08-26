@@ -4,12 +4,12 @@
   "suiteId": "web/open-platform/create-product",
   "designLedger": {
     "path": "testcases/web/open-platform/suites/create-product/design.md",
-    "digest": "64dac10bf25c0b35f3a7e8c35c63df36bdd7e6c54898b4547e02c75307447384"
+    "digest": "6b651c486de5ff1196ae7c9353a2c89e036fc5ef70e436450d2be4b942e4650f"
   },
   "casePackages": [
     {
       "path": "testcases/web/open-platform/suites/create-product/cases.md",
-      "digest": "5f2c040e59ffd726d33b48a763181eafa95750bce82efed7f9d61ead6d7d7b4b"
+      "digest": "d336229898452cc36bd4be2c2af1055d22713560994a2bc3bb280f93c24950b5"
     }
   ],
   "caseIds": [
@@ -19,6 +19,7 @@
     "OPEN-CREATE-002",
     "OPEN-CREATE-003",
     "OPEN-DESC-001",
+    "OPEN-DEVMODE-001",
     "OPEN-DEVTYPE-001",
     "OPEN-LIST-001",
     "OPEN-LIST-002",
@@ -34,6 +35,8 @@
     "OPEN-PROD-001",
     "OPEN-PROD-002",
     "OPEN-PROD-003",
+    "OPEN-PROTOCOL-001",
+    "OPEN-PROTOCOL-002",
     "OPEN-QUOTA-001",
     "OPEN-QUOTA-002",
     "OPEN-QUOTA-003",
@@ -48,6 +51,7 @@
       "OPEN-CREATE-002",
       "OPEN-CREATE-003",
       "OPEN-DESC-001",
+      "OPEN-DEVMODE-001",
       "OPEN-DEVTYPE-001",
       "OPEN-LIST-001",
       "OPEN-LIST-002",
@@ -63,6 +67,8 @@
       "OPEN-PROD-001",
       "OPEN-PROD-002",
       "OPEN-PROD-003",
+      "OPEN-PROTOCOL-001",
+      "OPEN-PROTOCOL-002",
       "OPEN-QUOTA-001",
       "OPEN-QUOTA-002",
       "OPEN-QUOTA-003",
@@ -74,10 +80,14 @@
       "OPEN-CAT-002",
       "OPEN-CREATE-001",
       "OPEN-CREATE-002",
+      "OPEN-DEVMODE-001",
       "OPEN-DEVTYPE-001",
       "OPEN-MODEL-001",
       "OPEN-NAME-001",
       "OPEN-NAME-003",
+      "OPEN-PROTOCOL-001",
+      "OPEN-PROTOCOL-002",
+      "OPEN-QUOTA-001",
       "OPEN-WIZ-001"
     ],
     "failed_or_blocked": []
@@ -95,18 +105,31 @@
           "digest": "b0a4adcff16e309794deb26990d31a9d52d1e589d0ed8d00312e1aa7198acefb"
         }
       ]
+    },
+    {
+      "sourceId": "SRC-CP-API-001",
+      "digest": "56b7f5bbcd0d02f4283df910f434780dce9c76ab8c3b42d245ab98409a8dc0b3",
+      "sourcePaths": [
+        "sources/open-platform/接口/开放平台接口文档.docx"
+      ],
+      "fileDigests": [
+        {
+          "path": "sources/open-platform/接口/开放平台接口文档.docx",
+          "digest": "56b7f5bbcd0d02f4283df910f434780dce9c76ab8c3b42d245ab98409a8dc0b3"
+        }
+      ]
     }
   ],
   "allowedEnvironments": [
     "test",
     "pre"
   ],
-  "suiteVersion": "e404ee88a1648100b7fe303fe08164c2955debb8d35a1910e52c025cf4851b2a",
+  "suiteVersion": "976087a35c435d2ce29292c2c825df3e7801239b3a19cd4cb555237c0a7a9483",
   "status": "stable",
-  "sourceRequestId": "web/open-platform/create-product-20260824-r2",
+  "sourceRequestId": "web/open-platform/create-product-20260825-r7",
   "acceptance": {
-    "workflowHeadDigest": "10e18ea251c2584876c7aaefa762a2db6c5d4e6737da0944a9066a69ddb03334",
-    "confirmationDigest": "902c8470717fd221eed8737037d5bfce443cc89fb63c551f2432cd23c75bfd2e",
-    "acceptedAt": "2026-08-24T05:39:49.290Z"
+    "workflowHeadDigest": "66732de4cb6c6a5b3c6b4ee64092280ede25e55de1f0aa677217a80a7a8b2f98",
+    "confirmationDigest": "7fa350dcb275e0dc34fc7bdcdd70727b50c6ad1ac2b58916cc11ee71133c7799",
+    "acceptedAt": "2026-08-25T08:33:18.786Z"
   }
 }
