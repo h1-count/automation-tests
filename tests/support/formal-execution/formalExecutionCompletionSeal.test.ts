@@ -19,7 +19,8 @@ const targetBuildDigest = "b".repeat(64);
 
 function completionManifest(): FormalExecutionManifest {
   return defineFormalExecutionManifest({
-    schemaVersion: "formal-execution-manifest-v3",
+    schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId: "web/example/completion-seal",
     projectId: "example",
     environment: "test",
@@ -220,12 +221,12 @@ test("summary separates scope, test outcome and explicit data hygiene", async (c
   await finish(store, "CASE-PASS", "passed");
   await store.recordDataEvidence(authorizationDigest, emptyDataEvidence(["CASE-PASS"]));
   await store.recordCleanup(authorizationDigest, "passed");
-  const legacyCleanup = await store.summarize(authorizationDigest);
-  assert.equal(legacyCleanup.scopeStatus, "complete");
-  assert.equal(legacyCleanup.testOutcome, "passed");
-  assert.equal(legacyCleanup.dataHygieneStatus, "unknown");
-  assert.equal(legacyCleanup.cleanup.dataHygieneStatus, "unknown");
-  assert.equal(legacyCleanup.complete, false);
+  const incompleteCleanup = await store.summarize(authorizationDigest);
+  assert.equal(incompleteCleanup.scopeStatus, "complete");
+  assert.equal(incompleteCleanup.testOutcome, "passed");
+  assert.equal(incompleteCleanup.dataHygieneStatus, "unknown");
+  assert.equal(incompleteCleanup.cleanup.dataHygieneStatus, "unknown");
+  assert.equal(incompleteCleanup.complete, false);
   await assert.rejects(
     () => store.sealForWorkflow(sealInput),
     /explicitly accepted data hygiene/
@@ -244,51 +245,35 @@ test("summary separates scope, test outcome and explicit data hygiene", async (c
   assert.equal(accepted.complete, true);
 });
 
-test("legacy v1 records remain readable but reject continuation writes", async (context) => {
+test("non-v1 records are rejected without continuation or replay", async (context) => {
   const { ledgerRoot, artifactRoot, store, sealInput } = await createHarness(context);
   const recordPath = resolve(ledgerRoot, "formal", `${authorizationDigest}.json`);
   const record = JSON.parse(await readFile(recordPath, "utf8")) as {
     schemaVersion: string;
   };
-  record.schemaVersion = "formal-execution-record-v1";
+  record.schemaVersion = "unsupported-version";
   await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 
   const reportDirectory = resolve(artifactRoot, authorizationDigest.slice(0, 12));
   const runSummaryPath = resolve(reportDirectory, "run-summary.json");
-  const legacyBytes = `${JSON.stringify({
-    schemaVersion: "formal-run-summary-v1",
-    legacy: true
-  }, null, 2)}\n`;
+  const unsupportedBytes = `${JSON.stringify({ schemaVersion: "unsupported-version" }, null, 2)}\n`;
   await mkdir(reportDirectory, { recursive: true });
-  await writeFile(runSummaryPath, legacyBytes, "utf8");
+  await writeFile(runSummaryPath, unsupportedBytes, "utf8");
 
-  await store.summarize(authorizationDigest);
-
-  assert.equal(await readFile(runSummaryPath, "utf8"), legacyBytes);
   await assert.rejects(
-    () => store.beginCase(authorizationDigest, "CASE-PASS"),
-    /Legacy formal execution records are read-only/
+    () => store.read(authorizationDigest),
+    /formal-execution-record-v1/
   );
-  await assert.rejects(
-    () => store.sealForWorkflow(sealInput),
-    /Legacy formal execution records are read-only/
-  );
-  const persisted = await store.read(authorizationDigest);
-  assert.equal(persisted?.schemaVersion, "formal-execution-record-v1");
-  assert.equal(persisted?.completionSeal, undefined);
-  assert.equal(await readFile(runSummaryPath, "utf8"), legacyBytes);
+  assert.equal(await readFile(runSummaryPath, "utf8"), unsupportedBytes);
 });
 
-test("legacy v1 report artifacts remain read-only for a sealable v3 record", async (context) => {
+test("unsupported report artifacts are rejected without overwrite", async (context) => {
   const { artifactRoot, store, sealInput } = await createHarness(context);
   const reportDirectory = resolve(artifactRoot, authorizationDigest.slice(0, 12));
   const runSummaryPath = resolve(reportDirectory, "run-summary.json");
-  const legacyBytes = `${JSON.stringify({
-    schemaVersion: "formal-run-summary-v1",
-    legacy: true
-  }, null, 2)}\n`;
+  const unsupportedBytes = `${JSON.stringify({ schemaVersion: "unsupported-version" }, null, 2)}\n`;
   await mkdir(reportDirectory, { recursive: true });
-  await writeFile(runSummaryPath, legacyBytes, "utf8");
+  await writeFile(runSummaryPath, unsupportedBytes, "utf8");
 
   await finish(store, "CASE-PASS", "passed");
   await store.recordDataEvidence(authorizationDigest, emptyDataEvidence(["CASE-PASS"]));
@@ -300,19 +285,19 @@ test("legacy v1 report artifacts remain read-only for a sealable v3 record", asy
   );
   await assert.rejects(
     () => store.sealForWorkflow(sealInput),
-    /artifacts are read-only/
+    /formal-run-summary-v1/
   );
   assert.equal((await store.read(authorizationDigest))?.completionSeal, undefined);
-  assert.equal(await readFile(runSummaryPath, "utf8"), legacyBytes);
+  assert.equal(await readFile(runSummaryPath, "utf8"), unsupportedBytes);
 });
 
 test("an orphan execution summary is rejected before sealing and is never overwritten", async (context) => {
   const { artifactRoot, store, sealInput } = await createHarness(context);
   const reportDirectory = resolve(artifactRoot, authorizationDigest.slice(0, 12));
   const markdownPath = resolve(reportDirectory, "execution-summary.md");
-  const legacyBytes = "# legacy execution summary\n";
+  const unsupportedBytes = "# unsupported execution summary\n";
   await mkdir(reportDirectory, { recursive: true });
-  await writeFile(markdownPath, legacyBytes, "utf8");
+  await writeFile(markdownPath, unsupportedBytes, "utf8");
 
   await finish(store, "CASE-PASS", "passed");
   await store.recordDataEvidence(authorizationDigest, emptyDataEvidence(["CASE-PASS"]));
@@ -325,13 +310,13 @@ test("an orphan execution summary is rejected before sealing and is never overwr
 
   await assert.rejects(
     () => store.sealForWorkflow(sealInput),
-    /no matching v2 run-summary\.json/
+    /no matching formal-run-summary-v1/
   );
   assert.equal((await store.read(authorizationDigest))?.completionSeal, undefined);
-  assert.equal(await readFile(markdownPath, "utf8"), legacyBytes);
+  assert.equal(await readFile(markdownPath, "utf8"), unsupportedBytes);
 });
 
-test("unsealed v3 summaries do not materialize formal report files", async (context) => {
+test("unsealed v1 summaries do not materialize formal report files", async (context) => {
   const { artifactRoot, store } = await createHarness(context);
   await store.summarize(authorizationDigest);
   const reportDirectory = resolve(artifactRoot, authorizationDigest.slice(0, 12));
@@ -679,7 +664,7 @@ test("persisted completion seals reject unsupported fields", async (context) => 
   );
 });
 
-test("materializeSealedReport deterministically rebuilds the two v2 report files", async (context) => {
+test("materializeSealedReport deterministically rebuilds the two v1 report files", async (context) => {
   const { artifactRoot, store, sealInput } = await createHarness(context);
   await finish(store, "CASE-PASS", "passed");
   await store.recordDataEvidence(authorizationDigest, emptyDataEvidence(["CASE-PASS"]));
@@ -708,7 +693,7 @@ test("materializeSealedReport deterministically rebuilds the two v2 report files
     schemaVersion?: string;
     completionSeal?: Record<string, unknown>;
   };
-  assert.equal(parsed.schemaVersion, "formal-run-summary-v2");
+  assert.equal(parsed.schemaVersion, "formal-run-summary-v1");
   assert.deepEqual(Object.keys(parsed.completionSeal ?? {}).sort(), [
     "resultDigest",
     "schemaVersion",

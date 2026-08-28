@@ -19,6 +19,7 @@ import {
   type CapabilityCheckContext
 } from "./capabilityProvider.js";
 import { operationEvidenceDefinitionIssues } from "./operationEvidence.js";
+import { candidateScriptManifestPath } from "../task-workflow/runRoots.js";
 
 const formalOracleIdentifier = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u;
 
@@ -28,38 +29,38 @@ export function defineFormalExecutionManifest(manifest: FormalExecutionManifest)
 }
 
 export function validateFormalExecutionManifest(manifest: FormalExecutionManifest): void {
-  if (!["formal-execution-manifest-v1", "formal-execution-manifest-v2", "formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)) {
+  if (manifest.schemaVersion !== "formal-execution-manifest-v1") {
     throw new Error("Unsupported formal execution manifest schema.");
   }
   if (!manifest.requestId.trim() || !manifest.projectId.trim() || !manifest.environment.trim()) {
     throw new Error("Formal execution manifest requires request, project and environment.");
   }
-  if (manifest.schemaVersion === "formal-execution-manifest-v4") {
+  if (manifest.scope === "stable_suite") {
     if (Object.hasOwn(manifest, "suiteVersion")) {
       throw new Error(
-        "formal-execution-manifest-v4 cannot embed circular suiteVersion; authorization v5 binds it."
+        "formal-execution-manifest-v1 cannot embed circular suiteVersion; authorization binds it."
       );
     }
     if (!manifest.suiteId?.trim()
       || !manifest.sourceRequestId?.trim()) {
-      throw new Error("formal-execution-manifest-v4 requires suiteId and sourceRequestId.");
+      throw new Error("stable_suite formal-execution-manifest-v1 requires suiteId and sourceRequestId.");
     }
     if (!/^(?:web|h5|app|api|mqtt|iot|iot-chain)\/[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/u
       .test(manifest.suiteId)) {
-      throw new Error("formal-execution-manifest-v4 contains an invalid suiteId.");
+      throw new Error("stable_suite formal-execution-manifest-v1 contains an invalid suiteId.");
     }
     if (manifest.sourceRequestId !== manifest.requestId) {
-      throw new Error("formal-execution-manifest-v4 sourceRequestId must preserve the source request identity.");
+      throw new Error("stable_suite formal-execution-manifest-v1 sourceRequestId must preserve the source request identity.");
     }
   }
   const caseIds = manifest.cases.map((item) => item.caseId);
   assertUnique(caseIds, "caseId");
   if (caseIds.length === 0) throw new Error("Formal execution manifest must contain at least one case.");
   assertUnique(manifest.capabilities.map((item) => item.id), "capability");
-  const usesFrozenBuildEvidence = manifest.schemaVersion !== "formal-execution-manifest-v1";
-  if (usesFrozenBuildEvidence) {
+  const usesFrozenBuildEvidence = true;
+  {
     if (!manifest.buildEvidence?.length) {
-      throw new Error(`${manifest.schemaVersion} requires frozen buildEvidence.`);
+      throw new Error("formal-execution-manifest-v1 requires frozen buildEvidence.");
     }
     assertUnique(manifest.buildEvidence.map((item) => item.path), "build evidence path");
     if (manifest.buildEvidence.some((item) => {
@@ -71,11 +72,10 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
         item.kind === "test_asset"
         && (!item.assetId?.trim() || !/^[a-f0-9]{64}$/u.test(item.sha256 ?? ""))
       ) || (
-        ["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)
-        && !/^[a-f0-9]{64}$/u.test(item.sha256 ?? "")
+        !/^[a-f0-9]{64}$/u.test(item.sha256 ?? "")
       );
     })) {
-      throw new Error(`${manifest.schemaVersion} contains invalid build evidence.`);
+      throw new Error("formal-execution-manifest-v1 contains invalid build evidence.");
     }
     assertUnique(
       manifest.buildEvidence
@@ -83,11 +83,8 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
         .map((item) => item.assetId!),
       "test asset build evidence"
     );
-    if (
-      ["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)
-      && manifest.buildEvidence.filter((item) => item.kind === "source_contract").length !== 1
-    ) {
-      throw new Error("formal-execution-manifest-v3 requires exactly one source_contract build evidence file.");
+    if (manifest.buildEvidence.filter((item) => item.kind === "source_contract").length !== 1) {
+      throw new Error("formal-execution-manifest-v1 requires exactly one source_contract build evidence file.");
     }
   }
 
@@ -182,9 +179,7 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
         referencedTestAssetIds.add(assetId);
       }
     }
-    if (["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)) {
-      validateBusinessOracles(item);
-    }
+    validateBusinessOracles(item);
     if (item.requiredOperations !== undefined) {
       assertUnique(item.requiredOperations, `${item.caseId} required operation`);
       for (const operation of item.requiredOperations) {
@@ -213,9 +208,9 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
         }
       }
     }
-    const v5Fields = [item.requiredOperations, item.dataWritePolicy, item.implementation];
-    if (v5Fields.some((value) => value !== undefined)
-      && v5Fields.some((value) => value === undefined)) {
+    const currentExecutionFields = [item.requiredOperations, item.dataWritePolicy, item.implementation];
+    if (currentExecutionFields.some((value) => value !== undefined)
+      && currentExecutionFields.some((value) => value === undefined)) {
       throw new Error(
         `${item.caseId} must declare requiredOperations, dataWritePolicy and implementation together.`
       );
@@ -223,6 +218,26 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
     if (item.requiredOperations && item.dataWritePolicy === "no_write"
       && item.requiredOperations.some((operation) => mutatingOperations.has(operation))) {
       throw new Error(`${item.caseId} no_write cannot declare mutating operations.`);
+    }
+    if (item.dataWritePolicy && item.dataWritePolicy !== "no_write") {
+      if (manifest.environment !== "test") {
+        throw new Error(`${item.caseId} controlled test-data writes are allowed only in the test environment.`);
+      }
+      if (item.permissionProfile === "read_only") {
+        throw new Error(`${item.caseId} controlled test-data writes require a writable permission profile.`);
+      }
+      const createsTestData = item.requiredOperations?.some((operation) =>
+        operation === "create_test_resource" || operation === "submit_registration"
+      );
+      if (createsTestData && item.producesResources.length === 0) {
+        throw new Error(`${item.caseId} test-data creation must declare a named produced resource.`);
+      }
+      const mutatesExistingTestData = item.requiredOperations?.some((operation) =>
+        operation === "update_test_resource" || operation === "delete_test_resource" || operation === "cleanup_test_resource"
+      );
+      if (mutatesExistingTestData && item.requiredResources.length === 0) {
+        throw new Error(`${item.caseId} test-data mutation must consume a named current-run resource.`);
+      }
     }
     if (item.dataWritePolicy === "tracked_residual" && manifest.environment !== "test") {
       throw new Error(`${item.caseId} tracked_residual is allowed only in the test environment.`);
@@ -450,7 +465,7 @@ function validateProducedResourceContract(
 function validateBusinessOracles(item: FormalExecutionManifest["cases"][number]): void {
   const oracles = item.businessOracles ?? [];
   if (oracles.length === 0) {
-    throw new Error(`${item.caseId} v3 requires at least one business oracle.`);
+    throw new Error(`${item.caseId} v1 requires at least one business oracle.`);
   }
   assertUnique(oracles.map((oracle) => oracle.oracleId), `${item.caseId} business oracleId`);
   const observationKinds = new Set([
@@ -582,7 +597,7 @@ function validateExecutionStages(item: FormalExecutionManifest["cases"][number])
 }
 
 function canonicalPolicy(policy: string): string {
-  return policy === "managed_cleanup" ? "ephemeral_cleanup" : policy;
+  return policy;
 }
 
 export function digestFormalExecutionManifest(manifest: FormalExecutionManifest): string {
@@ -643,9 +658,7 @@ export async function loadFormalExecutionManifest(requestId: string): Promise<Fo
   if (!/^(?:web|h5|app|api|mqtt|iot|iot-chain)\/[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/.test(requestId)) {
     throw new Error("Formal request must use <web|h5|app|api|mqtt|iot|iot-chain>/<project>/<request>.");
   }
-  const [type, ...requestParts] = requestId.split("/");
-  const relativeRequest = requestParts.join("/");
-  const path = resolve(process.cwd(), "tests", type!, relativeRequest, "execution.manifest.ts");
+  const path = candidateScriptManifestPath(process.cwd(), requestId);
   return loadFormalExecutionManifestFromPath(path, {
     workspaceRoot: process.cwd(),
     expectedRequestId: requestId

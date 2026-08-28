@@ -4,15 +4,8 @@ assets:
     kind: test-document
     path: documents/open-platform/synthetic-business-license.png.b64
     sha256: 7d3363a1a467b98174155c190e6d4b4c3e37226ec51f910b818b8e3bb8267e61
-    status: active
-    projects:
-      - open-platform
-    platform: web
-    version: 1.0.0
-    scopes:
-      - registration
-    defaultSelection: true
-    description: 开放平台注册正式执行使用的无真实业务信息合成 PNG；文件以 base64 文本保存，运行时仅在内存中解码上传。
+    status: inventory-only
+    description: 开放平台注册营业执照边界生成器的 1×1 PNG 种子（base64 文本）；它不是浏览器可选文件，不可直接作为正式执行资产。每轮实际上传边界文件须由本地确定性生成器写入当前运行档案。
 
   - assetId: lazy-cat-android-dev-1-0-1
     kind: app-package

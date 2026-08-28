@@ -185,7 +185,8 @@ test("scheduler blocks only descendants of a failed producer and aggregates tran
 
 function manifest(): FormalExecutionManifest {
   return {
-    schemaVersion: "formal-execution-manifest-v2",
+    schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId: "web/example/dependency-plan",
     projectId: "example",
     environment: "test",
@@ -221,12 +222,13 @@ function manifest(): FormalExecutionManifest {
 function executionRecord(caseIds = ["CREATE", "READ", "DELETE", "INDEPENDENT"]): FormalExecutionRecord {
   const now = "2026-08-05T00:00:00.000Z";
   return {
-    schemaVersion: "formal-execution-record-v2",
+    schemaVersion: "formal-execution-record-v1",
     requestId: "web/example/dependency-plan",
     projectId: "example",
     environment: "test",
     authorizationDigest: "a".repeat(64),
     manifestDigest: "b".repeat(64),
+    businessOracleContractDigest: "c".repeat(64),
     testDataRunId: "run",
     startedAt: now,
     updatedAt: now,
@@ -244,6 +246,11 @@ function executionRecord(caseIds = ["CREATE", "READ", "DELETE", "INDEPENDENT"]):
     stageProgress: Object.fromEntries(caseIds.map((caseId) => [
       caseId,
       { completedStages: [], transitions: {} }
+    ])),
+    caseBusinessOracles: Object.fromEntries(caseIds.map((caseId) => [caseId, []])),
+    caseBlockContracts: Object.fromEntries(caseIds.map((caseId) => [
+      caseId,
+      { capabilityIds: [], resourceNames: [] }
     ]))
   };
 }

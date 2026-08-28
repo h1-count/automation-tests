@@ -49,6 +49,7 @@ function record(): TestResourceRecord {
     createdAt: now,
     updatedAt: now,
     metadata: {},
+    leases: [],
     reuseCount: 0,
     stateHistory: [{ state: "registered", at: now }]
   };

@@ -27,20 +27,24 @@ export async function assertNoUnauthorizedWriteRequests<T>(
   const violations: string[] = [];
   const intercept = async (route: Route, request: Request) => {
     const method = request.method().toUpperCase();
+    const path = safePathname(request.url());
+    // 禁止路径按部署语义判定，与动词无关：被测系统存在 GET 型变更端点
+    // （如 GET /open-platform/product/del），no-write 用例不得因“安全动词”放行。
+    // OPTIONS 仅承载 CORS 预检、不携带业务语义，仍按安全方法放行。
+    if (path && forbiddenPaths.has(path) && method !== "OPTIONS") {
+      violations.push(`${method} ${path} is a forbidden business mutation.`);
+      await route.abort("blockedbyclient");
+      return;
+    }
     if (safeMethods.has(method)) {
       await route.fallback();
       return;
     }
-    const path = safePathname(request.url());
     if (path && reviewedReadOnlyRequests.has(requestKey(method, path))) {
       await route.fallback();
       return;
     }
-    if (path && forbiddenPaths.has(path)) {
-      violations.push(`${method} ${path} is a forbidden business mutation.`);
-    } else {
-      violations.push(`${method} ${path ?? "<invalid-url>"} has no reviewed read-only contract.`);
-    }
+    violations.push(`${method} ${path ?? "<invalid-url>"} has no reviewed read-only contract.`);
     await route.abort("blockedbyclient");
   };
 

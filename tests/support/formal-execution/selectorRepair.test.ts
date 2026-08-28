@@ -43,7 +43,8 @@ function source(name = "登录", businessAssertion = false): string {
 
 function snapshot(scriptDigest: string): ExecutionAuthorizationSnapshot {
   return {
-    schemaVersion: "execution-authorization-v4",
+    schemaVersion: "execution-authorization-v1",
+    mode: "request",
     requestId,
     environment: "test",
     planDigest: "1".repeat(64),
@@ -219,7 +220,7 @@ test("recovery accepts only a one-to-one terminal selector set and carries concl
   await mkdir(dirname(evidencePath), { recursive: true });
   await writeFile(evidencePath, '{"redacted":true}\n', "utf8");
   const record = {
-    schemaVersion: "formal-execution-record-v3",
+    schemaVersion: "formal-execution-record-v1",
     requestId,
     projectId: "project",
     environment: "test",
@@ -278,7 +279,8 @@ test("recovery accepts only a one-to-one terminal selector set and carries concl
     operationReservations: { "LOGIN-001": {}, "LOGIN-002": {} }
   } as FormalExecutionRecord;
   const manifest = {
-    schemaVersion: "formal-execution-manifest-v3",
+    schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId,
     projectId: "project",
     environment: "test",

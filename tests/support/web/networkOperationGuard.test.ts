@@ -80,6 +80,17 @@ test("no-write guard rejects known mutations and unknown unsafe methods", async 
   assert.deepEqual(unknownPage.outcomes, ["aborted"]);
 });
 
+test("no-write guard blocks GET-typed forbidden mutation endpoints before safe-method bypass", async () => {
+  const page = new FakePage();
+  await assert.rejects(
+    () => assertNoUnauthorizedWriteRequests(page as never, policy, async () => {
+      await page.emitRequest("GET", "/registration");
+    }),
+    /forbidden business mutation/
+  );
+  assert.deepEqual(page.outcomes, ["aborted"]);
+});
+
 test("no-write guard always detaches its listener", async () => {
   const page = new FakePage();
   await assert.rejects(

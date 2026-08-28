@@ -134,26 +134,27 @@ interface ExecutionAuthorizationCommon {
   caseIds: string[];
   allowedOperations: ExecutionOperationKind[];
   resourceBudgets: Array<{ resourceType: string; maxCreates: number }>;
-  dataWritePolicy: "no_write" | "managed_cleanup" | "ephemeral_cleanup" | "reusable_fixture" | "tracked_residual";
+  dataWritePolicy: "no_write" | "ephemeral_cleanup" | "reusable_fixture" | "tracked_residual";
   residualTtlHours: number;
   securityChallengePolicy: "test-channel-first-minimal-human";
   artifactPolicy: "retain-with-sensitive-step-redaction";
 }
 
 export interface ExecutionAuthorizationSnapshot extends ExecutionAuthorizationCommon {
-  schemaVersion: "execution-authorization-v2" | "execution-authorization-v3" | "execution-authorization-v4" | "execution-authorization-v5";
-  targetBuildDigest?: string;
-  runnableCaseIds?: string[];
-  deferredCases?: ExecutionDeferredCase[];
-  capabilityEvidence?: ExecutionCapabilityEvidence[];
-  selectorEvidenceDigests?: string[];
-  scriptReview?: ExecutionScriptReviewSummary;
-  readinessDigest?: string;
-  caseScopes?: ExecutionCaseScope[];
-  resourcePoolBudgets?: ExecutionResourcePoolBudget[];
-  resourcePoolEvidence?: ExecutionResourcePoolEvidence[];
+  schemaVersion: "execution-authorization-v1";
+  mode: "request" | "stable_suite";
+  targetBuildDigest: string;
+  runnableCaseIds: string[];
+  deferredCases: ExecutionDeferredCase[];
+  capabilityEvidence: ExecutionCapabilityEvidence[];
+  selectorEvidenceDigests: string[];
+  scriptReview: ExecutionScriptReviewSummary;
+  readinessDigest: string;
+  caseScopes: ExecutionCaseScope[];
+  resourcePoolBudgets: ExecutionResourcePoolBudget[];
+  resourcePoolEvidence: ExecutionResourcePoolEvidence[];
   externalTransitions?: ExecutionExternalTransitionSummary[];
-  runRequestId?: string;
+  sourceRequestId?: string;
   suiteId?: string;
   suiteVersion?: string;
   suiteManifestPath?: string;
@@ -171,34 +172,11 @@ export interface ExecutionAuthorizationSnapshot extends ExecutionAuthorizationCo
 }
 
 export const EXECUTION_AUTHORIZATION_ARTIFACT = "execution-authorization.json";
-export const EXECUTION_AUTHORIZATION_SCHEMA_VERSION = "execution-authorization-v4" as const;
-export const STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION = "execution-authorization-v5" as const;
-export const READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION = "execution-authorization-v3" as const;
-export const LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION = "execution-authorization-v2" as const;
+export const EXECUTION_AUTHORIZATION_SCHEMA_VERSION = "execution-authorization-v1" as const;
 
-export interface ExecutionAuthorizationManifestV2 extends ExecutionAuthorizationCommon {
-  schemaVersion: typeof LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
-  digest: string;
-  callbackId: string;
-  createdAt: string;
-}
-
-export interface ExecutionAuthorizationManifestV3 extends ExecutionAuthorizationCommon {
-  schemaVersion: typeof READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
-  targetBuildDigest: string;
-  runnableCaseIds: string[];
-  deferredCases: ExecutionDeferredCase[];
-  capabilityEvidence: ExecutionCapabilityEvidence[];
-  selectorEvidenceDigests: string[];
-  scriptReview: ExecutionScriptReviewSummary;
-  readinessDigest: string;
-  digest: string;
-  callbackId: string;
-  createdAt: string;
-}
-
-export interface ExecutionAuthorizationManifestV4 extends ExecutionAuthorizationCommon {
+interface ExecutionAuthorizationManifestBase extends ExecutionAuthorizationCommon {
   schemaVersion: typeof EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
+  mode: "request" | "stable_suite";
   targetBuildDigest: string;
   runnableCaseIds: string[];
   deferredCases: ExecutionDeferredCase[];
@@ -209,16 +187,20 @@ export interface ExecutionAuthorizationManifestV4 extends ExecutionAuthorization
   resourcePoolBudgets: ExecutionResourcePoolBudget[];
   resourcePoolEvidence: ExecutionResourcePoolEvidence[];
   externalTransitions?: ExecutionExternalTransitionSummary[];
-  repairContext?: ExecutionSelectorRepairContext;
   readinessDigest: string;
   digest: string;
   callbackId: string;
   createdAt: string;
 }
 
-export interface ExecutionAuthorizationManifestV5 extends ExecutionAuthorizationCommon {
-  schemaVersion: typeof STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
-  runRequestId: string;
+export interface RequestExecutionAuthorizationManifest extends ExecutionAuthorizationManifestBase {
+  mode: "request";
+  repairContext?: ExecutionSelectorRepairContext;
+}
+
+export interface StableSuiteExecutionAuthorizationManifest extends ExecutionAuthorizationManifestBase {
+  mode: "stable_suite";
+  sourceRequestId: string;
   suiteId: string;
   suiteVersion: string;
   suiteManifestPath: string;
@@ -227,27 +209,11 @@ export interface ExecutionAuthorizationManifestV5 extends ExecutionAuthorization
   formalManifestPath: string;
   entryScriptPaths: string[];
   authorizationMode: "policy_auto_no_write" | "user_confirmed";
-  targetBuildDigest: string;
-  runnableCaseIds: string[];
-  deferredCases: ExecutionDeferredCase[];
-  capabilityEvidence: ExecutionCapabilityEvidence[];
-  selectorEvidenceDigests: string[];
-  scriptReview: ExecutionScriptReviewSummary;
-  caseScopes: ExecutionCaseScope[];
-  resourcePoolBudgets: ExecutionResourcePoolBudget[];
-  resourcePoolEvidence: ExecutionResourcePoolEvidence[];
-  externalTransitions?: ExecutionExternalTransitionSummary[];
-  readinessDigest: string;
-  digest: string;
-  callbackId: string;
-  createdAt: string;
 }
 
 export type ExecutionAuthorizationManifest =
-  | ExecutionAuthorizationManifestV2
-  | ExecutionAuthorizationManifestV3
-  | ExecutionAuthorizationManifestV4
-  | ExecutionAuthorizationManifestV5;
+  | RequestExecutionAuthorizationManifest
+  | StableSuiteExecutionAuthorizationManifest;
 
 export interface BuildExecutionAuthorizationManifestInput {
   requestId: string;
@@ -256,13 +222,13 @@ export interface BuildExecutionAuthorizationManifestInput {
   caseIds: string[];
   allowedOperations: ExecutionOperationKind[];
   resourceBudgets: Array<{ resourceType: string; maxCreates: number }>;
-  dataWritePolicy: "no_write" | "managed_cleanup" | "ephemeral_cleanup" | "reusable_fixture" | "tracked_residual";
+  dataWritePolicy: "no_write" | "ephemeral_cleanup" | "reusable_fixture" | "tracked_residual";
   residualTtlHours?: number;
   planPath?: string;
   workspaceRoot?: string;
   createdAt?: string;
   callbackId?: string;
-  schemaVersion?: "execution-authorization-v2" | "execution-authorization-v3" | "execution-authorization-v4" | "execution-authorization-v5";
+  mode: "request" | "stable_suite";
   targetBuildDigest?: string;
   runnableCaseIds?: string[];
   deferredCases?: ExecutionDeferredCase[];
@@ -275,6 +241,7 @@ export interface BuildExecutionAuthorizationManifestInput {
   externalTransitions?: ExecutionExternalTransitionSummary[];
   repairContext?: ExecutionSelectorRepairContext;
   suiteRef?: {
+    sourceRequestId: string;
     suiteId: string;
     suiteVersion: string;
     suiteManifestPath: string;
@@ -286,22 +253,7 @@ export interface BuildExecutionAuthorizationManifestInput {
   };
 }
 
-type ExecutionAuthorizationDigestBaseV2 = ExecutionAuthorizationCommon & {
-  schemaVersion: typeof LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
-};
-
-type ExecutionAuthorizationDigestBaseV3 = ExecutionAuthorizationCommon & {
-  schemaVersion: typeof READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
-  targetBuildDigest: string;
-  runnableCaseIds: string[];
-  deferredCases: ExecutionDeferredCase[];
-  capabilityEvidence: ExecutionCapabilityEvidence[];
-  selectorEvidenceDigests: string[];
-  scriptReview: ExecutionScriptReviewSummary;
-  readinessDigest: string;
-};
-
-type ExecutionAuthorizationDigestBaseV4 = ExecutionAuthorizationCommon & {
+type ExecutionAuthorizationDigestBase = ExecutionAuthorizationCommon & {
   schemaVersion: typeof EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
   targetBuildDigest: string;
   runnableCaseIds: string[];
@@ -313,13 +265,13 @@ type ExecutionAuthorizationDigestBaseV4 = ExecutionAuthorizationCommon & {
   resourcePoolBudgets: ExecutionResourcePoolBudget[];
   resourcePoolEvidence: ExecutionResourcePoolEvidence[];
   externalTransitions?: ExecutionExternalTransitionSummary[];
-  repairContext?: ExecutionSelectorRepairContext;
   readinessDigest: string;
-};
-
-type ExecutionAuthorizationDigestBaseV5 = ExecutionAuthorizationCommon & {
-  schemaVersion: typeof STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
-  runRequestId: string;
+} & ({
+  mode: "request";
+  repairContext?: ExecutionSelectorRepairContext;
+} | {
+  mode: "stable_suite";
+  sourceRequestId: string;
   suiteId: string;
   suiteVersion: string;
   suiteManifestPath: string;
@@ -328,24 +280,7 @@ type ExecutionAuthorizationDigestBaseV5 = ExecutionAuthorizationCommon & {
   formalManifestPath: string;
   entryScriptPaths: string[];
   authorizationMode: "policy_auto_no_write" | "user_confirmed";
-  targetBuildDigest: string;
-  runnableCaseIds: string[];
-  deferredCases: ExecutionDeferredCase[];
-  capabilityEvidence: ExecutionCapabilityEvidence[];
-  selectorEvidenceDigests: string[];
-  scriptReview: ExecutionScriptReviewSummary;
-  caseScopes: ExecutionCaseScope[];
-  resourcePoolBudgets: ExecutionResourcePoolBudget[];
-  resourcePoolEvidence: ExecutionResourcePoolEvidence[];
-  externalTransitions?: ExecutionExternalTransitionSummary[];
-  readinessDigest: string;
-};
-
-type ExecutionAuthorizationDigestBase =
-  | ExecutionAuthorizationDigestBaseV2
-  | ExecutionAuthorizationDigestBaseV3
-  | ExecutionAuthorizationDigestBaseV4
-  | ExecutionAuthorizationDigestBaseV5;
+});
 
 const digestPattern = /^[a-f0-9]{64}$/;
 const requestPattern = /^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/;
@@ -381,7 +316,7 @@ export async function loadConfirmedExecutionAuthorization(
       "Formal execution requires workflow-history.ndjson and an accepted execution-authorization callback."
     );
   }
-  return loadV3ConfirmedAuthorization(
+  return loadConfirmedAuthorization(
     workflow,
     expectedEnvironment,
     requiredOperations
@@ -411,7 +346,7 @@ export function loadExecutionAuthorizationManifest(
     expectedEnvironment,
     requiredOperations,
     workflow.workspaceRoot,
-    manifest.schemaVersion === STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+    manifest.mode === "stable_suite"
       ? resolve(workflow.workspaceRoot, manifest.suitePlanPath)
       : workflow.planPath
   );
@@ -432,10 +367,11 @@ export function buildExecutionAuthorizationManifest(
     workspaceRoot,
     input.planPath ?? input.suiteRef?.suitePlanPath ?? manager.planPath
   );
-  const schemaVersion = input.schemaVersion
-    ?? LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
-  if (input.repairContext && schemaVersion !== EXECUTION_AUTHORIZATION_SCHEMA_VERSION) {
-    throw new Error("Selector repair context is supported only by execution-authorization-v4.");
+  if (input.mode === "stable_suite" && input.repairContext) {
+    throw new Error("Stable suite execution authorization cannot include repairContext.");
+  }
+  if (input.mode === "request" && input.suiteRef) {
+    throw new Error("Request execution authorization cannot include stable suite references.");
   }
   const scriptPaths = resolveLocalScriptDependencyClosure({
     workspaceRoot,
@@ -449,9 +385,7 @@ export function buildExecutionAuthorizationManifest(
       const safePath = safeWorkspaceRelativePath(workspaceRoot, path, "script path");
       return { path: safePath, digest: digestFile(resolve(workspaceRoot, safePath)) };
     }),
-    caseIds: isReadinessAuthorizationSchema(schemaVersion)
-      ? input.runnableCaseIds ?? input.caseIds
-      : input.caseIds,
+    caseIds: input.runnableCaseIds ?? input.caseIds,
     allowedOperations: input.allowedOperations,
     resourceBudgets: input.resourceBudgets,
     dataWritePolicy: input.dataWritePolicy,
@@ -460,30 +394,25 @@ export function buildExecutionAuthorizationManifest(
     artifactPolicy: "retain-with-sensitive-step-redaction"
   };
   const readinessBase = {
-        ...common,
-        schemaVersion,
-        targetBuildDigest: requireDigest(input.targetBuildDigest, "targetBuildDigest"),
-        runnableCaseIds: [...new Set(input.runnableCaseIds ?? input.caseIds)].sort(),
-        deferredCases: normalizeDeferredCases(input.deferredCases ?? []),
-        capabilityEvidence: normalizeCapabilityEvidence(input.capabilityEvidence ?? []),
-        selectorEvidenceDigests: [...new Set(input.selectorEvidenceDigests ?? [])].sort(),
-        scriptReview: normalizeScriptReview(input.scriptReview),
-        readinessDigest: calculateReadinessDigest({
-          targetBuildDigest: requireDigest(input.targetBuildDigest, "targetBuildDigest"),
-          runnableCaseIds: input.runnableCaseIds ?? input.caseIds,
-          deferredCases: input.deferredCases ?? [],
-          capabilityEvidence: input.capabilityEvidence ?? [],
-          selectorEvidenceDigests: input.selectorEvidenceDigests ?? [],
-          scriptReview: normalizeScriptReview(input.scriptReview),
-          ...(schemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-            || schemaVersion === STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-            ? {
-                resourcePoolEvidence: normalizeResourcePoolEvidence(input.resourcePoolEvidence ?? []),
-                caseScopes: normalizeCaseScopes(input.caseScopes ?? [])
-              }
-            : {})
-        })
-      };
+    ...common,
+    schemaVersion: EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+    targetBuildDigest: requireDigest(input.targetBuildDigest, "targetBuildDigest"),
+    runnableCaseIds: [...new Set(input.runnableCaseIds ?? input.caseIds)].sort(),
+    deferredCases: normalizeDeferredCases(input.deferredCases ?? []),
+    capabilityEvidence: normalizeCapabilityEvidence(input.capabilityEvidence ?? []),
+    selectorEvidenceDigests: [...new Set(input.selectorEvidenceDigests ?? [])].sort(),
+    scriptReview: normalizeScriptReview(input.scriptReview),
+    readinessDigest: calculateReadinessDigest({
+      targetBuildDigest: requireDigest(input.targetBuildDigest, "targetBuildDigest"),
+      runnableCaseIds: input.runnableCaseIds ?? input.caseIds,
+      deferredCases: input.deferredCases ?? [],
+      capabilityEvidence: input.capabilityEvidence ?? [],
+      selectorEvidenceDigests: input.selectorEvidenceDigests ?? [],
+      scriptReview: normalizeScriptReview(input.scriptReview),
+      resourcePoolEvidence: normalizeResourcePoolEvidence(input.resourcePoolEvidence ?? []),
+      caseScopes: normalizeCaseScopes(input.caseScopes ?? [])
+    })
+  };
   const scopedReadiness = {
         ...readinessBase,
         caseScopes: normalizeCaseScopes(input.caseScopes ?? []),
@@ -492,44 +421,32 @@ export function buildExecutionAuthorizationManifest(
         ...(input.externalTransitions?.length
           ? { externalTransitions: normalizeExternalTransitions(input.externalTransitions) }
           : {}),
-        ...(schemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION && input.repairContext
+        ...(input.mode === "request" && input.repairContext
           ? { repairContext: normalizeRepairContext(input.repairContext) }
           : {})
-      };
-  const base = normalizeDigestBase(schemaVersion === STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+  };
+  const suiteRef = input.mode === "stable_suite" ? requireSuiteRef(input.suiteRef) : undefined;
+  const base = normalizeDigestBase(suiteRef
     ? {
         ...scopedReadiness,
-        schemaVersion,
-        runRequestId: input.requestId,
-        suiteId: requireSuiteRef(input.suiteRef).suiteId,
-        suiteVersion: requireDigest(requireSuiteRef(input.suiteRef).suiteVersion, "suiteVersion"),
-        suiteManifestPath: safeWorkspaceRelativePath(workspaceRoot, requireSuiteRef(input.suiteRef).suiteManifestPath, "suite manifest path"),
-        suiteManifestDigest: requireDigest(requireSuiteRef(input.suiteRef).suiteManifestDigest, "suiteManifestDigest"),
-        suitePlanPath: safeWorkspaceRelativePath(workspaceRoot, requireSuiteRef(input.suiteRef).suitePlanPath, "suite plan path"),
-        formalManifestPath: safeWorkspaceRelativePath(workspaceRoot, requireSuiteRef(input.suiteRef).formalManifestPath, "formal manifest path"),
-        entryScriptPaths: requireSuiteRef(input.suiteRef).entryScriptPaths.map((path) =>
+        mode: "stable_suite",
+        sourceRequestId: suiteRef.sourceRequestId,
+        suiteId: suiteRef.suiteId,
+        suiteVersion: requireDigest(suiteRef.suiteVersion, "suiteVersion"),
+        suiteManifestPath: safeWorkspaceRelativePath(workspaceRoot, suiteRef.suiteManifestPath, "suite manifest path"),
+        suiteManifestDigest: requireDigest(suiteRef.suiteManifestDigest, "suiteManifestDigest"),
+        suitePlanPath: safeWorkspaceRelativePath(workspaceRoot, suiteRef.suitePlanPath, "suite plan path"),
+        formalManifestPath: safeWorkspaceRelativePath(workspaceRoot, suiteRef.formalManifestPath, "formal manifest path"),
+        entryScriptPaths: suiteRef.entryScriptPaths.map((path) =>
           safeWorkspaceRelativePath(workspaceRoot, path, "entry script path")
         ).sort(),
-        authorizationMode: requireSuiteRef(input.suiteRef).authorizationMode
+        authorizationMode: suiteRef.authorizationMode
       }
-    : schemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-    ? {
-        ...scopedReadiness,
-        schemaVersion,
-      }
-    : schemaVersion === READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-      ? {
-          ...readinessBase,
-          schemaVersion
-        }
-      : {
-        ...common,
-        schemaVersion
-      });
+    : { ...scopedReadiness, mode: "request" });
   validateDigestBase(base);
   const digest = calculateExecutionAuthorizationDigest(base);
-  const callbackId = input.callbackId ?? (schemaVersion === STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-    && input.suiteRef?.authorizationMode === "policy_auto_no_write"
+  const callbackId = input.callbackId ?? (input.mode === "stable_suite"
+    && suiteRef?.authorizationMode === "policy_auto_no_write"
     ? `policy-auto-${digest.slice(0, 12)}`
     : `execution-authorization-${digest.slice(0, 12)}`);
   assertSafeIdentifier(callbackId, "callbackId");
@@ -574,7 +491,7 @@ export function assertCurrentAuthorizedScripts(
   }
 }
 
-async function loadV3ConfirmedAuthorization(
+async function loadConfirmedAuthorization(
   workflow: DurableWorkflowManager,
   expectedEnvironment: string | undefined,
   requiredOperations: ExecutionOperationKind[]
@@ -591,7 +508,7 @@ async function loadV3ConfirmedAuthorization(
     throw new Error("Workflow definition is missing the execution-authorization Activity.");
   }
   const events = await workflow.events();
-  if (manifest.schemaVersion === STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+  if (manifest.mode === "stable_suite"
     && manifest.authorizationMode === "policy_auto_no_write") {
     const succeeded = [...events].reverse().find((event) =>
       event.type === "ActivitySucceeded"
@@ -611,7 +528,7 @@ async function loadV3ConfirmedAuthorization(
       confirmedAt: succeeded.occurredAt
     };
   }
-  if (manifest.schemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+  if (manifest.mode === "request"
     && activity.definition.kind === "execution_authorization"
     && activity.definition.metadata?.decisionMode === "risk_adaptive") {
     const succeeded = [...events].reverse().find((event) =>
@@ -664,7 +581,8 @@ function parseExecutionAuthorizationManifest(
   const allowedKeys = new Set([
     "schemaVersion",
     "requestId",
-    "runRequestId",
+    "mode",
+    "sourceRequestId",
     "suiteId",
     "suiteVersion",
     "suiteManifestPath",
@@ -703,19 +621,24 @@ function parseExecutionAuthorizationManifest(
   if (unknownKeys.length) {
     throw new Error(`Execution authorization manifest has unsupported fields: ${unknownKeys.join(", ")}.`);
   }
-  if (
-    raw.schemaVersion !== STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-    && raw.schemaVersion !== EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-    && raw.schemaVersion !== READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-    && raw.schemaVersion !== LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-  ) {
+  if (raw.schemaVersion !== EXECUTION_AUTHORIZATION_SCHEMA_VERSION) {
     throw new Error("Unsupported execution authorization manifest schema.");
   }
-  if (
-    raw.repairContext !== undefined
-    && raw.schemaVersion !== EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-  ) {
-    throw new Error("Selector repair context is supported only by execution-authorization-v4.");
+  const mode = raw.mode;
+  if (mode !== "request" && mode !== "stable_suite") {
+    throw new Error("Execution authorization manifest requires mode request or stable_suite.");
+  }
+  const suiteFields = [
+    "sourceRequestId", "suiteId", "suiteVersion", "suiteManifestPath",
+    "suiteManifestDigest", "suitePlanPath", "formalManifestPath",
+    "entryScriptPaths", "authorizationMode"
+  ];
+  if (mode === "request" && suiteFields.some((field) => raw[field] !== undefined)) {
+    throw new Error("Request execution authorization cannot contain stable suite fields.");
+  }
+  if (mode === "stable_suite"
+    && (raw.repairContext !== undefined || suiteFields.some((field) => raw[field] === undefined))) {
+    throw new Error("Stable suite execution authorization has incomplete or conflicting mode fields.");
   }
   if (raw.requestId !== requestId) {
     throw new Error("Execution authorization manifest belongs to another request.");
@@ -730,7 +653,7 @@ function parseExecutionAuthorizationManifest(
   }
   const resourceBudgets = parseResourceBudgets(raw.resourceBudgets);
   const dataWritePolicy = raw.dataWritePolicy;
-  if (!["no_write", "managed_cleanup", "ephemeral_cleanup", "reusable_fixture", "tracked_residual"].includes(String(dataWritePolicy))) {
+  if (!["no_write", "ephemeral_cleanup", "reusable_fixture", "tracked_residual"].includes(String(dataWritePolicy))) {
     throw new Error("Execution authorization manifest has an invalid dataWritePolicy.");
   }
   const common: ExecutionAuthorizationCommon = {
@@ -767,17 +690,17 @@ function parseExecutionAuthorizationManifest(
           ...(raw.externalTransitions === undefined
             ? {}
             : { externalTransitions: parseExternalTransitions(raw.externalTransitions) }),
-          ...(raw.schemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-            && raw.repairContext !== undefined
+          ...(mode === "request" && raw.repairContext !== undefined
             ? { repairContext: parseRepairContext(raw.repairContext) }
             : {})
         };
   const base = normalizeDigestBase(
-    raw.schemaVersion === STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+    mode === "stable_suite"
       ? {
           ...scopedReadiness,
-          schemaVersion: STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
-          runRequestId: requireString(raw.runRequestId, "runRequestId"),
+          schemaVersion: EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+          mode: "stable_suite",
+          sourceRequestId: requireString(raw.sourceRequestId, "sourceRequestId"),
           suiteId: requireString(raw.suiteId, "suiteId"),
           suiteVersion: requireDigest(raw.suiteVersion, "suiteVersion"),
           suiteManifestPath: safeWorkspaceRelativePath(workspaceRoot, requireString(raw.suiteManifestPath, "suiteManifestPath"), "suite manifest path"),
@@ -793,16 +716,9 @@ function parseExecutionAuthorizationManifest(
       ? {
           ...scopedReadiness,
           schemaVersion: EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+          mode: "request"
         }
-      : raw.schemaVersion === READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-        ? {
-            ...readinessBase,
-            schemaVersion: READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-          }
-        : {
-          ...common,
-          schemaVersion: LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-        }
+      : (() => { throw new Error("Execution authorization manifest mode is invalid."); })()
   );
   validateDigestBase(base);
   const digest = requireDigest(raw.digest, "digest");
@@ -854,20 +770,18 @@ function assertRequestedExecutionScope(
   if (digestPlanForExecutionAuthorization(planPath) !== manifest.planDigest) {
     throw new Error("plan.md changed after execution authorization; reopen engineering design and review.");
   }
-  if (isReadinessAuthorizationSchema(manifest.schemaVersion)) {
-    const frozenPaths = manifest.scriptDigests.map((script) => script.path);
-    const entryPaths = frozenPaths.filter((path) =>
-      /(?:^|\/)execution\.manifest\.ts$/u.test(path) || /\.formal\.spec\.[cm]?[jt]sx?$/u.test(path)
-    );
-    if (entryPaths.length) {
-      assertExactLocalScriptDependencyClosure({
-        workspaceRoot,
-        entryPaths,
-        frozenPaths
-      });
-    }
+  const frozenPaths = manifest.scriptDigests.map((script) => script.path);
+  const entryPaths = frozenPaths.filter((path) =>
+    /(?:^|\/)execution\.manifest\.ts$/u.test(path) || /\.formal\.spec\.[cm]?[jt]sx?$/u.test(path)
+  );
+  if (entryPaths.length) {
+    assertExactLocalScriptDependencyClosure({
+      workspaceRoot,
+      entryPaths,
+      frozenPaths
+    });
   }
-  if (manifest.schemaVersion === STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION) {
+  if (manifest.mode === "stable_suite") {
     if (digestFile(resolve(workspaceRoot, manifest.suiteManifestPath)) !== manifest.suiteManifestDigest) {
       throw new Error("Stable suite manifest changed after execution authorization.");
     }
@@ -920,61 +834,42 @@ function normalizeDigestBase(
     securityChallengePolicy: value.securityChallengePolicy,
     artifactPolicy: value.artifactPolicy
   };
-  if (isReadinessDigestBase(value)) {
-    const readiness = {
-      ...common,
-      targetBuildDigest: value.targetBuildDigest,
-      runnableCaseIds: [...value.runnableCaseIds].sort(),
-      deferredCases: normalizeDeferredCases(value.deferredCases),
-      capabilityEvidence: normalizeCapabilityEvidence(value.capabilityEvidence),
-      selectorEvidenceDigests: [...new Set(value.selectorEvidenceDigests)].sort(),
-      scriptReview: normalizeScriptReview(value.scriptReview),
-      readinessDigest: value.readinessDigest
-    };
-    if (isV5DigestBase(value)) {
-      return {
-        ...readiness,
-        schemaVersion: STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
-        runRequestId: value.runRequestId,
-        suiteId: value.suiteId,
-        suiteVersion: value.suiteVersion,
-        suiteManifestPath: value.suiteManifestPath,
-        suiteManifestDigest: value.suiteManifestDigest,
-        suitePlanPath: value.suitePlanPath,
-        formalManifestPath: value.formalManifestPath,
-        entryScriptPaths: [...new Set(value.entryScriptPaths)].sort(),
-        authorizationMode: value.authorizationMode,
-        caseScopes: normalizeCaseScopes(value.caseScopes),
-        resourcePoolBudgets: normalizeResourcePoolBudgets(value.resourcePoolBudgets),
-        resourcePoolEvidence: normalizeResourcePoolEvidence(value.resourcePoolEvidence),
-        ...(value.externalTransitions?.length
-          ? { externalTransitions: normalizeExternalTransitions(value.externalTransitions) }
-          : {})
-      };
-    }
-    if (isV4DigestBase(value)) {
-      return {
-        ...readiness,
-        schemaVersion: EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
-        caseScopes: normalizeCaseScopes(value.caseScopes),
-        resourcePoolBudgets: normalizeResourcePoolBudgets(value.resourcePoolBudgets),
-        resourcePoolEvidence: normalizeResourcePoolEvidence(value.resourcePoolEvidence),
-        ...(value.externalTransitions?.length
-          ? { externalTransitions: normalizeExternalTransitions(value.externalTransitions) }
-          : {}),
-        ...(value.repairContext
-          ? { repairContext: normalizeRepairContext(value.repairContext) }
-          : {})
-      };
-    }
+  const readiness = {
+    ...common,
+    schemaVersion: EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+    targetBuildDigest: value.targetBuildDigest,
+    runnableCaseIds: [...value.runnableCaseIds].sort(),
+    deferredCases: normalizeDeferredCases(value.deferredCases),
+    capabilityEvidence: normalizeCapabilityEvidence(value.capabilityEvidence),
+    selectorEvidenceDigests: [...new Set(value.selectorEvidenceDigests)].sort(),
+    scriptReview: normalizeScriptReview(value.scriptReview),
+    caseScopes: normalizeCaseScopes(value.caseScopes),
+    resourcePoolBudgets: normalizeResourcePoolBudgets(value.resourcePoolBudgets),
+    resourcePoolEvidence: normalizeResourcePoolEvidence(value.resourcePoolEvidence),
+    ...(value.externalTransitions?.length
+      ? { externalTransitions: normalizeExternalTransitions(value.externalTransitions) }
+      : {}),
+    readinessDigest: value.readinessDigest
+  };
+  if (value.mode === "stable_suite") {
     return {
       ...readiness,
-      schemaVersion: READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+      mode: "stable_suite",
+      sourceRequestId: value.sourceRequestId,
+      suiteId: value.suiteId,
+      suiteVersion: value.suiteVersion,
+      suiteManifestPath: value.suiteManifestPath,
+      suiteManifestDigest: value.suiteManifestDigest,
+      suitePlanPath: value.suitePlanPath,
+      formalManifestPath: value.formalManifestPath,
+      entryScriptPaths: [...new Set(value.entryScriptPaths)].sort(),
+      authorizationMode: value.authorizationMode
     };
   }
   return {
-    ...common,
-    schemaVersion: LEGACY_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
+    ...readiness,
+    mode: "request",
+    ...(value.repairContext ? { repairContext: normalizeRepairContext(value.repairContext) } : {})
   };
 }
 
@@ -1015,7 +910,7 @@ function validateDigestBase(value: ExecutionAuthorizationDigestBase): void {
     && value.allowedOperations.some((operation) => mutatingOperations.has(operation))) {
     throw new Error("A no_write authorization cannot include business mutation operations.");
   }
-  if (isReadinessDigestBase(value)) {
+  {
     requireDigest(value.targetBuildDigest, "targetBuildDigest");
     requireDigest(value.readinessDigest, "readinessDigest");
     assertUnique(value.runnableCaseIds, "runnable caseId");
@@ -1062,28 +957,21 @@ function validateDigestBase(value: ExecutionAuthorizationDigestBase): void {
       capabilityEvidence: value.capabilityEvidence,
       selectorEvidenceDigests: value.selectorEvidenceDigests,
       scriptReview: value.scriptReview,
-      ...(isV4DigestBase(value) || isV5DigestBase(value)
-        ? {
-            resourcePoolEvidence: value.resourcePoolEvidence,
-            caseScopes: value.caseScopes
-          }
-        : {})
+      resourcePoolEvidence: value.resourcePoolEvidence,
+      caseScopes: value.caseScopes
     });
     if (expectedReadinessDigest !== value.readinessDigest) {
       throw new Error("Execution readiness digest does not match its immutable evidence.");
     }
-    if (isV4DigestBase(value)) {
-      validateV4Scope(value);
+    validateAuthorizationScope(value);
+    if (value.mode === "request") {
       if (value.repairContext) validateRepairContext(value.repairContext, value.caseIds);
+      return;
     }
-    if (isV5DigestBase(value)) {
-      validateV4Scope(value);
-      assertRequestId(value.runRequestId);
-      if (value.requestId !== value.runRequestId) {
-        throw new Error("execution-authorization-v5 requestId must equal runRequestId.");
-      }
+    if (value.mode === "stable_suite") {
+      assertRequestId(value.sourceRequestId);
       if (!suitePattern.test(value.suiteId)) {
-        throw new Error("execution-authorization-v5 contains an invalid suiteId.");
+        throw new Error("execution-authorization-v1 contains an invalid suiteId.");
       }
       requireDigest(value.suiteVersion, "suiteVersion");
       requireDigest(value.suiteManifestDigest, "suiteManifestDigest");
@@ -1091,18 +979,20 @@ function validateDigestBase(value: ExecutionAuthorizationDigestBase): void {
         || !value.suitePlanPath.trim()
         || !value.formalManifestPath.trim()
         || !value.entryScriptPaths.length) {
-        throw new Error("execution-authorization-v5 requires immutable suite asset paths.");
+        throw new Error("Stable suite execution authorization requires immutable suite asset paths.");
       }
       assertUnique(value.entryScriptPaths, "entry script path");
       if (!value.entryScriptPaths.includes(value.formalManifestPath)) {
-        throw new Error("execution-authorization-v5 formal manifest must be an entry script.");
+        throw new Error("Stable suite formal manifest must be an entry script.");
       }
       if (value.authorizationMode === "policy_auto_no_write"
         && (value.dataWritePolicy !== "no_write"
           || value.caseScopes.some((scope) => scope.dataWritePolicy !== "no_write"))) {
         throw new Error("policy_auto_no_write requires an entirely no_write execution scope.");
       }
+      return;
     }
+    throw new Error("Execution authorization manifest has an invalid mode.");
   }
 }
 
@@ -1138,11 +1028,11 @@ export function calculateReadinessDigest(input: {
     .digest("hex");
 }
 
-function validateV4Scope(value: ExecutionAuthorizationDigestBaseV4 | ExecutionAuthorizationDigestBaseV5): void {
+function validateAuthorizationScope(value: ExecutionAuthorizationDigestBase): void {
   assertUnique(value.caseScopes.map((scope) => scope.caseId), "execution case scope");
   if (JSON.stringify(value.caseScopes.map((scope) => scope.caseId).sort())
     !== JSON.stringify([...value.runnableCaseIds].sort())) {
-    throw new Error("execution-authorization-v4 requires one case scope for every runnable case.");
+    throw new Error("execution-authorization-v1 requires one case scope for every runnable case.");
   }
   for (const scope of value.caseScopes) {
     if (scope.permissionProfile === "read_only" && scope.dataWritePolicy !== "no_write") {
@@ -1180,7 +1070,7 @@ function validateV4Scope(value: ExecutionAuthorizationDigestBaseV4 | ExecutionAu
       || budget.ttlHours <= 0
       || budget.retirementPolicy !== "validate_quarantine_replace"
     ) {
-      throw new Error("execution-authorization-v4 contains an invalid resource pool budget.");
+      throw new Error("execution-authorization-v1 contains an invalid resource pool budget.");
     }
   }
   assertUnique(
@@ -1191,7 +1081,7 @@ function validateV4Scope(value: ExecutionAuthorizationDigestBaseV4 | ExecutionAu
     requireDigest(evidence.evidenceDigest, "resource pool evidenceDigest");
     if (!Number.isInteger(evidence.availableCount) || evidence.availableCount < 0
       || !Number.isFinite(Date.parse(evidence.checkedAt))) {
-      throw new Error("execution-authorization-v4 contains invalid resource pool evidence.");
+      throw new Error("execution-authorization-v1 contains invalid resource pool evidence.");
     }
   }
   const transitions = value.externalTransitions ?? [];
@@ -1206,7 +1096,7 @@ function validateV4Scope(value: ExecutionAuthorizationDigestBaseV4 | ExecutionAu
       || transition.allowedOutcomes.some((outcome) => !outcome.trim())
       || transition.requiredAttestationKeys.some((key) => !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(key))
     ) {
-      throw new Error("execution-authorization-v4 contains an invalid external transition summary.");
+      throw new Error("execution-authorization-v1 contains an invalid external transition summary.");
     }
     assertUnique(transition.allowedOutcomes, `${transition.transitionId} outcome`);
     assertUnique(transition.requiredAttestationKeys, `${transition.transitionId} attestation key`);
@@ -1276,17 +1166,17 @@ function normalizeResourcePoolEvidence(
 }
 
 function parseCaseScopes(value: unknown): ExecutionCaseScope[] {
-  if (!Array.isArray(value)) throw new Error("execution-authorization-v4 caseScopes must be an array.");
+  if (!Array.isArray(value)) throw new Error("execution-authorization-v1 caseScopes must be an array.");
   return normalizeCaseScopes(value as ExecutionCaseScope[]);
 }
 
 function parseResourcePoolBudgets(value: unknown): ExecutionResourcePoolBudget[] {
-  if (!Array.isArray(value)) throw new Error("execution-authorization-v4 resourcePoolBudgets must be an array.");
+  if (!Array.isArray(value)) throw new Error("execution-authorization-v1 resourcePoolBudgets must be an array.");
   return normalizeResourcePoolBudgets(value as ExecutionResourcePoolBudget[]);
 }
 
 function parseResourcePoolEvidence(value: unknown): ExecutionResourcePoolEvidence[] {
-  if (!Array.isArray(value)) throw new Error("execution-authorization-v4 resourcePoolEvidence must be an array.");
+  if (!Array.isArray(value)) throw new Error("execution-authorization-v1 resourcePoolEvidence must be an array.");
   return normalizeResourcePoolEvidence(value as ExecutionResourcePoolEvidence[]);
 }
 
@@ -1307,7 +1197,7 @@ function normalizeExternalTransitions(
 
 function parseExternalTransitions(value: unknown): ExecutionExternalTransitionSummary[] {
   if (!Array.isArray(value)) {
-    throw new Error("execution-authorization-v4 externalTransitions must be an array.");
+    throw new Error("execution-authorization-v1 externalTransitions must be an array.");
   }
   return normalizeExternalTransitions(value as ExecutionExternalTransitionSummary[]);
 }
@@ -1332,7 +1222,7 @@ function normalizeRepairContext(
 
 function parseRepairContext(value: unknown): ExecutionSelectorRepairContext {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("execution-authorization-v4 repairContext must be an object.");
+    throw new Error("execution-authorization-v1 repairContext must be an object.");
   }
   const raw = value as Record<string, unknown>;
   if (raw.schemaVersion !== "selector-repair-context-v1") {
@@ -1418,33 +1308,6 @@ function validateRepairContext(
       throw new Error("Carried selector repair cases must come from the prior authorization.");
     }
   }
-}
-
-function isReadinessAuthorizationSchema(value: string): value is
-  | typeof READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-  | typeof EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-  | typeof STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION {
-  return value === READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-    || value === EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-    || value === STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
-}
-
-function isReadinessDigestBase(
-  value: ExecutionAuthorizationDigestBase
-): value is ExecutionAuthorizationDigestBaseV3 | ExecutionAuthorizationDigestBaseV4 | ExecutionAuthorizationDigestBaseV5 {
-  return isReadinessAuthorizationSchema(value.schemaVersion);
-}
-
-function isV4DigestBase(
-  value: ExecutionAuthorizationDigestBase
-): value is ExecutionAuthorizationDigestBaseV4 {
-  return value.schemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
-}
-
-function isV5DigestBase(
-  value: ExecutionAuthorizationDigestBase
-): value is ExecutionAuthorizationDigestBaseV5 {
-  return value.schemaVersion === STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
 }
 
 function normalizeDeferredCases(
@@ -1609,7 +1472,7 @@ function parseAuthorizationMode(
   value: unknown
 ): "policy_auto_no_write" | "user_confirmed" {
   if (value !== "policy_auto_no_write" && value !== "user_confirmed") {
-    throw new Error("execution-authorization-v5 has an invalid authorizationMode.");
+    throw new Error("execution-authorization-v1 has an invalid authorizationMode.");
   }
   return value;
 }
@@ -1617,7 +1480,7 @@ function parseAuthorizationMode(
 function requireSuiteRef(
   value: BuildExecutionAuthorizationManifestInput["suiteRef"]
 ): NonNullable<BuildExecutionAuthorizationManifestInput["suiteRef"]> {
-  if (!value) throw new Error("execution-authorization-v5 requires a derived suiteRef.");
+  if (!value) throw new Error("Stable suite execution authorization requires a derived suiteRef.");
   return value;
 }
 
@@ -1631,8 +1494,9 @@ function safeWorkspaceRelativePath(
   if (!rel || rel === ".." || rel.startsWith("../")) {
     throw new Error(`Execution authorization ${label} must stay inside the workspace.`);
   }
+  const requestCandidateScript = /^\.local\/test-runs\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/candidate-scripts\//u.test(rel);
   if (
-    rel.startsWith(".local/")
+    (rel.startsWith(".local/") && !requestCandidateScript)
     || rel.startsWith(".auth/")
     || rel.startsWith("sources/")
     || rel.startsWith("test-assets/")

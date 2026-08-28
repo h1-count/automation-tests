@@ -267,7 +267,8 @@ function resource(
 
 function baseManifest(): FormalExecutionManifest {
   return {
-    schemaVersion: "formal-execution-manifest-v3",
+    schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId,
     projectId: "example",
     environment: "test",

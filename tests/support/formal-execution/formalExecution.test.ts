@@ -38,11 +38,17 @@ import type { WorkflowEvent } from "../../../src/support/task-workflow/types.js"
 import { calculateEventDigest, GENESIS_DIGEST } from "../../../src/support/task-workflow/historyStore.js";
 
 function manifest(): FormalExecutionManifest {
-  return {
+  const value: FormalExecutionManifest = {
     schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId: "web/example/atomic-run",
     projectId: "example",
     environment: "test",
+    buildEvidence: [{
+      kind: "source_contract",
+      path: "contracts/formal-source-contract.json",
+      sha256: "a".repeat(64)
+    }],
     capabilities: [{
       id: "test-phone",
       requiredForCaseIds: ["CASE-002"],
@@ -74,11 +80,33 @@ function manifest(): FormalExecutionManifest {
       }
     ]
   };
+  for (const definition of value.cases) {
+    definition.permissionProfile = definition.caseId === "CASE-001" ? "test_write" : "read_only";
+    definition.dataWritePolicy = definition.caseId === "CASE-001" ? "tracked_residual" : "no_write";
+    definition.requiredOperations = [];
+    definition.implementation = { status: "source_complete" };
+    definition.businessOracles = [{
+      oracleId: `ORACLE-${definition.caseId}`,
+      ruleRef: `RULE-${definition.caseId}`,
+      observationKind: "runtime_state",
+      authorities: [{
+        kind: "formal_user_decision",
+        decisionType: "confirmed_test_contract",
+        subjectDigest: "b".repeat(64)
+      }]
+    }];
+    definition.producesResources = definition.producesResources.map((resource) =>
+      typeof resource === "string"
+        ? { name: resource, resourceType: "tenant", disposition: "tracked_residual" }
+        : resource
+    );
+  }
+  return value;
 }
 
 function writableManifest(): FormalExecutionManifest {
   const value = manifest();
-  value.schemaVersion = "formal-execution-manifest-v3";
+  value.schemaVersion = "formal-execution-manifest-v1";
   value.buildEvidence = [{
     kind: "source_contract",
     path: "contracts/formal-source-contract.json",
@@ -112,9 +140,9 @@ function writableManifest(): FormalExecutionManifest {
   return value;
 }
 
-test("formal manifest v4 binds a stable suite to its source request", () => {
+test("formal manifest v1 binds a stable suite to its source request", () => {
   const stable = writableManifest();
-  stable.schemaVersion = "formal-execution-manifest-v4";
+  stable.scope = "stable_suite";
   stable.suiteId = "web/example/atomic-feature";
   stable.sourceRequestId = stable.requestId;
   assert.doesNotThrow(() => defineFormalExecutionManifest(stable));
@@ -160,7 +188,11 @@ test("rejects duplicate caseIds and cyclic named-resource dependencies", () => {
 
   const cyclic = manifest();
   cyclic.cases[0]!.requiredResources = ["company-b"];
-  cyclic.cases[1]!.producesResources = ["company-b"];
+  cyclic.cases[1]!.producesResources = [{
+    name: "company-b",
+    resourceType: "tenant",
+    disposition: "tracked_residual"
+  }];
   assert.throws(() => defineFormalExecutionManifest(cyclic), /dependency cycle/);
 });
 
@@ -202,13 +234,22 @@ test("formal case timeouts are bounded by the immutable manifest", () => {
   assert.throws(() => defineFormalExecutionManifest(tooLong), /timeoutMs/);
 });
 
-test("v2 manifests keep build evidence out of runtime capabilities and require reusable pool contracts", () => {
+test("v1 manifests keep build evidence out of runtime capabilities and require reusable pool contracts", () => {
   const valid: FormalExecutionManifest = {
-    schemaVersion: "formal-execution-manifest-v2",
+    schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId: "web/example/reusable-manifest",
     projectId: "example",
     environment: "test",
-    buildEvidence: [{ kind: "selector_contract", path: "contracts/selectors.json" }],
+    buildEvidence: [{
+      kind: "source_contract",
+      path: "contracts/formal-source-contract.json",
+      sha256: "b".repeat(64)
+    }, {
+      kind: "selector_contract",
+      path: "contracts/selectors.json",
+      sha256: "a".repeat(64)
+    }],
     capabilities: [],
     cases: [{
       caseId: "CASE-REUSABLE-001",
@@ -229,6 +270,16 @@ test("v2 manifests keep build evidence out of runtime capabilities and require r
       requiredOperations: ["create_test_resource"],
       dataWritePolicy: "reusable_fixture",
       implementation: { status: "source_complete" },
+      businessOracles: [{
+        oracleId: "ORACLE-REUSABLE-001",
+        ruleRef: "RULE-REUSABLE-001",
+        observationKind: "runtime_state",
+        authorities: [{
+          kind: "formal_user_decision",
+          decisionType: "confirmed_test_contract",
+          subjectDigest: "c".repeat(64)
+        }]
+      }],
       operationEvidence: [{
         operation: "create_test_resource",
         strategy: "response_contract",
@@ -257,13 +308,18 @@ test("v2 manifests keep build evidence out of runtime capabilities and require r
   assert.throws(() => defineFormalExecutionManifest(missingBaseline), /requires baseline/);
 });
 
-test("v2 test assets are frozen build evidence and never runtime capabilities", () => {
+test("v1 test assets are frozen build evidence and never runtime capabilities", () => {
   const valid: FormalExecutionManifest = {
-    schemaVersion: "formal-execution-manifest-v2",
+    schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId: "web/example/asset-manifest",
     projectId: "example",
     environment: "test",
     buildEvidence: [{
+      kind: "source_contract",
+      path: "contracts/formal-source-contract.json",
+      sha256: "b".repeat(64)
+    }, {
       kind: "test_asset",
       assetId: "synthetic-document",
       sha256: "a".repeat(64),
@@ -281,13 +337,27 @@ test("v2 test assets are frozen build evidence and never runtime capabilities", 
       permissionProfile: "read_only",
       requiredOperations: [],
       dataWritePolicy: "no_write",
-      implementation: { status: "source_complete" }
+      implementation: { status: "source_complete" },
+      businessOracles: [{
+        oracleId: "ORACLE-ASSET-001",
+        ruleRef: "RULE-ASSET-001",
+        observationKind: "runtime_state",
+        authorities: [{
+          kind: "formal_user_decision",
+          decisionType: "confirmed_test_contract",
+          subjectDigest: "c".repeat(64)
+        }]
+      }]
     }]
   };
   assert.doesNotThrow(() => defineFormalExecutionManifest(valid));
 
   const missingEvidence = structuredClone(valid);
-  missingEvidence.buildEvidence = [{ kind: "source_contract", path: "contracts/source.json" }];
+  missingEvidence.buildEvidence = [{
+    kind: "source_contract",
+    path: "contracts/source.json",
+    sha256: "d".repeat(64)
+  }];
   assert.throws(() => defineFormalExecutionManifest(missingEvidence), /without frozen test_asset/);
 
   const orphanEvidence = structuredClone(valid);
@@ -295,7 +365,7 @@ test("v2 test assets are frozen build evidence and never runtime capabilities", 
   assert.throws(() => defineFormalExecutionManifest(orphanEvidence), /is not required by any formal case/);
 });
 
-test("v5 case implementation metadata is complete and keeps runtime readiness separate", () => {
+test("v1 case implementation metadata is complete and keeps runtime readiness separate", () => {
   const valid = manifest();
   valid.cases[0]!.requiredOperations = ["submit_registration"];
   valid.cases[0]!.dataWritePolicy = "tracked_residual";
@@ -304,22 +374,24 @@ test("v5 case implementation metadata is complete and keeps runtime readiness se
     reachableBoundary: "registration submit",
     pendingCapabilityIds: []
   };
+  valid.cases[1]!.implementation = undefined;
   assert.throws(() => defineFormalExecutionManifest(valid), /pendingCapabilityIds/);
 
+  valid.cases[1]!.implementation = { status: "source_complete" };
   valid.cases[0]!.requiredCapabilities = ["test-phone"];
   valid.capabilities[0]!.requiredForCaseIds = ["CASE-001", "CASE-002"];
   valid.cases[0]!.implementation.pendingCapabilityIds = ["test-phone"];
   assert.doesNotThrow(() => defineFormalExecutionManifest(valid));
 
   const incomplete = manifest();
-  incomplete.cases[0]!.requiredOperations = [];
+  incomplete.cases[0]!.implementation = undefined;
   assert.throws(
     () => defineFormalExecutionManifest(incomplete),
-    /requiredOperations, dataWritePolicy and implementation together/
+    /requires permissionProfile, operations, data policy and implementation/
   );
 });
 
-test("effectful v5 cases require a valid result-evidence strategy", () => {
+test("effectful v1 cases require a valid result-evidence strategy", () => {
   const missingEvidence = manifest();
   missingEvidence.cases[0]!.requiredOperations = [
     "upload_synthetic_file",
@@ -464,7 +536,7 @@ test("multi-stage checkpoints survive resume and external transitions resolve id
     testDataRunId: "run-staged",
     capabilities: evaluateCapabilities(frozen.capabilities, {})
   });
-  assert.equal(initialized.schemaVersion, "formal-execution-record-v3");
+  assert.equal(initialized.schemaVersion, "formal-execution-record-v1");
   const waitingAttempt = await store.beginCase(digest, "CASE-001");
   await store.completeStage(digest, frozen.cases[0]!, "submit");
   await store.awaitExternalTransition(digest, frozen.cases[0]!, "registration-approved");
@@ -598,19 +670,19 @@ test("per-case operation budgets are durable and idempotent across resume", asyn
   );
 });
 
-test("v3 authorizations inherit operation budgets from their frozen manifest", () => {
+test("v1 authorizations inherit operation budgets from their frozen manifest", () => {
   const definition = manifest().cases[0]!;
   definition.requiredOperations = ["upload_synthetic_file"];
   definition.operationBudgets = [{ operation: "upload_synthetic_file", maxExecutions: 2 }];
-  assert.equal(caseExecutionScopeBlock(definition, {
-    schemaVersion: "execution-authorization-v3",
-    allowedOperations: ["upload_synthetic_file"]
-  } as never), undefined);
   assert.match(caseExecutionScopeBlock(definition, {
-    schemaVersion: "execution-authorization-v4",
+    schemaVersion: "unsupported-version",
+    allowedOperations: ["upload_synthetic_file"]
+  } as never) ?? "", /execution-authorization-v1/);
+  assert.match(caseExecutionScopeBlock(definition, {
+    schemaVersion: "execution-authorization-v1",
     allowedOperations: ["upload_synthetic_file"],
     caseScopes: []
-  } as never) ?? "", /no frozen execution-authorization-v4 case scope/);
+  } as never) ?? "", /no frozen execution-authorization-v1 case scope/);
 });
 
 test("resume reopens only terminal cases without durable side effects", async (context) => {
@@ -717,7 +789,7 @@ test("deterministic report separates deferred cases and keeps retry-aware redact
       operationEvidence?: unknown[];
     }>;
   };
-  assert.equal(evidence.schemaVersion, "case-evidence-bundle-v2");
+  assert.equal(evidence.schemaVersion, "case-evidence-bundle-v1");
   assert.equal(evidence.redactionStatus, "safe_alternative_evidence");
   assert.equal(JSON.stringify(evidence).includes("secret-value"), false);
   assert.equal(JSON.stringify(evidence).includes("private-value"), false);
@@ -951,9 +1023,9 @@ test("formal Runner uses two workers only for a pinned isolated no-write definit
       sharedAccount: true
     }
   });
-  assert.equal(formalWorkerCount(isolated, { dataWritePolicy: "no_write" }), 2);
-  assert.equal(formalWorkerCount(shared, { dataWritePolicy: "no_write" }), 1);
-  assert.equal(formalWorkerCount(isolated, { dataWritePolicy: "managed_cleanup" }), 1);
+  assert.equal(formalWorkerCount(isolated, { dataWritePolicy: "no_write", caseScopes: [] }), 2);
+  assert.equal(formalWorkerCount(shared, { dataWritePolicy: "no_write", caseScopes: [] }), 1);
+  assert.equal(formalWorkerCount(isolated, { dataWritePolicy: "ephemeral_cleanup", caseScopes: [] }), 1);
   assert.equal(parseFormalWorkerCount(undefined), 1);
   assert.equal(parseFormalWorkerCount("2"), 2);
   assert.throws(() => parseFormalWorkerCount("3"), /must be 1 or 2/);
@@ -1044,6 +1116,7 @@ function workflowProjection(input: {
   const definition = buildWorkflowDefinition({
     requestId: "web/example/runner-policy",
     planDigest: "a".repeat(64),
+    planText: "# 当前 v1 Runner 策略夹具",
     capabilities: ["web"],
     writesData: input.writesData,
     casePackages: ["cases-core.md"],

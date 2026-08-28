@@ -116,10 +116,8 @@ export class FormalExecutionStore {
       if (existing) {
         this.assertWritableRecord(existing, "initialize formal execution");
         validateBusinessOracleContract(existing);
-      } else if (!["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(input.manifest.schemaVersion)) {
-        throw new Error(
-          "Legacy formal execution manifests are read-only; establish a formal-execution-manifest-v3 run."
-        );
+      } else if (input.manifest.schemaVersion !== "formal-execution-manifest-v1") {
+        throw new Error("Formal execution manifest must use formal-execution-manifest-v1.");
       }
       const manifestDigest = digestFormalExecutionManifest(input.manifest);
       if (existing) {
@@ -142,14 +140,14 @@ export class FormalExecutionStore {
       if (selectedCaseIds.some((caseId) => !knownCaseIds.has(caseId))) {
         throw new Error("Formal execution selected an undeclared caseId.");
       }
-      const caseBusinessOracles = validateV3BusinessOracleDefinitions(input.manifest, selectedCaseIds);
+      const caseBusinessOracles = validateBusinessOracleDefinitions(input.manifest, selectedCaseIds);
       const businessOracleContractDigest = digestBusinessOracleContracts(caseBusinessOracles);
       const selectedDefinitions = input.manifest.cases.filter((item) =>
         selectedCaseIds.includes(item.caseId)
       );
       const dependencyPlan = buildExecutionDependencyPlan(input.manifest, selectedCaseIds);
       const record: FormalExecutionRecord = {
-        schemaVersion: "formal-execution-record-v3",
+        schemaVersion: "formal-execution-record-v1",
         requestId: input.runRequestId ?? input.manifest.requestId,
         suiteId: input.suiteId ?? input.manifest.suiteId,
         suiteVersion: input.suiteVersion,
@@ -226,7 +224,9 @@ export class FormalExecutionStore {
   async read(authorizationDigest: string): Promise<FormalExecutionRecord | null> {
     const path = this.statePath(authorizationDigest);
     if (!existsSync(path)) return null;
-    return JSON.parse(await readFile(path, "utf8")) as FormalExecutionRecord;
+    const record = JSON.parse(await readFile(path, "utf8")) as FormalExecutionRecord;
+    this.assertCurrentRecord(record, "read a formal execution");
+    return record;
   }
 
   async selectorRepairSafety(
@@ -523,7 +523,7 @@ export class FormalExecutionStore {
       if (!current) throw new Error(`Formal attempt ${caseId}#${attempt} is missing.`);
       const definitions = record.caseBusinessOracles?.[caseId] ?? [];
       const oracleResults = current.oracleResults ?? [];
-      const failureClassification = deriveV3CaseFailureClassification({
+      const failureClassification = deriveCaseFailureClassification({
         caseId,
         status,
         definitions,
@@ -774,7 +774,7 @@ export class FormalExecutionStore {
       this.assertWritableRecord(record, "complete a formal stage");
       requireCase(record, definition.caseId);
       if (!record.stageProgress) {
-        throw new Error("Durable execution stages require formal-execution-record-v3.");
+        throw new Error("Durable execution stages require formal-execution-record-v1.");
       }
       const stage = definition.executionStages?.find((item) => item.stageId === stageId);
       if (!stage) throw new Error(`${definition.caseId} has no declared stage ${stageId}.`);
@@ -837,7 +837,7 @@ export class FormalExecutionStore {
       this.assertWritableRecord(record, "await an external transition");
       requireCase(record, definition.caseId);
       if (!record.stageProgress) {
-        throw new Error("External transitions require formal-execution-record-v3.");
+        throw new Error("External transitions require formal-execution-record-v1.");
       }
       const stage = definition.executionStages?.find(
         (item) => item.externalTransition?.transitionId === transitionId
@@ -1010,7 +1010,7 @@ export class FormalExecutionStore {
   async sealForWorkflow(input: FormalExecutionSealInput): Promise<FormalExecutionSealResult> {
     return this.ledger.withExclusive(async () => {
       const record = await this.require(input.authorizationDigest);
-      this.assertV3Record(record, "seal a formal execution");
+      this.assertCurrentRecord(record, "seal a formal execution");
       validateBusinessOracleContract(record);
       validateSealSubject(record, input);
       const summary = this.summaryFromRecord(record);
@@ -1044,7 +1044,7 @@ export class FormalExecutionStore {
     authorizationDigest: string
   ): Promise<FormalExecutionSealedReport> {
     const record = await this.require(authorizationDigest);
-    this.assertV3Record(record, "materialize a sealed formal report");
+    this.assertCurrentRecord(record, "materialize a sealed formal report");
     validateBusinessOracleContract(record);
     const seal = record.completionSeal;
     if (!seal) throw new Error("Formal execution must be sealed before materializing its report.");
@@ -1063,11 +1063,9 @@ export class FormalExecutionStore {
 
   async summarize(authorizationDigest: string): Promise<FormalExecutionSummary> {
     const record = await this.require(authorizationDigest);
-    if (record.schemaVersion === "formal-execution-record-v3") {
-      validateBusinessOracleContract(record);
-    }
+    validateBusinessOracleContract(record);
     const summary = this.summaryFromRecord(record);
-    if (!record.completionSeal && record.schemaVersion === "formal-execution-record-v3") {
+    if (!record.completionSeal) {
       await this.writeArtifactSummary(summary);
     }
     return summary;
@@ -1181,15 +1179,15 @@ export class FormalExecutionStore {
   }
 
   private assertWritableRecord(record: FormalExecutionRecord, operation: string): void {
-    this.assertV3Record(record, operation);
+    this.assertCurrentRecord(record, operation);
     if (record.completionSeal) {
       throw new Error(`Formal execution is sealed; cannot ${operation}.`);
     }
   }
 
-  private assertV3Record(record: FormalExecutionRecord, operation: string): void {
-    if (record.schemaVersion !== "formal-execution-record-v3") {
-      throw new Error(`Legacy formal execution records are read-only; cannot ${operation}.`);
+  private assertCurrentRecord(record: FormalExecutionRecord, operation: string): void {
+    if (record.schemaVersion !== "formal-execution-record-v1") {
+      throw new Error(`Formal execution record must use formal-execution-record-v1; cannot ${operation}.`);
     }
   }
 
@@ -1204,7 +1202,7 @@ export class FormalExecutionStore {
     if (!existsSync(path)) {
       if (existsSync(markdownPath)) {
         throw new Error(
-          "Existing execution-summary.md has no matching v2 run-summary.json; establish a new authorization and run."
+          "Existing execution-summary.md has no matching formal-run-summary-v1; establish a new authorization and run."
         );
       }
       return;
@@ -1216,13 +1214,11 @@ export class FormalExecutionStore {
       }).schemaVersion;
     } catch {
       throw new Error(
-        "Existing formal report target is not a recognized v2 artifact; establish a new authorization and run."
+        "Existing formal report target is not a recognized formal-run-summary-v1 artifact; establish a new authorization and run."
       );
     }
-    if (schemaVersion !== "formal-run-summary-v2") {
-      throw new Error(
-        "Legacy formal-run-summary-v1 artifacts are read-only; establish a new authorization and run."
-      );
+    if (schemaVersion !== "formal-run-summary-v1") {
+      throw new Error("Existing formal report target must use formal-run-summary-v1.");
     }
   }
 
@@ -1258,7 +1254,7 @@ export class FormalExecutionStore {
     const runSummaryPath = resolve(directory, "run-summary.json");
     const executionSummaryPath = resolve(directory, "execution-summary.md");
     const runSummaryContent = `${JSON.stringify({
-      schemaVersion: "formal-run-summary-v2",
+      schemaVersion: "formal-run-summary-v1",
       completionSeal: completionSeal ?? null,
       ...summary
     }, null, 2)}\n`;
@@ -1288,7 +1284,7 @@ export class FormalExecutionStore {
     );
     await mkdir(directory, { recursive: true });
     await atomicWrite(resolve(directory, `${result.caseId}.json`), {
-      schemaVersion: "case-evidence-bundle-v2",
+      schemaVersion: "case-evidence-bundle-v1",
       caseId: result.caseId,
       status: result.status,
       carriedFrom: result.carriedFrom,
@@ -1322,12 +1318,12 @@ export class FormalExecutionStore {
   }
 }
 
-export function validateV3BusinessOracleDefinitions(
+export function validateBusinessOracleDefinitions(
   manifest: FormalExecutionManifest,
   selectedCaseIds: string[]
 ): Record<string, FormalBusinessOracleDefinition[]> {
-  if (!["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)) {
-    throw new Error("Writable formal execution requires formal-execution-manifest-v3.");
+  if (manifest.schemaVersion !== "formal-execution-manifest-v1") {
+    throw new Error("Writable formal execution requires formal-execution-manifest-v1.");
   }
   const selected = new Set(selectedCaseIds);
   return Object.fromEntries(manifest.cases
@@ -1438,7 +1434,7 @@ export function digestBusinessOracleContracts(
 function validateBusinessOracleContract(record: FormalExecutionRecord): void {
   const definitions = record.caseBusinessOracles;
   if (!definitions || !record.businessOracleContractDigest) {
-    throw new Error("formal-execution-record-v3 is missing its business oracle contract digest.");
+    throw new Error("formal-execution-record-v1 is missing its business oracle contract digest.");
   }
   validateDigest(record.businessOracleContractDigest, "businessOracleContractDigest");
   const actual = digestBusinessOracleContracts(definitions);
@@ -1547,7 +1543,7 @@ function isOracleAssertionViolation(error: unknown): boolean {
     || (candidate.actual !== undefined && candidate.expected !== undefined);
 }
 
-function validateV3CaseOutcome(input: {
+function validateCaseOutcome(input: {
   caseId: string;
   status: FormalCaseStatus;
   definitions: FormalBusinessOracleDefinition[];
@@ -1572,7 +1568,7 @@ function validateV3CaseOutcome(input: {
 
   if (input.status === "skipped") {
     throw new Error(
-      `${input.caseId} v3 runnable cases cannot finish as skipped; remove an inapplicable case before authorization.`
+      `${input.caseId} runnable cases cannot finish as skipped; remove an inapplicable case before authorization.`
     );
   }
 
@@ -1658,7 +1654,7 @@ function validateV3CaseOutcome(input: {
   return classification;
 }
 
-function deriveV3CaseFailureClassification(input: {
+function deriveCaseFailureClassification(input: {
   caseId: string;
   status: FormalCaseStatus;
   definitions: FormalBusinessOracleDefinition[];
@@ -1686,7 +1682,7 @@ function deriveV3CaseFailureClassification(input: {
           basis: input.blockedCause ?? "capability_unavailable"
         };
   }
-  return validateV3CaseOutcome({
+  return validateCaseOutcome({
     caseId: input.caseId,
     status: input.status,
     definitions: input.definitions,
@@ -1932,7 +1928,7 @@ function validateSealableRecord(
       latestAttempt.failureClassification,
       result.caseId
     );
-    const expectedClassification = validateV3CaseOutcome({
+    const expectedClassification = validateCaseOutcome({
       caseId: result.caseId,
       status: result.status,
       definitions: record.caseBusinessOracles?.[result.caseId] ?? [],
@@ -2190,7 +2186,6 @@ function operationEvidenceSummary(values?: FormalOperationEvidenceRecord[]): str
 }
 
 function failureClassificationSummary(value?: FormalStoredFailureClassification): string {
-  if (typeof value === "string") return sanitize(value);
   return value ? `${value.code}:${value.basis}` : "";
 }
 
@@ -2210,9 +2205,6 @@ function requireStructuredFailureClassification(
   value: FormalStoredFailureClassification | undefined,
   caseId: string
 ): FormalFailureClassification | undefined {
-  if (typeof value === "string") {
-    throw new Error(`${caseId} v3 result contains a legacy free-form failure classification.`);
-  }
   return value;
 }
 

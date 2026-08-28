@@ -27,21 +27,9 @@ import {
 } from "../../../src/support/formalCompletionService.js";
 import type { FormalExecutionManifest } from "../../../src/support/formal-execution/types.js";
 import { ArtifactPublisher } from "../../../src/support/task-workflow/artifactPublisher.js";
-import { canonicalJson } from "../../../src/support/task-workflow/canonicalJson.js";
-import {
-  activitiesExpandedPayload,
-  buildWorkflowDefinition,
-  workflowStartedPayload
-} from "../../../src/support/task-workflow/definition.js";
-import { GENESIS_DIGEST } from "../../../src/support/task-workflow/historyStore.js";
-import type {
-  SafeJsonValue,
-  WorkflowDefinition
-} from "../../../src/support/task-workflow/types.js";
-import {
-  SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION,
-  type ScriptReviewRole
-} from "../../../src/support/formal-execution/scriptReviewPolicy.js";
+import { parseReviewBatchScope } from "../../../src/support/task-workflow/reviewBatchScope.js";
+import { deterministicReviewerTaskId } from "../../../src/support/task-workflow/reviewLifecycle.js";
+import type { SafeJsonValue } from "../../../src/support/task-workflow/types.js";
 import {
   DurableWorkflowManager,
   formalDataHygieneBlockerId,
@@ -67,8 +55,8 @@ function relationFixture(): { plan: string; cases: string } {
   const plan = [
     "# 测试设计索引：Authorization",
     "",
-    "> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。",
-    "> 用例格式：testcase-v6-layered。",
+    "> 结构版本：test-design-index-v1 / rule-design-ledger-v1 / case-relation-projection-v1。",
+    "> 用例格式：testcase-v1-layered。",
     "",
     "## 请求默认值",
     "",
@@ -92,7 +80,7 @@ function relationFixture(): { plan: string; cases: string } {
     "",
     "| 来源 ID | 可点击路径与精确定位 | 版本 / SHA-256 | 用途 |",
     "| --- | --- | --- | --- |",
-    `| SRC-AUTH-001 | [authorization source](../../../../sources/requirements/project/authorization.txt)；materialId authorization-prd；sectionId query | ${sourceDigest} | REQ-AUTH-001 |`,
+    `| SRC-AUTH-001 | [authorization source](../../../../../sources/requirements/project/authorization.txt)；materialId authorization-prd；sectionId query | ${sourceDigest} | REQ-AUTH-001 |`,
     "",
     "## 环境、静态资产与数据安全边界",
     "",
@@ -163,7 +151,7 @@ function relationFixture(): { plan: string; cases: string } {
     "| --- | --- | --- | --- | --- | --- |",
     ""
   ].join("\n");
-  const cases = `> 结构版本：testcase-v6-layered。
+  const cases = `> 结构版本：testcase-v1-layered。
 
 # 用例集：Core cases
 
@@ -196,35 +184,9 @@ function relationFixture(): { plan: string; cases: string } {
   return { plan: projected.plan, cases: projected.packages["cases.md"]! };
 }
 
-function withoutFormalCompletionMarkers(current: WorkflowDefinition): WorkflowDefinition {
-  const activities = current.activities.map((activity) => {
-    if (activity.kind !== "run" && activity.kind !== "report") return activity;
-    const { completionContract: _completionContract, ...metadata } = activity.metadata ?? {};
-    return { ...activity, metadata };
-  });
-  const unsigned: Omit<WorkflowDefinition, "graphDigest"> = {
-    schemaVersion: current.schemaVersion,
-    definitionId: current.definitionId,
-    definitionVersion: current.definitionVersion,
-    requestId: current.requestId,
-    planDigest: current.planDigest,
-    capabilities: current.capabilities,
-    writesData: current.writesData,
-    reviewPolicy: current.reviewPolicy,
-    activities
-  };
-  return {
-    ...unsigned,
-    graphDigest: createHash("sha256")
-      .update(canonicalJson(unsigned as unknown as SafeJsonValue), "utf8")
-      .digest("hex")
-  };
-}
-
 async function createVNextHarness(options: {
   publishAuthorization?: boolean;
   writesData?: boolean;
-  legacyUnmarkedFormalCompletion?: boolean;
   selectorRepairScript?: boolean;
   environmentCapability?: {
     id: string;
@@ -233,16 +195,16 @@ async function createVNextHarness(options: {
   };
 } = {}) {
   const root = await mkdtemp(resolve(tmpdir(), "workflow-authorization-"));
-  const requestRoot = resolve(root, "testcases/web/project/authorization");
+  const requestRoot = resolve(root, ".local/test-runs/web/project/authorization");
   const planPath = resolve(requestRoot, "plan.md");
-  const scriptPath = resolve(root, "tests/web/project/authorization/example.formal.spec.ts");
+  const scriptPath = resolve(root, ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts");
   const formalManifestPath = resolve(
     root,
-    "tests/web/project/authorization/execution.manifest.ts"
+    ".local/test-runs/web/project/authorization/candidate-scripts/execution.manifest.ts"
   );
   const selectorEvidencePath = resolve(
     root,
-    "tests/web/project/authorization/selector-contract.json"
+    ".local/test-runs/web/project/authorization/candidate-scripts/selector-contract.json"
   );
   const sourceContractPath = resolve(root, "contracts/formal-source.json");
   const sourcePath = resolve(root, "sources/requirements/project/authorization.txt");
@@ -256,7 +218,7 @@ async function createVNextHarness(options: {
         "  await guardedRoleLocator({",
         `    caseId: "${caseId}",`,
         '    selectorId: "account-password-login",',
-        '    sourcePath: "tests/web/project/authorization/example.formal.spec.ts",',
+        '    sourcePath: ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts",',
         '    role: "button",',
         '    name: "登录",',
         '    scopeId: "login-form",',
@@ -280,7 +242,7 @@ async function createVNextHarness(options: {
     .update(selectorEvidenceContent)
     .digest("hex");
   const sourceContractContent = JSON.stringify({
-    schemaVersion: "source-contract-evidence-v3",
+    schemaVersion: "source-contract-evidence-v1",
     requestId,
     projectId: "project",
     targetBuildDigest: "f".repeat(64),
@@ -295,7 +257,7 @@ async function createVNextHarness(options: {
         sectionId: "query",
         sourceSha256: sourceDigest,
         sourceFiles: [{
-          path: "tests/web/project/authorization/example.formal.spec.ts",
+          path: ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts",
           sha256: scriptDigest
         }]
       }]
@@ -315,7 +277,8 @@ async function createVNextHarness(options: {
   await writeFile(scriptPath, scriptContent, "utf8");
   const environmentCapability = options.environmentCapability;
   await writeFile(formalManifestPath, `export const formalExecutionManifest = ${JSON.stringify({
-    schemaVersion: "formal-execution-manifest-v3",
+    schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId,
     projectId: "project",
     environment: "test",
@@ -361,7 +324,7 @@ async function createVNextHarness(options: {
       sha256: sourceContractDigest
     }, {
       kind: "selector_contract",
-      path: "tests/web/project/authorization/selector-contract.json",
+      path: ".local/test-runs/web/project/authorization/candidate-scripts/selector-contract.json",
       sha256: selectorEvidenceDigest
     }]
   }, null, 2)};\n`, "utf8");
@@ -398,50 +361,63 @@ documents:
     casePackages: ["cases.md"],
     reviewerRoles: ["requirements"]
   };
-  if (options.legacyUnmarkedFormalCompletion) {
-    const current = buildWorkflowDefinition({
-      requestId,
-      planDigest: createHash("sha256").update(fixture.plan).digest("hex"),
-      planText: fixture.plan,
-      ...workflowInput
-    });
-    const definition = withoutFormalCompletionMarkers(current);
-    const runId = randomUUID();
-    const startedEventId = randomUUID();
-    await manager.history.appendBatch([{
-      runId,
-      requestId,
-      definitionId: definition.definitionId,
-      definitionVersion: definition.definitionVersion,
-      eventId: startedEventId,
-      type: "WorkflowStarted",
-      actorType: "system",
-      idempotencyKey: `${runId}/workflow-started`,
-      payload: workflowStartedPayload(definition)
-    }, {
-      runId,
-      requestId,
-      definitionId: definition.definitionId,
-      definitionVersion: definition.definitionVersion,
-      type: "ActivitiesExpanded",
-      actorType: "system",
-      idempotencyKey: `${runId}/activities-expanded/${definition.graphDigest}`,
-      payload: activitiesExpandedPayload(definition),
-      causationId: startedEventId
-    }], { seq: 0, digest: GENESIS_DIGEST });
-  } else {
-    await manager.initialize(workflowInput);
-  }
+  await manager.initialize(workflowInput);
   await succeed(manager, "source-selection");
   await succeed(manager, "candidate-generation");
   await succeed(manager, "candidate-gate");
   const initialReviewIds = Object.values((await manager.gate()).activities)
-    .filter((activity) => activity.definition.kind === "review")
+    .filter((activity) => activity.definition.kind === "review" && activity.state === "READY")
     .map((activity) => activity.id);
   for (const activityId of initialReviewIds) await succeed(manager, activityId);
   await succeed(manager, "case-review-resolution", "converged");
+  await writeFile(resolve(requestRoot, "run-intent.json"), `${JSON.stringify({
+    schemaVersion: "run-intent-v1",
+    suiteId: "web/project/authorization",
+    reuseDecision: "full_replan",
+    assessmentDigest: "a".repeat(64),
+    environment: "test",
+    deliveryTarget: "full_run",
+    selectedCaseIds: [caseId],
+    affectedCaseIds: [],
+    sourceDigest: "b".repeat(64),
+    boundaryDigest: "c".repeat(64),
+    safeRefs: []
+  }, null, 2)}\n`, "utf8");
+  const workbookPath = resolve(requestRoot, "cases-review.xlsx");
+  const workbookContent = Buffer.from("authorization-v1-review-workbook\n", "utf8");
+  await writeFile(workbookPath, workbookContent);
+  const reviewExport = await (manager as unknown as {
+    currentTestcaseReviewExport(): Promise<{ contentDigest: string; bindingDigest: string }>;
+  }).currentTestcaseReviewExport();
+  const reviewSubjectDigest = await manager.callbackSubjectDigest("case-confirmation");
+  const workbookDigest = createHash("sha256").update(workbookContent).digest("hex");
+  await manager.recordTestcaseReviewWorkbookPublication({
+    subjectDigest: reviewSubjectDigest,
+    contentDigest: reviewExport.contentDigest,
+    bindingDigest: reviewExport.bindingDigest,
+    workbookDigest,
+    receiptDigest: "d".repeat(64),
+    cacheStatus: "miss",
+    renderMilliseconds: 0
+  });
   await acceptCallback(manager, "case-confirmation", "b".repeat(64), "case-confirmation");
   await succeed(manager, "build");
+  await succeed(manager, "script-review-assessment", "standard");
+  const scriptReviewIds = Object.values((await manager.gate()).activities)
+    .filter((activity) => activity.definition.kind === "review"
+      && activity.definition.metadata?.subflow === "script-review"
+      && activity.state === "READY")
+    .map((activity) => activity.id);
+  for (const activityId of scriptReviewIds) await succeed(manager, activityId);
+  await succeed(manager, "script-review");
+  // The authorization tests isolate publication from immutable-input validation;
+  // readiness-preflight has its own focused test suite.
+  const preflight = await manager.startActivity("readiness-preflight", "authorization-test");
+  await manager.completeReadinessPreflight(preflight.claimToken, {
+    schemaVersion: "readiness-preflight-v1",
+    complete: true,
+    digest: "e".repeat(64)
+  });
   const formalModule = await import(
     `${pathToFileURL(formalManifestPath).href}?build-identity=${Date.now()}`
   ) as { formalExecutionManifest: FormalExecutionManifest };
@@ -451,12 +427,12 @@ documents:
   });
 
   const manifest = buildExecutionAuthorizationManifest({
-    schemaVersion: "execution-authorization-v4",
+    mode: "request",
     requestId,
     environment: "test",
     scriptPaths: [
-      "tests/web/project/authorization/example.formal.spec.ts",
-      "tests/web/project/authorization/execution.manifest.ts"
+      ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts",
+      ".local/test-runs/web/project/authorization/candidate-scripts/execution.manifest.ts"
     ],
     caseIds: [caseId],
     allowedOperations: ["query_postcondition"],
@@ -507,7 +483,7 @@ documents:
         expiresAt: scriptReview.leaseExpiresAt
       },
       artifacts: [{
-        targetPath: `testcases/${requestId}/${EXECUTION_AUTHORIZATION_ARTIFACT}`,
+        targetPath: `.local/test-runs/${requestId}/${EXECUTION_AUTHORIZATION_ARTIFACT}`,
         content: `${JSON.stringify(manifest, null, 2)}\n`
       }]
     }, async (event) => {
@@ -556,7 +532,7 @@ async function refreshHarnessScriptSourceContract(harness: VNextHarness): Promis
     .flatMap((contract) => contract.authorities)
     .filter((authority) => authority.kind === "registered_source")
     .flatMap((authority) => authority.sourceFiles ?? [])
-    .find((item) => item.path === "tests/web/project/authorization/example.formal.spec.ts");
+    .find((item) => item.path === ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts");
   if (!sourceFile) throw new Error("Authorization harness source contract is missing its formal script.");
   sourceFile.sha256 = scriptDigest;
   const sourceContractContent = JSON.stringify(sourceContract);
@@ -585,7 +561,7 @@ async function initializeHarnessFormalRecord(
   const formalModule = await import(
     `${pathToFileURL(resolve(
       harness.root,
-      "tests/web/project/authorization/execution.manifest.ts"
+      ".local/test-runs/web/project/authorization/candidate-scripts/execution.manifest.ts"
     )).href}?formal-record=${Date.now()}-${selectedCaseIds.length}`
   ) as { formalExecutionManifest: FormalExecutionManifest };
   const store = new FormalExecutionStore(
@@ -593,7 +569,7 @@ async function initializeHarnessFormalRecord(
     resolve(harness.root, "artifacts/test-results/formal")
   );
   if (!("targetBuildDigest" in harness.manifest)) {
-    throw new Error("The terminal-unknown harness requires a v3/v4 authorization manifest.");
+    throw new Error("The terminal-unknown harness requires a v1 authorization manifest.");
   }
   await store.initialize({
     manifest: formalModule.formalExecutionManifest,
@@ -646,27 +622,6 @@ async function expireActivityLease(
   await writeFile(manager.runtime.runtimePath, `${JSON.stringify(runtime, null, 2)}\n`, "utf8");
 }
 
-async function writeScriptReviewEvidence(
-  root: string,
-  role: ScriptReviewRole,
-  inputDigest: string
-): Promise<string> {
-  const path = resolve(
-    root,
-    ".local/test-task-runtime/web/project/authorization/review-evidence",
-    `${role}.json`
-  );
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({
-    schemaVersion: SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION,
-    role,
-    inputDigest,
-    verdict: "approved",
-    findingIds: []
-  }, null, 2)}\n`, "utf8");
-  return path;
-}
-
 async function succeed(
   manager: DurableWorkflowManager,
   activityId: string,
@@ -677,42 +632,119 @@ async function succeed(
   if (!activity) throw new Error(`Missing fixture activity ${activityId}.`);
   if (activity.definition.kind === "review") {
     const role = String(activity.definition.metadata?.role ?? activityId);
-    const batchId = `TEST-${activity.definition.phase}`;
-    if (!(await manager.events()).some((event) =>
-      event.type === "ReviewBatchStarted" && event.payload.batchId === batchId
-    )) {
+    const subflow = activity.definition.metadata?.subflow === "script-review"
+      ? "script-review"
+      : "case-review";
+    const existingBatch = (await manager.events()).find((event) => {
+      if (event.type !== "ReviewBatchStarted" || typeof event.payload.batchId !== "string") {
+        return false;
+      }
+      try {
+        return parseReviewBatchScope(event.payload.scope).requiredActivityIds.includes(activityId);
+      } catch {
+        return false;
+      }
+    });
+    const existingBatchId = typeof existingBatch?.payload.batchId === "string"
+      ? existingBatch.payload.batchId
+      : `TEST-${activity.definition.phase}`;
+    const batchId = subflow === "script-review"
+      ? `${existingBatchId}-frozen`
+      : existingBatchId;
+    const deterministicTaskId = deterministicReviewerTaskId(activityId, batchId);
+    if (!existingBatch || subflow === "script-review") {
+      const inputPaths = [manager.planPath, resolve(manager.requestRoot, "cases.md")];
+      if (subflow === "script-review") {
+        inputPaths.push(
+          resolve(manager.requestRoot, "script-review-assessment.json"),
+          resolve(
+            manager.workspaceRoot,
+            ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts"
+          )
+        );
+      }
       await manager.startReviewBatch({
         batchId,
-        inputPaths: [manager.planPath, resolve(manager.requestRoot, "cases.md")]
+        subflow,
+        inputPaths
       });
     }
     await manager.dispatchReviewer({
       activityId,
       batchId,
       role,
-      agentTaskId: `${batchId}-${role}`
+      agentTaskId: deterministicTaskId,
+      deterministic: { classifierDigest: "a".repeat(64) }
     });
+    const findingsPath = await writeReviewerFindings(
+      manager.workspaceRoot,
+      `findings-${++findingsCounter}`
+    );
     await manager.submitReviewer({
       activityId,
       batchId,
       role,
       planEvidenceRef: manager.planPath,
-      agentTaskId: `${batchId}-${role}`,
-      findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
+      deterministic: { classifierDigest: "a".repeat(64), findingsPath }
     });
     return;
   }
   const owner = "authorization-test";
   const started = await manager.startActivity(activityId, owner);
+  if (activityId === "script-review-assessment") {
+    await execFileAsync(process.execPath, [
+      "--import",
+      tsxLoader,
+      managePath,
+      "script-review-assess",
+      "--request",
+      manager.requestId,
+      "--claim",
+      started.claimToken,
+      "--environment",
+      "test",
+      "--script",
+      ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts",
+      "--case-id",
+      caseId,
+      "--operation",
+      "query_postcondition",
+      "--budget",
+      "query:0",
+      "--data-write-policy",
+      "no_write"
+    ], { cwd: manager.workspaceRoot });
+    return;
+  }
+  if (activityId === "script-review") {
+    await execFileAsync(process.execPath, [
+      "--import",
+      tsxLoader,
+      managePath,
+      "script-review-finalize",
+      "--request",
+      manager.requestId,
+      "--claim",
+      started.claimToken,
+      "--verified",
+      "isolated reviewers converged"
+    ], { cwd: manager.workspaceRoot });
+    return;
+  }
   if (activity.definition.kind === "candidate_gate") {
     await manager.succeedCandidateGate(started.claimToken);
     return;
   }
   if (activity.definition.publishesArtifacts) {
     const publishId = `fixture-${activityId}-attempt-${activity.attempt + 1}`;
-    const planArtifactPath = `testcases/${manager.requestId}/plan.md`;
-    const caseArtifactPath = `testcases/${manager.requestId}/cases.md`;
-    const artifactPaths = activityId === "relation-sync"
+    const planArtifactPath = `.local/test-runs/${manager.requestId}/plan.md`;
+    const caseArtifactPath = `.local/test-runs/${manager.requestId}/cases.md`;
+    const artifactPaths = activityId === "build"
+      ? [
+          ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts",
+          ".local/test-runs/web/project/authorization/candidate-scripts/execution.manifest.ts"
+        ]
+      : activityId === "relation-sync"
       || activityId === "candidate-generation"
       || activity.definition.kind === "case_generation"
         ? [planArtifactPath, caseArtifactPath]
@@ -786,7 +818,7 @@ async function writeReviewerFindings(
   return path;
 }
 
-test("public CLI atomically publishes the v4 execution manifest from readiness", async (context) => {
+test("public CLI atomically publishes the v1 execution authorization from readiness", async (context) => {
   const harness = await createVNextHarness({ publishAuthorization: false });
   context.after(() => rm(harness.root, { recursive: true, force: true }));
   const started = await harness.manager.startActivity("readiness", "cli-publisher");
@@ -810,7 +842,7 @@ test("public CLI atomically publishes the v4 execution manifest from readiness",
     "--target-build-digest",
     "f".repeat(64),
     "--script",
-    "tests/web/project/authorization/example.formal.spec.ts",
+    ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts",
     "--case-id",
     caseId,
     "--operation",
@@ -871,7 +903,7 @@ test("readiness CLI loads local .env capabilities without exposing their values"
     "--target-build-digest",
     "f".repeat(64),
     "--script",
-    "tests/web/project/authorization/example.formal.spec.ts",
+    ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts",
     "--case-id",
     caseId,
     "--operation",
@@ -905,13 +937,13 @@ test("readiness CLI loads local .env capabilities without exposing their values"
   assert.doesNotMatch(result.stderr, new RegExp(value));
 });
 
-test("public CLI assesses standard review and rejects missing or stale reviewer evidence", async (context) => {
+test("public CLI requires the frozen script-review receipt for readiness", async (context) => {
   const harness = await createVNextHarness({ publishAuthorization: false });
   context.after(() => rm(harness.root, { recursive: true, force: true }));
-  const helperPath = resolve(harness.root, "tests/web/project/authorization/helper.ts");
+  const helperPath = resolve(harness.root, ".local/test-runs/web/project/authorization/candidate-scripts/helper.ts");
   await writeFile(helperPath, "export const helper = true;\n", "utf8");
   await writeFile(
-    resolve(harness.root, "tests/web/project/authorization/example.formal.spec.ts"),
+    resolve(harness.root, ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts"),
     `import { helper } from "./helper.js";\ndeclare const formalCase: (caseId: string, title: string, body: (fixtures: unknown, runtime: { verifyBusinessOracle(oracleId: string, evaluator: () => void): Promise<string> }) => Promise<void>) => void;\ndeclare const assertHelperAvailable: (value: boolean) => void;\nformalCase("${caseId}", "query", async (_fixtures, runtime) => { await runtime.verifyBusinessOracle("query-visible", () => { assertHelperAvailable(helper); }); });\n`,
     "utf8"
   );
@@ -925,9 +957,9 @@ test("public CLI assesses standard review and rejects missing or stale reviewer 
     "--target-build-digest",
     "f".repeat(64),
     "--script",
-    "tests/web/project/authorization/example.formal.spec.ts",
+    ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts",
     "--script",
-    "tests/web/project/authorization/helper.ts",
+    ".local/test-runs/web/project/authorization/candidate-scripts/helper.ts",
     "--case-id",
     caseId,
     "--operation",
@@ -955,8 +987,6 @@ test("public CLI assesses standard review and rejects missing or stale reviewer 
   assert.equal(assessment.enforced, true);
   assert.equal(assessment.level, "standard");
   assert.deepEqual(assessment.requiredReviewerRoles, ["script_quality"]);
-  await refreshHarnessScriptSourceContract(harness);
-
   await assert.rejects(
     execFileAsync(process.execPath, [
       "--import",
@@ -969,34 +999,11 @@ test("public CLI assesses standard review and rejects missing or stale reviewer 
       "--verified",
       "static review passed"
     ], { cwd: harness.root }),
-    /requires reviewer evidence for: script_quality/
-  );
-
-  const evidencePath = await writeScriptReviewEvidence(
-    harness.root,
-    "script_quality",
-    assessment.reviewerInputDigests.script_quality
-  );
-  await writeFile(helperPath, "export const helper = false;\n", "utf8");
-  await assert.rejects(
-    execFileAsync(process.execPath, [
-      "--import",
-      tsxLoader,
-      managePath,
-      "execution-readiness-publish",
-      ...scopeArgs,
-      "--claim",
-      started.claimToken,
-      "--review-evidence",
-      evidencePath,
-      "--verified",
-      "isolated review passed"
-    ], { cwd: harness.root }),
-    /stale/
+    /completed script-review receipt/
   );
 });
 
-test("public CLI strict review requires quality and execution-safety evidence", async (context) => {
+test("public CLI rejects a stricter assessment that lacks a matching frozen receipt", async (context) => {
   const harness = await createVNextHarness({
     publishAuthorization: false,
     writesData: true
@@ -1011,7 +1018,7 @@ test("public CLI strict review requires quality and execution-safety evidence", 
     "--target-build-digest",
     "f".repeat(64),
     "--script",
-    "tests/web/project/authorization/example.formal.spec.ts",
+    ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts",
     "--case-id",
     caseId,
     "--case-risk",
@@ -1045,11 +1052,6 @@ test("public CLI strict review requires quality and execution-safety evidence", 
     "script_quality",
     "execution_safety"
   ]);
-  const qualityEvidence = await writeScriptReviewEvidence(
-    harness.root,
-    "script_quality",
-    assessment.reviewerInputDigests.script_quality
-  );
   await assert.rejects(
     execFileAsync(process.execPath, [
       "--import",
@@ -1059,40 +1061,14 @@ test("public CLI strict review requires quality and execution-safety evidence", 
       ...scopeArgs,
       "--claim",
       started.claimToken,
-      "--review-evidence",
-      qualityEvidence,
       "--verified",
       "quality review passed"
     ], { cwd: harness.root }),
-    /requires reviewer evidence for: script_quality, execution_safety/
-  );
-  const safetyEvidence = await writeScriptReviewEvidence(
-    harness.root,
-    "execution_safety",
-    assessment.reviewerInputDigests.execution_safety
-  );
-  await execFileAsync(process.execPath, [
-    "--import",
-    tsxLoader,
-    managePath,
-    "execution-readiness-publish",
-    ...scopeArgs,
-    "--claim",
-    started.claimToken,
-    "--review-evidence",
-    qualityEvidence,
-    "--review-evidence",
-    safetyEvidence,
-    "--verified",
-    "strict reviewers converged"
-  ], { cwd: harness.root });
-  assert.equal(
-    (await harness.manager.gate()).activities.readiness?.state,
-    "SUCCEEDED"
+    /completed script-review receipt/
   );
 });
 
-test("v7 formal authorization is derived from the accepted v4 manifest callback", async (context) => {
+test("v1 formal authorization is derived from the accepted v1 manifest callback", async (context) => {
   const harness = await createVNextHarness();
   context.after(() => rm(harness.root, { recursive: true, force: true }));
   await acceptCallback(
@@ -1108,7 +1084,7 @@ test("v7 formal authorization is derived from the accepted v4 manifest callback"
     ["query_postcondition"],
     harness.root
   );
-  assert.equal(snapshot.schemaVersion, "execution-authorization-v4");
+  assert.equal(snapshot.schemaVersion, "execution-authorization-v1");
   assert.equal(snapshot.status, "confirmed");
   assert.equal(snapshot.digest, harness.manifest.digest);
   assert.deepEqual(snapshot.externalTransitions, [{
@@ -1354,7 +1330,7 @@ test("task:resume automatically applies one eligible selector repair and remains
     snapshot,
     caseId,
     attempt: 1,
-    sourcePath: "tests/web/project/authorization/example.formal.spec.ts",
+    sourcePath: ".local/test-runs/web/project/authorization/candidate-scripts/example.formal.spec.ts",
     selectorId: "account-password-login",
     candidateName: "账号密码登录",
     observedCandidateCount: 1,
@@ -1464,12 +1440,12 @@ test("repair context is part of the new execution authorization subject", async 
   const harness = await createVNextHarness();
   context.after(() => rm(harness.root, { recursive: true, force: true }));
   const prior = harness.manifest;
-  if (prior.schemaVersion !== "execution-authorization-v4") {
-    throw new Error("Expected v4 authorization fixture.");
+  if (prior.mode !== "request") {
+    throw new Error("Expected request authorization fixture.");
   }
   const buildRepairAuthorization = (incidentDigest: string) =>
     buildExecutionAuthorizationManifest({
-      schemaVersion: "execution-authorization-v4",
+      mode: "request",
       requestId,
       environment: prior.environment,
       scriptPaths: prior.scriptDigests.map((item) => item.path),
@@ -1501,15 +1477,15 @@ test("repair context is part of the new execution authorization subject", async 
     });
   const first = buildRepairAuthorization("d".repeat(64));
   const second = buildRepairAuthorization("e".repeat(64));
-  if (first.schemaVersion !== "execution-authorization-v4") {
-    throw new Error("Expected repaired v4 authorization.");
+  if (first.mode !== "request") {
+    throw new Error("Expected repaired request authorization.");
   }
   assert.notEqual(first.digest, prior.digest);
   assert.notEqual(first.digest, second.digest);
   assert.equal(first.repairContext?.priorAuthorizationDigest, prior.digest);
   assert.throws(() => buildExecutionAuthorizationManifest({
     ...{
-      schemaVersion: "execution-authorization-v4" as const,
+      mode: "request" as const,
       requestId,
       environment: prior.environment,
       scriptPaths: prior.scriptDigests.map((item) => item.path),
@@ -1595,7 +1571,7 @@ test("formal plan or script drift invalidates authorization", async (context) =>
   assert.equal(gate.continuation.referenceId, "execution-authorization");
 });
 
-test("removing the accepted v7 case decision invalidates only case confirmation", async (context) => {
+test("removing the accepted v1 case decision invalidates only case confirmation", async (context) => {
   const harness = await createVNextHarness();
   context.after(() => rm(harness.root, { recursive: true, force: true }));
   assert.equal((await harness.manager.gate()).activities["plan-confirmation"], undefined);
@@ -1672,7 +1648,7 @@ test("Runner-discovered formal scripts must all be authorized and current", asyn
 
   const extraPath = resolve(
     harness.root,
-    "tests/web/project/authorization/unreviewed.formal.spec.ts"
+    ".local/test-runs/web/project/authorization/candidate-scripts/unreviewed.formal.spec.ts"
   );
   await writeFile(extraPath, "export const unreviewed = true;\n", "utf8");
   assert.throws(
@@ -1706,7 +1682,7 @@ test("formal completion rejects added or deleted formal specs before importing t
   );
   const extraPath = resolve(
     harness.root,
-    "tests/web/project/authorization/new.formal.spec.ts"
+    ".local/test-runs/web/project/authorization/candidate-scripts/new.formal.spec.ts"
   );
   await writeFile(extraPath, "export const newlyDiscovered = true;\n", "utf8");
   await assert.rejects(
@@ -1722,7 +1698,7 @@ test("formal completion rejects added or deleted formal specs before importing t
   );
 });
 
-test("v5 run and report completion are bound to one sealed formal execution record", async (context) => {
+test("v1 run and report completion are bound to one sealed formal execution record", async (context) => {
   const harness = await createVNextHarness();
   context.after(() => rm(harness.root, { recursive: true, force: true }));
   await acceptCallback(
@@ -1734,7 +1710,7 @@ test("v5 run and report completion are bound to one sealed formal execution reco
   const formalModule = await import(
     `${pathToFileURL(resolve(
       harness.root,
-      "tests/web/project/authorization/execution.manifest.ts"
+      ".local/test-runs/web/project/authorization/candidate-scripts/execution.manifest.ts"
     )).href}?formal-completion=${Date.now()}`
   ) as { formalExecutionManifest: FormalExecutionManifest };
   const store = new FormalExecutionStore(
@@ -2248,45 +2224,6 @@ test("a published formal report recovers atomically after the worker expires", a
   );
 });
 
-test("an unfinished unmarked v5 report uses the dedicated finalize recovery path", async (context) => {
-  const harness = await createVNextHarness({ legacyUnmarkedFormalCompletion: true });
-  context.after(() => rm(harness.root, { recursive: true, force: true }));
-  await acceptCallback(
-    harness.manager,
-    "execution-authorization",
-    harness.manifest.digest,
-    harness.manifest.callbackId
-  );
-  await initializeHarnessFormalRecord(harness);
-  const run = await harness.manager.startActivity("run", "legacy-unmarked-run");
-  await finalizeFormalRunWorkflow({
-    manager: harness.manager,
-    claimToken: run.claimToken
-  });
-  const report = await harness.manager.startActivity("report", "legacy-unmarked-report");
-  assert.equal(
-    (await harness.manager.gate()).activities.report?.definition.metadata?.completionContract,
-    undefined
-  );
-
-  await expireActivityLease(harness.manager, "report");
-  const resumed = await harness.manager.resume("recover unmarked v5 report worker");
-  assert.equal(resumed.activities.report?.state, "RECONCILING");
-  const completed = await finalizeFormalReportWorkflow({
-    manager: harness.manager,
-    claimToken: report.claimToken
-  });
-
-  assert.equal(completed.workflow.workflowState, "SUCCEEDED");
-  assert.equal(completed.workflow.activities.report?.state, "SUCCEEDED");
-  assert.equal(
-    (await harness.manager.events()).filter((event) =>
-      event.type === "WorkflowCompleted"
-    ).length,
-    1
-  );
-});
-
 test("formal finalize CLI rejects caller-supplied verdict, file and digest fields", async (context) => {
   const harness = await createVNextHarness();
   context.after(() => rm(harness.root, { recursive: true, force: true }));
@@ -2479,9 +2416,6 @@ test("data hygiene blocker resolution and run success share one atomic history a
 test("terminal unknown parks deterministically and a trusted retry atomically seals and clears it", async (context) => {
   const harness = await createVNextHarness();
   context.after(() => rm(harness.root, { recursive: true, force: true }));
-  if (harness.manifest.schemaVersion === "execution-authorization-v2") {
-    throw new Error("The terminal-unknown harness requires a readiness authorization manifest.");
-  }
   const readinessManifest = harness.manifest;
   await acceptCallback(
     harness.manager,
@@ -2492,7 +2426,7 @@ test("terminal unknown parks deterministically and a trusted retry atomically se
   const formalModule = await import(
     `${pathToFileURL(resolve(
       harness.root,
-      "tests/web/project/authorization/execution.manifest.ts"
+      ".local/test-runs/web/project/authorization/candidate-scripts/execution.manifest.ts"
     )).href}?terminal-unknown=${Date.now()}`
   ) as { formalExecutionManifest: FormalExecutionManifest };
   const store = new FormalExecutionStore(
@@ -2639,9 +2573,6 @@ test("terminal unknown parks deterministically and a trusted retry atomically se
 test("settled retry atomically replaces the deterministic blocker when cleanup remains unsafe", async (context) => {
   const harness = await createVNextHarness();
   context.after(() => rm(harness.root, { recursive: true, force: true }));
-  if (harness.manifest.schemaVersion === "execution-authorization-v2") {
-    throw new Error("The terminal-unknown harness requires a readiness authorization manifest.");
-  }
   const readinessManifest = harness.manifest;
   await acceptCallback(
     harness.manager,
@@ -2652,7 +2583,7 @@ test("settled retry atomically replaces the deterministic blocker when cleanup r
   const formalModule = await import(
     `${pathToFileURL(resolve(
       harness.root,
-      "tests/web/project/authorization/execution.manifest.ts"
+      ".local/test-runs/web/project/authorization/candidate-scripts/execution.manifest.ts"
     )).href}?outcome-to-hygiene=${Date.now()}`
   ) as { formalExecutionManifest: FormalExecutionManifest };
   const store = new FormalExecutionStore(
@@ -2776,7 +2707,7 @@ test("settled retry atomically replaces the deterministic blocker when cleanup r
   );
 });
 
-test("v5 run parks for an external transition and resumes with a fresh fenced lease", async (context) => {
+test("v1 run parks for an external transition and resumes with a fresh fenced lease", async (context) => {
   const harness = await createVNextHarness();
   context.after(() => rm(harness.root, { recursive: true, force: true }));
   await acceptCallback(

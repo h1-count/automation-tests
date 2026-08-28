@@ -14,10 +14,10 @@ test("authorization and Runner share the exact recursive local script dependency
   const root = await mkdtemp(resolve(tmpdir(), "formal-script-closure-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const requestId = "api/project/dependency-closure";
-  const planPath = resolve(root, "testcases/api/project/dependency-closure/plan.md");
-  const entryPath = resolve(root, "tests/api/project/dependency-closure/example.formal.spec.ts");
-  const helperPath = resolve(root, "tests/api/project/dependency-closure/helper.ts");
-  const nestedPath = resolve(root, "tests/api/project/dependency-closure/nested.ts");
+  const planPath = resolve(root, ".local/test-runs/api/project/dependency-closure/plan.md");
+  const entryPath = resolve(root, ".local/test-runs/api/project/dependency-closure/candidate-scripts/example.formal.spec.ts");
+  const helperPath = resolve(root, ".local/test-runs/api/project/dependency-closure/candidate-scripts/helper.ts");
+  const nestedPath = resolve(root, ".local/test-runs/api/project/dependency-closure/candidate-scripts/nested.ts");
   await mkdir(dirname(planPath), { recursive: true });
   await mkdir(dirname(entryPath), { recursive: true });
   await writeFile(planPath, "# Dependency closure plan\n", "utf8");
@@ -33,13 +33,13 @@ test("authorization and Runner share the exact recursive local script dependency
   );
   await writeFile(nestedPath, "export const nested = true;\n", "utf8");
   await writeFile(
-    resolve(root, "tests/api/project/dependency-closure/types.ts"),
+    resolve(root, ".local/test-runs/api/project/dependency-closure/candidate-scripts/types.ts"),
     "export type IgnoredType = boolean;\n",
     "utf8"
   );
 
   const manifest = buildExecutionAuthorizationManifest({
-    schemaVersion: "execution-authorization-v3",
+    mode: "request",
     requestId,
     environment: "test",
     scriptPaths: [entryPath],
@@ -53,13 +53,23 @@ test("authorization and Runner share the exact recursive local script dependency
     capabilityEvidence: [],
     selectorEvidenceDigests: [],
     scriptReview: { level: "light", evidenceDigests: [] },
+    caseScopes: [{
+      caseId: "CLOSURE-CASE-001",
+      permissionProfile: "read_only",
+      requiredOperations: ["query_postcondition"],
+      dataWritePolicy: "no_write",
+      consumesResources: [],
+      producesResources: []
+    }],
+    resourcePoolBudgets: [],
+    resourcePoolEvidence: [],
     workspaceRoot: root,
     createdAt: "2026-08-07T00:00:00.000Z"
   });
   assert.deepEqual(manifest.scriptDigests.map((item) => item.path), [
-    "tests/api/project/dependency-closure/example.formal.spec.ts",
-    "tests/api/project/dependency-closure/helper.ts",
-    "tests/api/project/dependency-closure/nested.ts"
+    ".local/test-runs/api/project/dependency-closure/candidate-scripts/example.formal.spec.ts",
+    ".local/test-runs/api/project/dependency-closure/candidate-scripts/helper.ts",
+    ".local/test-runs/api/project/dependency-closure/candidate-scripts/nested.ts"
   ]);
   assert.equal(
     manifest.scriptDigests.some((item) => item.path.endsWith("/types.ts")),
@@ -74,7 +84,7 @@ test("authorization and Runner share the exact recursive local script dependency
     /missing local dependencies: .*nested\.ts/
   );
 
-  const unrelatedPath = resolve(root, "tests/api/project/dependency-closure/unrelated.ts");
+  const unrelatedPath = resolve(root, ".local/test-runs/api/project/dependency-closure/candidate-scripts/unrelated.ts");
   const unrelatedContent = "export const unrelated = true;\n";
   await writeFile(unrelatedPath, unrelatedContent, "utf8");
   assert.throws(
@@ -82,7 +92,7 @@ test("authorization and Runner share the exact recursive local script dependency
       scriptDigests: [
         ...manifest.scriptDigests,
         {
-          path: "tests/api/project/dependency-closure/unrelated.ts",
+          path: ".local/test-runs/api/project/dependency-closure/candidate-scripts/unrelated.ts",
           digest: createHash("sha256").update(unrelatedContent).digest("hex")
         }
       ]

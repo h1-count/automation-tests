@@ -20,6 +20,7 @@ const checkedAt = "2026-07-31T00:00:00.000Z";
 function manifest(): FormalExecutionManifest {
   return {
     schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId: "web/example/readiness",
     projectId: "example",
     environment: "test",
@@ -170,7 +171,8 @@ test("readiness distinguishes an invalid case from an unavailable valid case", (
 
 test("readiness does not reinterpret frozen test assets as runtime capabilities", () => {
   const assetManifest: FormalExecutionManifest = {
-    schemaVersion: "formal-execution-manifest-v2",
+    schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId: "web/example/asset-readiness",
     projectId: "example",
     environment: "test",
@@ -205,7 +207,8 @@ test("readiness does not reinterpret frozen test assets as runtime capabilities"
 
 test("reusable fixtures require a validated pool entry or an authorized lazy replacement", () => {
   const reusableManifest: FormalExecutionManifest = {
-    schemaVersion: "formal-execution-manifest-v2",
+    schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId: "web/example/reusable-readiness",
     projectId: "example",
     environment: "test",
@@ -296,7 +299,7 @@ test("readiness validates case operation and write-policy declarations", () => {
     requestedCaseIds: ["READY-CASE-002"],
     capabilityResults: unavailable(),
     allowedOperations: ["submit_registration"],
-    dataWritePolicy: "managed_cleanup"
+    dataWritePolicy: "ephemeral_cleanup"
   });
   assert.equal(wrongPolicy.invalidCases[0]?.blockers[0]?.code, "data_write_policy_mismatch");
 });
@@ -508,12 +511,18 @@ test("readiness derives the complete build digest from frozen selector evidence"
   const root = await mkdtemp(resolve(tmpdir(), "selector-build-identity-"));
   const targetBuildDigest = "a".repeat(63) + "1";
   const source = resolve(root, "selector-contract.json");
-  await writeFile(source, JSON.stringify({
+  const sourceContent = JSON.stringify({
     schemaVersion: "selector-contract-evidence-v1",
     requestId: "web/example/readiness",
     targetBuildDigest
-  }));
+  });
+  await writeFile(source, sourceContent);
   const selectorManifest = manifest();
+  selectorManifest.buildEvidence = [{
+    kind: "selector_contract",
+    path: "selector-contract.json",
+    sha256: createHash("sha256").update(sourceContent).digest("hex")
+  }];
   selectorManifest.cases[0]!.requiredCapabilities = ["selector-contract"];
   selectorManifest.capabilities.push({
     id: "selector-contract",
@@ -546,19 +555,25 @@ test("build identity validates active project-scoped test assets and freezes the
   const assetDigest = createHash("sha256").update(assetContent).digest("hex");
   await mkdir(resolve(root, "contracts"), { recursive: true });
   await mkdir(resolve(root, "test-assets/documents"), { recursive: true });
-  await writeFile(resolve(root, "contracts/source.json"), JSON.stringify({
-    schemaVersion: "source-contract-evidence-v1",
+  const sourceContent = JSON.stringify({
+    schemaVersion: "selector-contract-evidence-v1",
     requestId: "web/example/asset-build",
     targetBuildDigest
-  }));
+  });
+  await writeFile(resolve(root, "contracts/source.json"), sourceContent);
   await writeFile(resolve(root, "test-assets/documents/synthetic.bin"), assetContent);
   await writeFile(resolve(root, "test-assets/manifest.yaml"), `version: 1\nassets:\n  - assetId: synthetic-document\n    kind: test-document\n    path: documents/synthetic.bin\n    sha256: ${assetDigest}\n    status: active\n    projects: [example]\n    platform: web\n    version: 1.0.0\n    scopes: [registration]\n    defaultSelection: true\n    description: synthetic\n`);
   const assetManifest: FormalExecutionManifest = {
-    schemaVersion: "formal-execution-manifest-v2",
+    schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId: "web/example/asset-build",
     projectId: "example",
     environment: "test",
-    buildEvidence: [{ kind: "source_contract", path: "contracts/source.json" }, {
+    buildEvidence: [{
+      kind: "selector_contract",
+      path: "contracts/source.json",
+      sha256: createHash("sha256").update(sourceContent).digest("hex")
+    }, {
       kind: "test_asset",
       assetId: "synthetic-document",
       sha256: assetDigest,
@@ -601,12 +616,18 @@ test("a supplied build digest mismatch is invalid input with full evidence value
   const root = await mkdtemp(resolve(tmpdir(), "selector-build-mismatch-"));
   const frozenDigest = "f".repeat(63) + "0";
   const suppliedDigest = "f".repeat(63) + "1";
-  await writeFile(resolve(root, "selector-contract.json"), JSON.stringify({
+  const sourceContent = JSON.stringify({
     schemaVersion: "selector-contract-evidence-v1",
     requestId: "web/example/readiness",
     targetBuildDigest: frozenDigest
-  }));
+  });
+  await writeFile(resolve(root, "selector-contract.json"), sourceContent);
   const selectorManifest = manifest();
+  selectorManifest.buildEvidence = [{
+    kind: "selector_contract",
+    path: "selector-contract.json",
+    sha256: createHash("sha256").update(sourceContent).digest("hex")
+  }];
   selectorManifest.cases[0]!.requiredCapabilities = ["selector-contract"];
   selectorManifest.capabilities.push({
     id: "selector-contract",

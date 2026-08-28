@@ -7,7 +7,7 @@ import test from "node:test";
 import { defineFormalExecutionManifest } from "../../../src/support/formal-execution/manifest.js";
 import { resolveFormalSourceContract } from "../../../src/support/formal-execution/sourceContract.js";
 import {
-  assertFormalBuildAuthorizationCompatibility,
+  assertFormalBuildAuthorization,
   resolveSelectorBuildIdentity,
   verifyFrozenBuildIdentity
 } from "../../../src/support/formal-execution/selectorBuildIdentity.js";
@@ -31,7 +31,7 @@ interface FixtureOptions {
   includePostconditionOracle?: boolean;
   observationKind?: FormalBusinessOracleObservationKind;
   operationFinality?: "accepted" | "final";
-  responseContractFinality?: "accepted" | "final";
+  responseContractFinality?: "accepted" | "final" | "conditional";
   sourceAuthorityDigest?: string;
 }
 
@@ -63,7 +63,8 @@ async function createFixture(options: FixtureOptions = {}): Promise<{
         kind: "registered_source",
         materialId,
         sectionId,
-        sourceSha256: authorityDigest
+        sourceSha256: authorityDigest,
+        sourceFiles: []
       }
     : {
         kind: "formal_user_decision",
@@ -75,7 +76,7 @@ async function createFixture(options: FixtureOptions = {}): Promise<{
   await mkdir(resolve(root, "implementation"), { recursive: true });
   await mkdir(resolve(root, "sources/requirements"), { recursive: true });
   await mkdir(resolve(root, "sources/indexes"), { recursive: true });
-  await mkdir(resolve(root, `testcases/${requestId}`), { recursive: true });
+  await mkdir(resolve(root, `.local/test-runs/${requestId}`), { recursive: true });
   const nestedSourcePath = resolve(root, "implementation/oracle.ts");
   await writeFile(nestedSourcePath, nestedContent);
   await writeFile(resolve(root, "sources/requirements/source.txt"), sourceContent);
@@ -102,10 +103,10 @@ documents:
       - section_id: ${sectionId}
 `);
 
-  const planPath = resolve(root, `testcases/${requestId}/plan.md`);
+  const planPath = resolve(root, `.local/test-runs/${requestId}/plan.md`);
   await writeFile(planPath, plan(decisionType, decisionDigest, sourceDigest));
   await writeFile(
-    resolve(root, `testcases/${requestId}/cases-source.md`),
+    resolve(root, `.local/test-runs/${requestId}/cases-source.md`),
     testcasePackage(authorityDigest)
   );
 
@@ -116,7 +117,7 @@ documents:
       }
     : authority;
   const sourceContract = {
-    schemaVersion: "source-contract-evidence-v3",
+    schemaVersion: "source-contract-evidence-v1",
     requestId,
     projectId: "example",
     targetBuildDigest,
@@ -194,7 +195,8 @@ documents:
     });
   }
   const manifest: FormalExecutionManifest = {
-    schemaVersion: "formal-execution-manifest-v3",
+    schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId,
     projectId: "example",
     environment: "test",
@@ -259,51 +261,51 @@ test("v3 source authority verifies registry, rule design, testcase source and fr
   }
 });
 
-test("formal source authority refuses archived testcase-v4 packages", async () => {
+test("formal source authority refuses archived testcase-v1 packages", async () => {
   const fixture = await createFixture();
   try {
     const sourceDigest = sha256(Buffer.from("reviewed business source", "utf8"));
     await writeFile(fixture.planPath, v4Plan(sourceDigest), "utf8");
-    await rm(resolve(fixture.root, `testcases/${requestId}/cases-source.md`));
+    await rm(resolve(fixture.root, `.local/test-runs/${requestId}/cases-source.md`));
     await writeFile(
-      resolve(fixture.root, `testcases/${requestId}/cases.md`),
+      resolve(fixture.root, `.local/test-runs/${requestId}/cases.md`),
       v4TestcasePackage(),
       "utf8"
     );
     await assert.rejects(
       resolveSelectorBuildIdentity({ manifest: fixture.manifest, workspaceRoot: fixture.root }),
-      /不是当前 testcase-v6-layered/u
+      /不是当前 testcase-v1-layered/u
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
 
-test("formal source authority refuses archived testcase-v5-flat packages", async () => {
+test("formal source authority refuses archived testcase-v1-flat packages", async () => {
   const fixture = await createFixture();
   try {
     const sourceDigest = sha256(Buffer.from("reviewed business source", "utf8"));
     await writeFile(fixture.planPath, v5Plan(sourceDigest), "utf8");
-    await rm(resolve(fixture.root, `testcases/${requestId}/cases-source.md`));
+    await rm(resolve(fixture.root, `.local/test-runs/${requestId}/cases-source.md`));
     await writeFile(
-      resolve(fixture.root, `testcases/${requestId}/cases.md`),
+      resolve(fixture.root, `.local/test-runs/${requestId}/cases.md`),
       v5ParameterizedTestcasePackage(),
       "utf8"
     );
     await assert.rejects(
       resolveSelectorBuildIdentity({ manifest: fixture.manifest, workspaceRoot: fixture.root }),
-      /不是当前 testcase-v6-layered/u
+      /不是当前 testcase-v1-layered/u
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
 
-test("current testcase-v6 parameter rows require one canonical business Oracle per dataId", async () => {
+test("current testcase-v1 parameter rows require one canonical business Oracle per dataId", async () => {
   const fixture = await createFixture();
   try {
     await writeFile(
-      resolve(fixture.root, `testcases/${requestId}/cases-source.md`),
+      resolve(fixture.root, `.local/test-runs/${requestId}/cases-source.md`),
       v6ParameterizedTestcasePackage(),
       "utf8"
     );
@@ -316,12 +318,12 @@ test("current testcase-v6 parameter rows require one canonical business Oracle p
   }
 });
 
-test("archived parameterized testcase-v4 cannot re-enter formal execution", async () => {
+test("archived parameterized testcase-v1 cannot re-enter formal execution", async () => {
   const fixture = await createFixture();
   try {
     const sourceDigest = sha256(Buffer.from("reviewed business source", "utf8"));
     await writeFile(fixture.planPath, v4Plan(sourceDigest), "utf8");
-    await rm(resolve(fixture.root, `testcases/${requestId}/cases-source.md`));
+    await rm(resolve(fixture.root, `.local/test-runs/${requestId}/cases-source.md`));
     const parameterized = v4TestcasePackage().replace(
       "- 合成只读数据可用。\n\n| # |",
       `- 合成只读数据可用。
@@ -338,34 +340,34 @@ test("archived parameterized testcase-v4 cannot re-enter formal execution", asyn
       "| 1 | 查看来源状态 | 无 | 页面显示已审核值且状态保持稳定 |",
       "| 1 | 核对当前数据实例 | 按数据编号执行 | 当前实例得到对应预期结果 |"
     );
-    await writeFile(resolve(fixture.root, `testcases/${requestId}/cases.md`), parameterized, "utf8");
+    await writeFile(resolve(fixture.root, `.local/test-runs/${requestId}/cases.md`), parameterized, "utf8");
     await assert.rejects(
       resolveSelectorBuildIdentity({ manifest: fixture.manifest, workspaceRoot: fixture.root }),
-      /不是当前 testcase-v6-layered/u
+      /不是当前 testcase-v1-layered/u
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
 
-test("v3 formal execution rejects a legacy pre-readiness authorization", async () => {
+test("v1 formal execution rejects an unsupported authorization schema", async () => {
   const fixture = await createFixture();
   try {
     assert.throws(
-      () => assertFormalBuildAuthorizationCompatibility({
+      () => assertFormalBuildAuthorization({
         manifest: fixture.manifest,
-        authorizationSchemaVersion: "execution-authorization-v2"
+        authorizationSchemaVersion: "unsupported-version"
       }),
       /requires a readiness-bound execution authorization/u
     );
-    assert.doesNotThrow(() => assertFormalBuildAuthorizationCompatibility({
+    assert.doesNotThrow(() => assertFormalBuildAuthorization({
       manifest: fixture.manifest,
-      authorizationSchemaVersion: "execution-authorization-v3"
+      authorizationSchemaVersion: "execution-authorization-v1"
     }));
-    assert.doesNotThrow(() => assertFormalBuildAuthorizationCompatibility({
+    assert.throws(() => assertFormalBuildAuthorization({
       manifest: fixture.manifest,
-      authorizationSchemaVersion: "execution-authorization-v4"
-    }));
+      authorizationSchemaVersion: "unsupported-version"
+    }), /requires a readiness-bound execution authorization/u);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -527,6 +529,23 @@ test("browser response finality rejects frozen final with operation accepted", a
   }
 });
 
+test("conditional browser response contracts cannot bind to a formal operation oracle", async () => {
+  const fixture = await createFixture({
+    observationKind: "browser_response",
+    operationFinality: "final",
+    responseContractFinality: "conditional"
+  });
+  try {
+    assert.doesNotThrow(() => defineFormalExecutionManifest(fixture.manifest));
+    await assert.rejects(
+      resolveSelectorBuildIdentity({ manifest: fixture.manifest, workspaceRoot: fixture.root }),
+      /conditional browser response response-contract-v1 cannot bind to a formal operation oracle/u
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("accepted browser response requires its operation postcondition oracle", async () => {
   const fixture = await createFixture({
     observationKind: "browser_response",
@@ -624,11 +643,11 @@ function testcasePackage(_sourceDigest: string): string {
 }
 
 function v6Plan(sourceDigest: string): string {
-  return v4Plan(sourceDigest).replace("testcase-v4", "testcase-v6-layered");
+  return v4Plan(sourceDigest).replace("testcase-v1", "testcase-v1-layered");
 }
 
 function v6TestcasePackage(): string {
-  return `> 结构版本：testcase-v6-layered。
+  return `> 结构版本：testcase-v1-layered。
 
 # 用例集：source behavior
 
@@ -673,8 +692,8 @@ function v6ParameterizedTestcasePackage(): string {
 function v4Plan(sourceDigest: string): string {
   return `# 测试设计索引：source behavior
 
-> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
-> 用例格式：testcase-v4。
+> 结构版本：test-design-index-v1 / rule-design-ledger-v1 / case-relation-projection-v1。
+> 用例格式：testcase-v1。
 
 ## 请求默认值
 
@@ -706,7 +725,7 @@ function v4Plan(sourceDigest: string): string {
 }
 
 function v4TestcasePackage(): string {
-  return `> 结构版本：testcase-v4。
+  return `> 结构版本：testcase-v1。
 
 # 用例集：source behavior
 
@@ -735,11 +754,11 @@ function v4TestcasePackage(): string {
 }
 
 function v5Plan(sourceDigest: string): string {
-  return v4Plan(sourceDigest).replace("testcase-v4", "testcase-v5-flat");
+  return v4Plan(sourceDigest).replace("testcase-v1", "testcase-v1-flat");
 }
 
 function v5ParameterizedTestcasePackage(): string {
-  return `> 结构版本：testcase-v5-flat。
+  return `> 结构版本：testcase-v1-flat。
 
 # 完整用例表：source behavior
 

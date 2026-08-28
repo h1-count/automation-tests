@@ -48,7 +48,7 @@ export function assessExecutionReadiness(input: {
   requestedCaseIds: string[];
   capabilityResults: FormalCapabilityResult[];
   allowedOperations?: ExecutionOperationKind[];
-  dataWritePolicy?: "no_write" | "managed_cleanup" | "ephemeral_cleanup" | "reusable_fixture" | "tracked_residual";
+  dataWritePolicy?: "no_write" | "ephemeral_cleanup" | "reusable_fixture" | "tracked_residual";
   resourcePoolEvidence?: ExecutionResourcePoolEvidence[];
   resourcePoolBudgets?: ExecutionResourcePoolBudget[];
   globalBlockers?: ExecutionReadinessBlocker[];
@@ -275,5 +275,5 @@ function uniqueBlockers(blockers: ExecutionReadinessBlocker[]): ExecutionReadine
 }
 
 function canonicalPolicy(value: string | undefined): string | undefined {
-  return value === "managed_cleanup" ? "ephemeral_cleanup" : value;
+  return value;
 }

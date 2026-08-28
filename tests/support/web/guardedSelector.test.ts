@@ -39,7 +39,8 @@ function source(): string {
 
 function snapshot(scriptDigest: string): ExecutionAuthorizationSnapshot {
   return {
-    schemaVersion: "execution-authorization-v4",
+    schemaVersion: "execution-authorization-v1",
+    mode: "request",
     requestId,
     environment: "test",
     planDigest: "1".repeat(64),

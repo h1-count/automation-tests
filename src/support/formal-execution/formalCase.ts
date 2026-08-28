@@ -37,7 +37,7 @@ import type {
 } from "./types.js";
 import { assertLocalResourceHandoff } from "./resourceHandoff.js";
 import { registerFormalPageSessionGroups } from "./pageSessionGroups.js";
-import { assertFormalBuildAuthorizationCompatibility } from "./selectorBuildIdentity.js";
+import { assertFormalBuildAuthorization } from "./selectorBuildIdentity.js";
 import { FormalSelectorRepairError } from "../web/guardedSelector.js";
 import { selectorRepairRetryCaseIds } from "./selectorRepair.js";
 
@@ -156,6 +156,25 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
         test.skip(true, reason);
       }
     }
+    if (definition.dataWritePolicy !== "no_write") {
+      const producedTypes = definition.producesResources
+        .filter((resource): resource is Exclude<typeof resource, string> => typeof resource !== "string")
+        .map((resource) => resource.resourceType);
+      const unresolved = (await runtime.manager.store.listResources()).find((resource) =>
+        resource.runId === runtime.runId
+        && producedTypes.includes(resource.resourceType)
+        && ["dirty", "cleanup_pending", "cleanup_failed", "manual_required"].includes(resource.state)
+      );
+      if (unresolved) {
+        const reason = `Test-data writes for ${unresolved.resourceType} are frozen until ${unresolved.resourceId} cleanup is reconciled.`;
+        await runtime.store.markBlocked(runtime.snapshot.digest, caseId, reason, {
+          cause: "required_resource_unavailable",
+          resourceName: unresolved.resourceId
+        });
+        testInfo.annotations.push({ type: "formalStatus", description: `blocked: ${reason}` });
+        test.skip(true, reason);
+      }
+    }
 
     const attempt = await runtime.store.beginCase(runtime.snapshot.digest, caseId);
     const evidenceRefs: string[] = [];
@@ -180,7 +199,68 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
           );
         },
         consumeResource: (name) => consumeCaseResource(runtime, definition, name),
+        resourceMetadata: async (name, key) => {
+          const handle = await consumeCaseResource(runtime, definition, name);
+          const value = handle.metadata[key];
+          if (typeof value !== "string" || !value.trim()) {
+            throw new Error(`${caseId} resource ${name} has no readable metadata ${key}.`);
+          }
+          return value;
+        },
+        markResourceDirty: async (name, reason) => {
+          const handle = await consumeCaseResource(runtime, definition, name);
+          await runtime.manager.markDirty(handle.resourceId, reason);
+        },
         resourceAvailable: async (name) => runtime.store.resourceAvailable(runtime.snapshot.digest, name),
+        beginSyntheticCreate: (input) =>
+          runtime.manager.reserveCreateIntent({
+            runId: runtime.runId,
+            projectId: runtime.manifest.projectId,
+            envId: runtime.manifest.environment,
+            caseId,
+            resourceType: input.resourceType as TestResourceType,
+            syntheticKey: input.syntheticKey,
+            ...(input.expectedOutcome ? { expectedOutcome: input.expectedOutcome } : {}),
+            ...(input.dataWritePolicy ? { dataWritePolicy: input.dataWritePolicy } : {}),
+            ...(input.evidenceSummary
+              ? { evidence: [{ type: "web" as const, summary: input.evidenceSummary }] }
+              : {})
+          }),
+        markSyntheticCreating: (intentId) => runtime.manager.markIntentCreating(intentId),
+        confirmSyntheticResource: async (input) => {
+          const record = await runtime.manager.confirmCreatedResource({
+            intentId: input.intentId,
+            resourceId: input.resourceId,
+            reusable: false,
+            ...(input.metadata ? { metadata: input.metadata } : {}),
+            ...(input.evidenceSummary
+              ? { evidence: [{ type: "web" as const, summary: input.evidenceSummary }] }
+              : {})
+          });
+          if (input.publishName) {
+            await assertPublishableResource(
+              runtime,
+              definition,
+              caseId,
+              input.publishName,
+              record.resourceId
+            );
+            await runtime.store.publishResource(
+              runtime.snapshot.digest,
+              input.publishName,
+              caseId,
+              input.evidenceSummary ?? "Synthetic resource created and verified.",
+              record.resourceId
+            );
+          }
+          return record;
+        },
+        markSyntheticRejected: (intentId, message) =>
+          runtime.manager.markCreationFailed(intentId, message),
+        restoreSyntheticResource: async (name, message) => {
+          const handle = await consumeCaseResource(runtime, definition, name);
+          await runtime.manager.recordResourceRestored(handle.resourceId, message);
+        },
         leaseResource: async (name, validator) => {
           const contract = definition.consumesResources?.find((item) => item.name === name);
           if (!contract) {
@@ -276,11 +356,9 @@ export function formalCase(caseId: string, title: string, body: FormalBody): voi
           });
         },
         classifyFailure: () => {
-          if (["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(runtime.manifest.schemaVersion)) {
-            throw new Error(
-              `${caseId} cannot use legacy classifyFailure() in formal-execution-manifest-v3.`
-            );
-          }
+          throw new Error(
+            `${caseId} cannot use classifyFailure() in formal-execution-manifest-v1.`
+          );
         }
       }, testInfo);
       const persistedAttempt = await readAttemptOracleResults(
@@ -396,9 +474,12 @@ export function caseExecutionScopeBlock(
   definition: FormalCaseDefinition,
   snapshot: ExecutionAuthorizationSnapshot
 ): string | undefined {
-  const caseScope = snapshot.caseScopes?.find((scope) => scope.caseId === definition.caseId);
-  if (snapshot.schemaVersion === "execution-authorization-v4" && !caseScope) {
-    return `${definition.caseId} has no frozen execution-authorization-v4 case scope.`;
+  if (snapshot.schemaVersion !== "execution-authorization-v1") {
+    return "Formal execution requires execution-authorization-v1.";
+  }
+  const caseScope = snapshot.caseScopes.find((scope) => scope.caseId === definition.caseId);
+  if (!caseScope) {
+    return `${definition.caseId} has no frozen execution-authorization-v1 case scope.`;
   }
   const missingOperations = definition.requiredOperations?.filter((operation) =>
     !(caseScope?.requiredOperations ?? snapshot.allowedOperations).includes(operation)
@@ -406,21 +487,18 @@ export function caseExecutionScopeBlock(
   if (missingOperations.length > 0) {
     return `${definition.caseId} authorization is missing declared operations: ${missingOperations.join(", ")}.`;
   }
-  if (snapshot.schemaVersion === "execution-authorization-v4") {
-    const frozenBudgets = caseScope?.operationBudgets ?? [];
-    for (const budget of definition.operationBudgets ?? []) {
-      const frozen = frozenBudgets.find((item) => item.operation === budget.operation);
-      if (!frozen || frozen.maxExecutions !== budget.maxExecutions) {
-        return `${definition.caseId} authorization is missing the exact ${budget.operation} execution budget.`;
-      }
+  const frozenBudgets = caseScope.operationBudgets ?? [];
+  for (const budget of definition.operationBudgets ?? []) {
+    const frozen = frozenBudgets.find((item) => item.operation === budget.operation);
+    if (!frozen || frozen.maxExecutions !== budget.maxExecutions) {
+      return `${definition.caseId} authorization is missing the exact ${budget.operation} execution budget.`;
     }
   }
   if (
     definition.dataWritePolicy
     && definition.dataWritePolicy !== "no_write"
     && !definition.permissionProfile
-    && canonicalDataWritePolicy(caseScope?.dataWritePolicy ?? snapshot.dataWritePolicy)
-      !== canonicalDataWritePolicy(definition.dataWritePolicy)
+    && (caseScope?.dataWritePolicy ?? snapshot.dataWritePolicy) !== definition.dataWritePolicy
   ) {
     return `${definition.caseId} requires ${definition.dataWritePolicy}, not ${caseScope?.dataWritePolicy ?? snapshot.dataWritePolicy}.`;
   }
@@ -449,7 +527,7 @@ export function resolveFormalOracleCompletion(input: {
   failureClassification?: FormalFailureClassification;
 } {
   if (input.definitions.length === 0) {
-    throw new Error("formal-execution-manifest-v3 cases require immutable business oracles.");
+    throw new Error("formal-execution-manifest-v1 cases require immutable business oracles.");
   }
   const expected = input.definitions.map((item) => item.oracleId).sort();
   const actual = input.oracleResults.map((item) => item.oracleId).sort();
@@ -552,12 +630,12 @@ async function createRuntime(): Promise<InternalRuntime> {
   if (!manifest) throw new Error("Call configureFormalSuite(manifest) before registering formalCase tests.");
   const runRequestId = process.env.FORMAL_EXECUTION_RUN_REQUEST_ID?.trim() || manifest.requestId;
   const snapshot = await loadConfirmedExecutionAuthorization(runRequestId, manifest.environment);
-  if (snapshot.schemaVersion === "execution-authorization-v5"
-    && manifest.schemaVersion === "formal-execution-manifest-v4"
+  if (snapshot.mode === "stable_suite"
+    && manifest.scope === "stable_suite"
     && snapshot.suiteId !== manifest.suiteId) {
-    throw new Error("Formal manifest suite identity differs from execution-authorization-v5.");
+    throw new Error("Formal manifest suite identity differs from stable suite authorization.");
   }
-  assertFormalBuildAuthorizationCompatibility({
+  assertFormalBuildAuthorization({
     manifest,
     authorizationSchemaVersion: snapshot.schemaVersion
   });
@@ -640,7 +718,28 @@ async function createRuntime(): Promise<InternalRuntime> {
     consumeResource: async () => {
       throw new Error("Suite runtime cannot consume a case-owned resource.");
     },
-    resourceAvailable: async (name) => store.resourceAvailable(snapshot.digest, name)
+    resourceMetadata: async () => {
+      throw new Error("Suite runtime cannot read a case-owned resource.");
+    },
+    markResourceDirty: async () => {
+      throw new Error("Suite runtime cannot alter a case-owned resource.");
+    },
+    resourceAvailable: async (name) => store.resourceAvailable(snapshot.digest, name),
+    beginSyntheticCreate: async () => {
+      throw new Error("Suite runtime cannot reserve a case-owned create intent.");
+    },
+    markSyntheticCreating: async () => {
+      throw new Error("Suite runtime cannot transition a case-owned create intent.");
+    },
+    confirmSyntheticResource: async () => {
+      throw new Error("Suite runtime cannot confirm a case-owned resource.");
+    },
+    markSyntheticRejected: async () => {
+      throw new Error("Suite runtime cannot transition a case-owned create intent.");
+    },
+    restoreSyntheticResource: async () => {
+      throw new Error("Suite runtime cannot restore a case-owned resource.");
+    }
   };
 }
 
@@ -689,7 +788,7 @@ async function consumeCaseResource(
     environment: runtime.manifest.environment,
     ...(selfProduced ? { caseId: definition.caseId } : {})
   });
-  return { resourceId, resourceType: validated.resourceType };
+  return { resourceId, resourceType: validated.resourceType, metadata: validated.metadata };
 }
 
 function resolveConsumableResourceName(
@@ -714,10 +813,6 @@ function resolveConsumableResourceName(
     );
   }
   return candidates[0]!;
-}
-
-function canonicalDataWritePolicy(policy: string): string {
-  return policy === "managed_cleanup" ? "ephemeral_cleanup" : policy;
 }
 
 async function useCaseCapability<T>(

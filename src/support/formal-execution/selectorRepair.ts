@@ -113,9 +113,9 @@ export async function recordSelectorRepairIncident(
   const workspaceRoot = resolve(input.workspaceRoot ?? process.cwd());
   if (input.snapshot.schemaVersion !== EXECUTION_AUTHORIZATION_SCHEMA_VERSION) {
     throw new Error(
-      input.snapshot.schemaVersion === "execution-authorization-v5"
+      input.snapshot.mode === "stable_suite"
         ? "Stable-suite direct_execute cannot repair a selector in place; create an affected_rebuild request."
-        : "Selector repair incidents require execution-authorization-v4."
+        : "Selector repair incidents require request execution authorization."
     );
   }
   if (!input.snapshot.targetBuildDigest) {
@@ -306,10 +306,10 @@ export async function assessSelectorRepairRecovery(input: {
   const workspaceRoot = resolve(input.workspaceRoot ?? process.cwd());
   if (input.snapshot.schemaVersion !== EXECUTION_AUTHORIZATION_SCHEMA_VERSION) {
     return {
-      status: input.snapshot.schemaVersion === "execution-authorization-v5" ? "rejected" : "not_applicable",
-      reason: input.snapshot.schemaVersion === "execution-authorization-v5"
+      status: input.snapshot.mode === "stable_suite" ? "rejected" : "not_applicable",
+      reason: input.snapshot.mode === "stable_suite"
         ? "direct_execute requires a successor affected_rebuild request"
-        : "selector repair requires execution-authorization-v4",
+        : "selector repair requires request execution authorization",
       incidents: [],
       incidentPaths: []
     };

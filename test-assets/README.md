@@ -9,3 +9,5 @@ npm run check:test-assets
 ```
 
 计划阶段只可选择 `active` 资产；`inventory-only` 仅表示文件已盘点，未确认项目或用途前不得自动选择。使用 `npm run test-assets:select -- --project <项目> --kind <类型>` 查询候选资产。资产清单不属于业务需求资料，也不替代 `sources/manifest.yaml`。
+
+开放平台注册营业执照上传使用“小样本入 Git、大文件按 request 本地生成”的边界：`documents/open-platform/synthetic-business-license.png.b64` 仅是生成器种子，不能直接传给浏览器。使用 `npm run test-assets:prepare-registration-upload -- --request <type/project/request>` 后，工具会在该请求的 `.local/test-runs/.../generated-test-assets/` 生成 PNG/JPEG/JPG、非法类型、恰好 10MB 与超过 10MB 的合成文件，并冻结生成器和文件摘要。生成文件不进 Git、不跨请求引用，随该请求运行档案一并清理。

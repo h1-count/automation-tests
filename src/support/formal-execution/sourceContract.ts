@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { parse } from "yaml";
@@ -18,8 +19,9 @@ import {
   isCurrentTestcaseDocumentVersion,
   parseTestcaseDocument
 } from "../testcase/testcaseDocument.js";
+import { localRunRootPath, readSuiteBinding, suiteDirectoryPath } from "../task-workflow/runRoots.js";
 
-export const FORMAL_SOURCE_CONTRACT_SCHEMA_VERSION = "source-contract-evidence-v3" as const;
+export const FORMAL_SOURCE_CONTRACT_SCHEMA_VERSION = "source-contract-evidence-v1" as const;
 
 interface SourceFileDigest {
   path: string;
@@ -49,15 +51,17 @@ interface SourceContractEntry {
   oracleId: string;
   ruleRef: string;
   observationKind: string;
+  contractId?: string;
   authorities: SourceContractAuthority[];
 }
 
-interface SourceContractEvidenceV3 {
+interface SourceContractEvidenceV1 {
   schemaVersion: typeof FORMAL_SOURCE_CONTRACT_SCHEMA_VERSION;
   requestId: string;
   projectId: string;
   targetBuildDigest: string;
   contracts: SourceContractEntry[];
+  sourceFiles?: SourceFileDigest[];
 }
 
 export interface ResolvedFormalSourceContract {
@@ -91,7 +95,7 @@ interface BusinessTraceabilityFact {
 }
 
 /**
- * Validates a v3 source contract against the immutable business-oracle declarations,
+ * Validates the current source contract against immutable business-oracle declarations,
  * the reviewed source registry/index, and the actual source bytes.
  */
 export async function resolveFormalSourceContract(input: {
@@ -100,19 +104,21 @@ export async function resolveFormalSourceContract(input: {
   manifest: FormalExecutionManifest;
   workspaceRoot: string;
 }): Promise<ResolvedFormalSourceContract> {
-  if (!["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(input.manifest.schemaVersion)) {
+  if (input.manifest.schemaVersion !== "formal-execution-manifest-v1") {
     throw new Error(
-      `${input.sourcePath} uses ${FORMAL_SOURCE_CONTRACT_SCHEMA_VERSION}, which requires formal-execution-manifest-v3.`
+      `${input.sourcePath} uses ${FORMAL_SOURCE_CONTRACT_SCHEMA_VERSION}, which requires formal-execution-manifest-v1.`
     );
   }
   const raw = parseJsonObject(input.content, `Source contract ${input.sourcePath}`);
-  assertExactKeys(raw, [
+  const topLevelKeys = [
     "contracts",
     "projectId",
     "requestId",
     "schemaVersion",
     "targetBuildDigest"
-  ], `Source contract ${input.sourcePath}`);
+  ];
+  if (raw.sourceFiles !== undefined) topLevelKeys.push("sourceFiles");
+  assertExactKeys(raw, topLevelKeys, `Source contract ${input.sourcePath}`);
   if (raw.schemaVersion !== FORMAL_SOURCE_CONTRACT_SCHEMA_VERSION) {
     throw new Error(`Source contract ${input.sourcePath} has an unsupported schema.`);
   }
@@ -124,6 +130,10 @@ export async function resolveFormalSourceContract(input: {
   }
   const targetBuildDigest = requireDigest(raw.targetBuildDigest, "source contract targetBuildDigest");
   const contracts = parseContracts(raw.contracts, input.sourcePath);
+  const sourceFiles = raw.sourceFiles === undefined
+    ? undefined
+    : parseSourceFiles(raw.sourceFiles, `Source contract ${input.sourcePath}.sourceFiles`);
+  if (sourceFiles) await validateSourceFiles(sourceFiles, input.workspaceRoot, input.sourcePath);
   assertExactContractSet(input.manifest, contracts, input.sourcePath);
 
   const traceabilityFacts = await validateBusinessTraceability({
@@ -170,8 +180,8 @@ export async function resolveFormalSourceContract(input: {
   };
 }
 
-/** Validates optional sourceFiles on legacy selector/source/browser evidence. */
-export async function validateLegacyEvidenceSourceFiles(input: {
+/** Validates sourceFiles supplied by selector/source/browser evidence. */
+export async function validateEvidenceSourceFiles(input: {
   evidence: Record<string, unknown>;
   workspaceRoot: string;
   sourcePath: string;
@@ -194,16 +204,29 @@ async function validateBusinessTraceability(input: {
   contracts: SourceContractEntry[];
   workspaceRoot: string;
 }): Promise<BusinessTraceabilityFact[]> {
-  const requestDirectoryRelative = `testcases/${input.manifest.requestId}`;
+  const requestRunRoot = localRunRootPath(input.workspaceRoot, input.manifest.requestId);
+  const boundSuite = input.manifest.scope === "stable_suite"
+    ? input.manifest.suiteId
+    : readSuiteBinding(requestRunRoot)?.suiteId;
+  const usesStableDesign = Boolean(boundSuite)
+    && (input.manifest.scope === "stable_suite"
+      || !existsSync(resolve(requestRunRoot, "plan.md")));
+  const requestDirectoryRelative = usesStableDesign
+    ? relative(input.workspaceRoot, suiteDirectoryPath(input.workspaceRoot, boundSuite!)).split(sep).join("/")
+    : `.local/test-runs/${input.manifest.requestId}`;
   const requestDirectory = await containedExistingPath(
     input.workspaceRoot,
     requestDirectoryRelative,
     "formal testcase request directory"
   );
-  const planPath = await containedExistingPath(requestDirectory, "plan.md", "formal testcase plan");
+  const planPath = await containedExistingPath(
+    requestDirectory,
+    usesStableDesign ? "design.md" : "plan.md",
+    "formal testcase plan"
+  );
   const plan = await readFile(planPath, "utf8");
-  if (!plan.includes("rule-design-ledger-v3") || !plan.includes("case-relation-projection-v3")) {
-    throw new Error("Formal source authority only accepts the current v3 testcase relation contracts.");
+  if (!plan.includes("rule-design-ledger-v1") || !plan.includes("case-relation-projection-v1")) {
+    throw new Error("Formal source authority only accepts the current v1 testcase relation contracts.");
   }
   const packageNames = (await readdir(requestDirectory, { withFileTypes: true }))
     .filter((entry) => entry.isFile() && (entry.name === "cases.md" || /^cases-.+\.md$/u.test(entry.name)))
@@ -332,7 +355,7 @@ function packageCaseBlocks(packages: Record<string, string>): Array<{
   return Object.entries(packages).flatMap(([name, content]) => {
     const document = parseTestcaseDocument(content);
     if (!isCurrentTestcaseDocumentVersion(document.version)) {
-      throw new Error(`${name} must use testcase-v6-layered for formal source authority.`);
+      throw new Error(`${name} must use testcase-v1-layered for formal source authority.`);
     }
     return document.cases.map((testcase) => ({
         name,
@@ -535,13 +558,15 @@ function parseContracts(value: unknown, sourcePath: string): SourceContractEntry
   }
   const contracts = value.map((entry, index) => {
     const raw = requireRecord(entry, `contracts[${index}] in ${sourcePath}`);
-    assertExactKeys(raw, [
+    const contractKeys = [
       "authorities",
       "caseId",
       "observationKind",
       "oracleId",
       "ruleRef"
-    ], `contracts[${index}] in ${sourcePath}`);
+    ];
+    if (raw.contractId !== undefined) contractKeys.push("contractId");
+    assertExactKeys(raw, contractKeys, `contracts[${index}] in ${sourcePath}`);
     const authorities = parseAuthorities(raw.authorities, `contracts[${index}] in ${sourcePath}`);
     return {
       caseId: requireNonEmptyString(raw.caseId, `contracts[${index}].caseId`),
@@ -551,6 +576,9 @@ function parseContracts(value: unknown, sourcePath: string): SourceContractEntry
         raw.observationKind,
         `contracts[${index}].observationKind`
       ),
+      ...(raw.contractId === undefined
+        ? {}
+        : { contractId: requireNonEmptyString(raw.contractId, `contracts[${index}].contractId`) }),
       authorities
     };
   });
@@ -572,24 +600,7 @@ function parseAuthorities(value: unknown, label: string): SourceContractAuthorit
         "sourceFiles",
         "sourceSha256"
       ], `${label}.authorities[${index}]`);
-      if (!Array.isArray(raw.sourceFiles) || raw.sourceFiles.length === 0) {
-        throw new Error(`${label}.authorities[${index}] requires non-empty sourceFiles.`);
-      }
-      const sourceFiles = raw.sourceFiles.map((file, fileIndex) => {
-        const sourceFile = requireRecord(
-          file,
-          `${label}.authorities[${index}].sourceFiles[${fileIndex}]`
-        );
-        assertExactKeys(
-          sourceFile,
-          ["path", "sha256"],
-          `${label}.authorities[${index}].sourceFiles[${fileIndex}]`
-        );
-        return {
-          path: requireNonEmptyString(sourceFile.path, "source file path"),
-          sha256: requireDigest(sourceFile.sha256, "source file sha256")
-        };
-      });
+      const sourceFiles = parseSourceFiles(raw.sourceFiles, `${label}.authorities[${index}].sourceFiles`);
       return {
         kind: "registered_source" as const,
         materialId: requireNonEmptyString(raw.materialId, "registered source materialId"),
@@ -616,6 +627,20 @@ function parseAuthorities(value: unknown, label: string): SourceContractAuthorit
   return authorities;
 }
 
+function parseSourceFiles(value: unknown, label: string): SourceFileDigest[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${label} requires a non-empty array.`);
+  }
+  return value.map((file, index) => {
+    const sourceFile = requireRecord(file, `${label}[${index}]`);
+    assertExactKeys(sourceFile, ["path", "sha256"], `${label}[${index}]`);
+    return {
+      path: requireNonEmptyString(sourceFile.path, "source file path"),
+      sha256: requireDigest(sourceFile.sha256, "source file sha256")
+    };
+  });
+}
+
 function assertExactContractSet(
   manifest: FormalExecutionManifest,
   actual: SourceContractEntry[],
@@ -638,12 +663,16 @@ function assertExactContractSet(
   }
   for (const { caseId, oracle } of expected) {
     const contract = actualByKey.get(`${caseId}\0${oracle.oracleId}`)!;
-    if (contract.ruleRef !== oracle.ruleRef || contract.observationKind !== oracle.observationKind) {
+    if (
+      contract.ruleRef !== oracle.ruleRef
+      || contract.observationKind !== oracle.observationKind
+      || (contract.contractId !== undefined && contract.contractId !== oracle.contractId)
+    ) {
       throw new Error(
         `Source contract ${caseId}/${oracle.oracleId} rule or observation kind differs from the manifest.`
       );
     }
-    const expectedAuthorities = oracle.authorities.map((authority) => canonicalJson(authority));
+    const expectedAuthorities = oracle.authorities.map((authority) => canonicalJson(stripFormalAuthoritySourceFiles(authority)));
     const actualAuthorities = contract.authorities.map((authority) =>
       canonicalJson(stripSourceFiles(authority))
     );
@@ -655,7 +684,20 @@ function assertExactContractSet(
   }
 }
 
-function stripSourceFiles(authority: SourceContractAuthority): FormalBusinessOracleAuthority {
+type AuthorityWithoutSourceFiles = Exclude<FormalBusinessOracleAuthority, { kind: "registered_source" }>
+  | Omit<Extract<FormalBusinessOracleAuthority, { kind: "registered_source" }>, "sourceFiles">;
+
+function stripFormalAuthoritySourceFiles(authority: FormalBusinessOracleAuthority): AuthorityWithoutSourceFiles {
+  if (authority.kind === "formal_user_decision") return authority;
+  return {
+    kind: authority.kind,
+    materialId: authority.materialId,
+    sectionId: authority.sectionId,
+    sourceSha256: authority.sourceSha256
+  };
+}
+
+function stripSourceFiles(authority: SourceContractAuthority): AuthorityWithoutSourceFiles {
   if (authority.kind === "formal_user_decision") return authority;
   return {
     kind: authority.kind,

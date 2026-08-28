@@ -6,6 +6,7 @@ import type {
 } from "./authorization.js";
 import type { TestDataManager } from "../test-data/testDataManager.js";
 import type {
+  CreateIntentRecord,
   DataHygieneStatus,
   DataWritePolicy,
   ResourceValidator,
@@ -36,9 +37,7 @@ export type FormalFailureClassification =
   | { code: "test_data"; basis: "required_resource_unavailable" }
   | { code: "infrastructure"; basis: "worker_interrupted" }
   | { code: "unknown"; basis: "business_oracle_indeterminate" };
-/** Legacy v1/v2 records used free-form strings. New v3 writes accept only the
- * structured variant through the Store API. */
-export type FormalStoredFailureClassification = FormalFailureClassification | string;
+export type FormalStoredFailureClassification = FormalFailureClassification;
 export type FormalDataWritePolicy = DataWritePolicy;
 export type FormalPermissionProfile = "read_only" | "test_write" | "privileged_test";
 export type FormalExecutionScopeStatus = "complete" | "partial";
@@ -101,7 +100,7 @@ export interface FormalConsumedResourceContract {
 export interface FormalProducedResourceContract {
   name: string;
   resourceType: TestResourceType;
-  disposition: Exclude<FormalDataWritePolicy, "no_write" | "managed_cleanup">;
+  disposition: Exclude<FormalDataWritePolicy, "no_write">;
   baselineContractId?: string;
   baselineVersion?: string;
   leaseMode?: ResourceLeaseMode;
@@ -158,6 +157,11 @@ export type FormalBusinessOracleAuthority =
       materialId: string;
       sectionId: string;
       sourceSha256: string;
+      /**
+       * 登记材料的具名源文件；正式 spec 层必填并由构建校验字节摘要，
+       * manifest 侧权威与比较语义不携带该字段。
+       */
+      sourceFiles?: Array<{ path: string; sha256: string }>;
     }
   | {
       kind: "formal_user_decision";
@@ -234,27 +238,23 @@ export interface FormalCaseDefinition {
   requiredCapabilities: FormalCapabilityRequirementInput[];
   requiredResources: string[];
   producesResources: Array<string | FormalProducedResourceContract>;
-  /** New v2 manifests declare cross-request fixture dependencies here. */
   consumesResources?: FormalConsumedResourceContract[];
   /** Git-managed static assets are frozen build inputs, never runtime capabilities. */
   requiredTestAssetIds?: string[];
   timeoutMs?: number;
   evidencePolicy?: "standard" | "sensitive";
-  /** Required for newly generated v5 scripts; omitted legacy manifests remain replayable. */
   requiredOperations?: ExecutionOperationKind[];
   /** Per-case immutable ceilings for externally observable operations. */
   operationBudgets?: Array<{
     operation: ExecutionOperationKind;
     maxExecutions: number;
   }>;
-  /** Required for newly generated v5 scripts; omitted legacy manifests remain replayable. */
   dataWritePolicy?: FormalDataWritePolicy;
   permissionProfile?: FormalPermissionProfile;
   /** Separates candidate implementation completeness from runtime readiness. */
   implementation?: FormalCaseImplementation;
-  /** Required for effectful operations in newly generated v5 scripts. */
   operationEvidence?: FormalOperationEvidenceDefinition[];
-  /** Required and non-empty for every formal-execution-manifest-v3 case. */
+  /** Required and non-empty for every formal-execution-manifest-v1 case. */
   businessOracles?: FormalBusinessOracleDefinition[];
   /** Optional durable stage graph for cases that cross a real external state transition. */
   executionStages?: FormalCaseExecutionStage[];
@@ -283,7 +283,6 @@ export interface FormalBuildEvidenceDefinition {
   path: string;
   /** Required only for test_asset evidence. */
   assetId?: string;
-  /** Required for every v3 evidence item; v1/v2 require it only for test_asset. */
   sha256?: string;
   /** Optional project-specific asset scope that must match test-assets/manifest.yaml. */
   scope?: string;
@@ -299,13 +298,9 @@ export interface FormalPageSessionGroupDefinition {
 }
 
 export interface FormalExecutionManifest {
-  schemaVersion:
-    | "formal-execution-manifest-v1"
-    | "formal-execution-manifest-v2"
-    | "formal-execution-manifest-v3"
-    | "formal-execution-manifest-v4";
+  schemaVersion: "formal-execution-manifest-v1";
+  scope: "request" | "stable_suite";
   requestId: string;
-  /** v4 separates the reusable design identity from the active run request. */
   suiteId?: string;
   sourceRequestId?: string;
   projectId: string;
@@ -313,7 +308,6 @@ export interface FormalExecutionManifest {
   cases: FormalCaseDefinition[];
   capabilities: FormalCapabilityDefinition[];
   buildEvidence?: FormalBuildEvidenceDefinition[];
-  /** Optional for legacy manifests; when present every case must have exactly one session policy. */
   pageSessionGroups?: FormalPageSessionGroupDefinition[];
   externalResources?: string[];
 }
@@ -334,7 +328,6 @@ export interface FormalCapabilityResult {
 export interface FormalCaseAttempt {
   attempt: number;
   status: FormalCaseStatus;
-  /** Required on v3 records; absent legacy values are derived from endedAt when read. */
   finality?: FormalAttemptFinality;
   startedAt: string;
   endedAt?: string;
@@ -343,7 +336,7 @@ export interface FormalCaseAttempt {
   assertions?: string[];
   durationMs?: number;
   failureClassification?: FormalStoredFailureClassification;
-  /** Persisted non-business fact required for every v3 blocked result. */
+  /** Persisted non-business fact required for every blocked result. */
   blockEvidence?: FormalBlockEvidence;
   operationEvidence?: FormalOperationEvidenceRecord[];
   oracleResults?: FormalBusinessOracleResult[];
@@ -397,6 +390,8 @@ export interface FormalNamedResource {
 export interface FormalResourceHandle {
   resourceId: string;
   resourceType: TestResourceType;
+  /** Local ledger metadata only; never write credentials or session material here. */
+  metadata: Record<string, unknown>;
 }
 
 export interface FormalCaseDataEvidence {
@@ -413,10 +408,7 @@ export interface FormalCaseDataEvidence {
 }
 
 export interface FormalExecutionRecord {
-  schemaVersion:
-    | "formal-execution-record-v1"
-    | "formal-execution-record-v2"
-    | "formal-execution-record-v3";
+  schemaVersion: "formal-execution-record-v1";
   requestId: string;
   suiteId?: string;
   suiteVersion?: string;
@@ -424,8 +416,8 @@ export interface FormalExecutionRecord {
   environment: string;
   authorizationDigest: string;
   manifestDigest: string;
-  /** Required on v3 records and derived only from immutable case oracle definitions. */
-  businessOracleContractDigest?: string;
+  /** Immutable digest derived from the selected case oracle definitions. */
+  businessOracleContractDigest: string;
   targetBuildDigest?: string;
   repairContext?: ExecutionSelectorRepairContext;
   testDataRunId: string;
@@ -434,14 +426,11 @@ export interface FormalExecutionRecord {
   cases: Record<string, FormalCaseResult>;
   capabilities: Record<string, FormalCapabilityResult>;
   resources: Record<string, FormalNamedResource>;
-  /** Present on v2/v3 records; v1/v2 records remain readable but are not writable. */
-  stageProgress?: Record<string, FormalCaseStageProgress>;
+  stageProgress: Record<string, FormalCaseStageProgress>;
   deferredCases?: ExecutionDeferredCase[];
   caseEvidencePolicies?: Record<string, "standard" | "sensitive">;
-  /** Immutable per-case oracle contracts; required on v3 records. */
-  caseBusinessOracles?: Record<string, FormalBusinessOracleDefinition[]>;
-  /** Immutable identifiers that a v3 Store may verify before accepting a blocked result. */
-  caseBlockContracts?: Record<string, {
+  caseBusinessOracles: Record<string, FormalBusinessOracleDefinition[]>;
+  caseBlockContracts: Record<string, {
     capabilityIds: string[];
     resourceNames: string[];
   }>;
@@ -518,6 +507,28 @@ export interface FormalExecutionSealedReport {
   artifacts: FormalExecutionReportArtifact[];
 }
 
+/**
+ * 用例内合成资源台账登记输入。resourceType 为授权快照 resourceBudgets 中的
+ * 自由预算键（如 open_platform_product），引擎内部映射到台账资源类型。
+ */
+export interface FormalSyntheticCreateIntentInput {
+  resourceType: string;
+  syntheticKey: string;
+  expectedOutcome?: "create" | "reject";
+  dataWritePolicy?: DataWritePolicy;
+  evidenceSummary?: string;
+}
+
+export interface FormalSyntheticConfirmInput {
+  intentId: string;
+  /** 由响应体解析出的稳定外部标识（如 productId）拼装的安全台账资源 ID。 */
+  resourceId: string;
+  /** 需要同时向清单命名资源发布的资源名（须与 producesResources 声明一致）。 */
+  publishName?: string;
+  metadata?: Record<string, unknown>;
+  evidenceSummary?: string;
+}
+
 export interface FormalCaseRuntime {
   snapshot: ExecutionAuthorizationSnapshot;
   manager: TestDataManager;
@@ -526,7 +537,20 @@ export interface FormalCaseRuntime {
   confirmResource(name: string, evidence: string): Promise<void>;
   publishResource(name: string, ledgerResourceId: string, evidence: string): Promise<void>;
   consumeResource(name: string): Promise<FormalResourceHandle>;
+  /** Reads one non-sensitive value from a current-run named test resource. */
+  resourceMetadata(name: string, key: string): Promise<string>;
+  /** Freeze later writes of the same resource type after a failed UI cleanup. */
+  markResourceDirty(name: string, reason: string): Promise<void>;
   resourceAvailable(name: string): Promise<boolean>;
+  /** 登记一次合成资源创建意图（expectedOutcome=reject 不占用创建预算）。 */
+  beginSyntheticCreate(input: FormalSyntheticCreateIntentInput): Promise<CreateIntentRecord>;
+  markSyntheticCreating(intentId: string): Promise<CreateIntentRecord>;
+  /** 确认合成资源已创建；publishName 非空时同步发布为清单命名资源。 */
+  confirmSyntheticResource(input: FormalSyntheticConfirmInput): Promise<TestResourceRecord>;
+  /** 服务端拒绝的创建尝试（如重复名称/型号）按意图闭环，不产生台账资源。 */
+  markSyntheticRejected(intentId: string, message: string): Promise<CreateIntentRecord>;
+  /** 消费命名资源并把台账记录登记为已恢复基线（UI 删除验证后调用）。 */
+  restoreSyntheticResource(name: string, message: string): Promise<void>;
   leaseResource(name: string, validator: ResourceValidator): Promise<TestResourceRecord | null>;
   releaseResource(resourceId: string, baselineRestored: boolean, reason?: string): Promise<void>;
   useCapability<T = unknown>(capabilityId: string): Promise<T>;
@@ -541,7 +565,6 @@ export interface FormalCaseRuntime {
     oracleId: string,
     evaluator: FormalBusinessOracleEvaluator
   ): Promise<FormalBusinessOracleOutcome>;
-  /** Legacy v1/v2 source compatibility only; v3 source and runtime reject this API. */
   classifyFailure(classification: string): void;
   stageCompleted(stageId: string): Promise<boolean>;
   completeStage(stageId: string, evidenceRefs?: string[]): Promise<void>;

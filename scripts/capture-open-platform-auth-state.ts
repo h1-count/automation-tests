@@ -44,13 +44,13 @@ try {
   });
 
   const loginPanel = page.getByRole("tabpanel", { name: "登录" });
-  await loginPanel.getByRole("link", { name: "账号登录", exact: true }).click();
+  await loginPanel.getByRole("button", { name: "切换为账号密码登录", exact: true }).click();
 
-  const phoneInput = loginPanel.getByPlaceholder("请输入手机号");
-  const passwordInput = loginPanel.getByPlaceholder("请输入密码");
+  const phoneInput = loginPanel.getByRole("textbox", { name: "账号登录手机号", exact: true });
+  const passwordInput = loginPanel.getByRole("textbox", { name: "登录密码", exact: true });
   const agreementText = loginPanel.getByText("我已阅读并已同意", { exact: true });
-  const agreementCheckbox = loginPanel.getByRole("checkbox");
-  const loginButton = loginPanel.getByRole("button", { name: "登录", exact: true });
+  const agreementCheckbox = loginPanel.getByRole("checkbox", { name: "同意登录用户协议", exact: true });
+  const loginButton = loginPanel.getByRole("button", { name: "账号密码登录", exact: true });
   const sliderChallenge = page.getByText("拖动滑块完成拼图", { exact: true });
 
   await phoneInput.fill(username);
@@ -63,6 +63,29 @@ try {
 
   const isAuthenticated = async () =>
     new URL(page.url()).pathname !== "/login" || !(await loginPanel.isVisible());
+
+  const switchToAccountForm = loginPanel.getByRole("button", { name: "切换为账号密码登录", exact: true });
+
+  /** 挑战后表单可能被重置回短信验证码面板：自动切回账号密码表单并重新填写。 */
+  const ensureAccountFormReady = async () => {
+    if (await isAuthenticated()) {
+      return;
+    }
+    if (await loginButton.isVisible()) {
+      if (!(await agreementCheckbox.isChecked())) {
+        await agreementText.click();
+      }
+      return;
+    }
+    if (await switchToAccountForm.isVisible()) {
+      await switchToAccountForm.click();
+      await phoneInput.fill(username);
+      await passwordInput.fill(password);
+      if (!(await agreementCheckbox.isChecked())) {
+        await agreementText.click();
+      }
+    }
+  };
 
   const getLoginOutcome = async (): Promise<"authenticated" | "slider" | "pending"> => {
     if (await isAuthenticated()) {
@@ -96,7 +119,9 @@ try {
         if (await isAuthenticated()) {
           return true;
         }
-        return (await loginButton.isEnabled()) && !(await sliderChallenge.isVisible());
+        // 挑战通过后账号表单可能被重置卸载，此时以「切回入口可见」为恢复信号。
+        const accountFormReady = (await loginButton.isVisible()) || (await switchToAccountForm.isVisible());
+        return accountFormReady && !(await sliderChallenge.isVisible());
       },
       300_000,
       "等待人工完成安全挑战超时，未保存认证会话。"
@@ -106,7 +131,30 @@ try {
       break;
     }
 
-    await loginButton.click();
+    // 挑战完成后滑块容器可能仍短暂遮挡指针事件；等待其释放后再补提交。
+    await page
+      .locator("#tac-container")
+      .waitFor({ state: "hidden", timeout: 15_000 })
+      .catch(() => undefined);
+
+    // 部分流程在挑战通过后自动提交登录，先复查再点击。
+    if (await isAuthenticated()) {
+      break;
+    }
+
+    // 表单若被重置回短信面板，这里切回账号密码表单并重新填写。
+    await ensureAccountFormReady();
+    if (await isAuthenticated()) {
+      break;
+    }
+
+    try {
+      await loginButton.click({ timeout: 5_000 });
+    } catch {
+      // 挑战容器残留时拦截指针事件；改用键盘等价激活（挑战已由人工完成）。
+      await loginButton.focus();
+      await page.keyboard.press("Enter");
+    }
   }
 
   if (!(await isAuthenticated())) {

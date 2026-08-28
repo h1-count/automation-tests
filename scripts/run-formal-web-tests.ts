@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { chromium } from "@playwright/test";
 import {
@@ -32,27 +32,29 @@ import { buildExecutionDependencyPlan } from "../src/support/formal-execution/de
 import { selectNextExecutionWave } from "../src/support/formal-execution/executionScheduler.js";
 import { pageSessionGroupsRequireSingleWorker } from "../src/support/formal-execution/pageSessionGroups.js";
 import {
-  assertFormalBuildAuthorizationCompatibility,
+  assertFormalBuildAuthorization,
   verifyFrozenBuildIdentity
 } from "../src/support/formal-execution/selectorBuildIdentity.js";
+import { resolveTestEnvironment } from "../src/env/testEnvironment.js";
 
 const { requestId, resume, headed } = parseArgs(process.argv.slice(2));
 const snapshot = await loadConfirmedExecutionAuthorization(requestId);
-const [requestType, ...requestParts] = requestId.split("/");
+const [requestType] = requestId.split("/");
 if (!["web", "h5"].includes(requestType!)) {
   throw new Error("Formal Playwright runner accepts only web or h5 requests.");
 }
-const relativeRequest = requestParts.join("/");
-const requestDirectory = resolve(process.cwd(), "tests", requestType!, relativeRequest);
-const manifestPath = snapshot.schemaVersion === "execution-authorization-v5"
+const manifestPath = snapshot.mode === "stable_suite"
   ? snapshot.formalManifestPath!
-  : `tests/${requestType}/${relativeRequest}/execution.manifest.ts`;
-const formalSpecPaths = snapshot.schemaVersion === "execution-authorization-v5"
+  : snapshot.scriptDigests.find((item) => item.path.endsWith("/execution.manifest.ts"))?.path;
+if (!manifestPath) {
+  throw new Error(`Formal Runner found no authorized execution manifest for ${requestId}.`);
+}
+const formalSpecPaths = snapshot.mode === "stable_suite"
   ? (snapshot.entryScriptPaths ?? []).filter((path) => path.endsWith(".formal.spec.ts"))
-  : (await readdir(requestDirectory))
-      .filter((name) => name.endsWith(".formal.spec.ts"))
-      .sort()
-      .map((name) => `tests/${requestType}/${relativeRequest}/${name}`);
+  : snapshot.scriptDigests
+      .map((item) => item.path)
+      .filter((path) => path.endsWith(".formal.spec.ts"))
+      .sort();
 if (!formalSpecPaths.length) {
   throw new Error(`Formal Runner found no *.formal.spec.ts files for ${requestId}.`);
 }
@@ -61,17 +63,17 @@ const reviewedCaseIds = [
   ...snapshot.caseIds,
   ...(snapshot.deferredCases ?? []).map((item) => item.caseId)
 ];
-const manifest = snapshot.schemaVersion === "execution-authorization-v5"
+const manifest = snapshot.mode === "stable_suite"
   ? await loadFormalExecutionManifestFromPath(manifestPath, {
       expectedSuiteId: snapshot.suiteId
     })
   : await loadFormalExecutionManifest(requestId);
-if (snapshot.schemaVersion === "execution-authorization-v5"
-  && manifest.schemaVersion === "formal-execution-manifest-v4"
+if (snapshot.mode === "stable_suite"
+  && manifest.scope === "stable_suite"
   && manifest.suiteId !== snapshot.suiteId) {
-  throw new Error("Formal manifest suite identity differs from execution-authorization-v5.");
+  throw new Error("Formal manifest suite identity differs from execution-authorization-v1.");
 }
-assertFormalBuildAuthorizationCompatibility({
+assertFormalBuildAuthorization({
   manifest,
   authorizationSchemaVersion: snapshot.schemaVersion
 });
@@ -83,7 +85,7 @@ assertFormalSpecSources(
   reviewedCaseIds,
   {
     manifestSchemaVersion: manifest.schemaVersion,
-    ...(manifest.schemaVersion === "formal-execution-manifest-v4"
+    ...(manifest.scope === "stable_suite"
       ? { allowedCaseIds: manifest.cases.map((item) => item.caseId) }
       : {})
   }
@@ -91,7 +93,7 @@ assertFormalSpecSources(
 if (snapshot.environment !== manifest.environment) {
   throw new Error("Execution environment differs from the confirmed authorization.");
 }
-if (["execution-authorization-v3", "execution-authorization-v4", "execution-authorization-v5"].includes(snapshot.schemaVersion)) {
+{
   await verifyFrozenBuildIdentity({
     manifest,
     workspaceRoot: process.cwd(),
@@ -164,7 +166,7 @@ if (unavailableCapabilities.length > 0) {
     `Execution readiness changed before run: ${unavailableCapabilities.map((item) => item.capabilityId).join(", ")} unavailable. Republish readiness and execution authorization.`
   );
 }
-if (["execution-authorization-v3", "execution-authorization-v4", "execution-authorization-v5"].includes(snapshot.schemaVersion)) {
+{
   const frozenEvidence = new Map(
     (snapshot.capabilityEvidence ?? []).map((item) => [item.capabilityId, item.evidenceDigest])
   );
@@ -205,6 +207,21 @@ try {
     headless: !headed,
     channel: headed ? "chrome" : undefined
   });
+  // 已捕获登录态注入：显式变量优先，其次回退到环境解析出的开放平台认证态文件。
+  // 文件不存在时不注入，让依赖登录态的用例以可见的登录页重定向失败，而不是静默跳过。
+  const formalStorageState = process.env.PLAYWRIGHT_FORMAL_STORAGE_STATE?.trim()
+    ?? (() => {
+      try {
+        const authStatePath = resolveTestEnvironment().openPlatformAuthStatePath;
+        return authStatePath && existsSync(authStatePath) ? authStatePath : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+  if (formalStorageState) {
+    process.env.PLAYWRIGHT_FORMAL_STORAGE_STATE = formalStorageState;
+    process.stdout.write(`[正式执行] 已声明登录态 storageState（路径不回显）供正式会话注入。\n`);
+  }
   process.stdout.write(
     `[正式执行] Runner 已持有浏览器进程 PID ${browserServer.process()?.pid ?? "unknown"}；worker 失败时只重连该进程。\n`
   );

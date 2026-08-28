@@ -144,11 +144,11 @@ test("parameter-instance Oracles aggregate to the parent case result", () => {
   }).status, "unknown");
 });
 
-test("v3 source gate rejects direct outcomes and empty evaluators while legacy inspection stays compatible", () => {
+test("v1 source gate rejects direct outcomes, empty evaluators, and unsupported diagnostics", () => {
   const diagnosticOnly = inspectFormalSpecSource(
     'formalCase("APP-CASE-001", "one", async (_f, runtime) => { runtime.addAssertion("looks good"); });',
     ["APP-CASE-001"],
-    { manifestSchemaVersion: "formal-execution-manifest-v3" }
+    { manifestSchemaVersion: "formal-execution-manifest-v1" }
   );
   assert.match(diagnosticOnly.issues.join("\n"), /does not verify any structured business oracle/);
   assert.match(diagnosticOnly.issues.join("\n"), /no business action or assertion/);
@@ -156,14 +156,14 @@ test("v3 source gate rejects direct outcomes and empty evaluators while legacy i
   const structured = inspectFormalSpecSource(
     'formalCase("APP-CASE-001", "one", async ({ page }, runtime) => { await runtime.verifyBusinessOracle("ORACLE-1", async () => { await expect(page.getByRole("heading")).toBeVisible(); }); });',
     ["APP-CASE-001"],
-    { manifestSchemaVersion: "formal-execution-manifest-v3" }
+    { manifestSchemaVersion: "formal-execution-manifest-v1" }
   );
   assert.deepEqual(structured.issues, []);
 
   const direct = inspectFormalSpecSource(
     'formalCase("APP-CASE-001", "one", async (_f, runtime) => { runtime.recordOracleResult({ oracleId: "ORACLE-1", outcome: "satisfied" }); });',
     ["APP-CASE-001"],
-    { manifestSchemaVersion: "formal-execution-manifest-v3" }
+    { manifestSchemaVersion: "formal-execution-manifest-v1" }
   );
   assert.match(direct.issues.join("\n"), /directly records a business oracle outcome/);
   assert.match(direct.issues.join("\n"), /literal business oracle outcome/);
@@ -171,14 +171,14 @@ test("v3 source gate rejects direct outcomes and empty evaluators while legacy i
   const empty = inspectFormalSpecSource(
     'formalCase("APP-CASE-001", "one", async (_f, runtime) => { await runtime.verifyBusinessOracle("ORACLE-1", async () => {}); });',
     ["APP-CASE-001"],
-    { manifestSchemaVersion: "formal-execution-manifest-v3" }
+    { manifestSchemaVersion: "formal-execution-manifest-v1" }
   );
   assert.match(empty.issues.join("\n"), /no reviewed assertion decision/);
 
   const observationWithoutDecision = inspectFormalSpecSource(
     'formalCase("APP-CASE-001", "one", async ({ page }, runtime) => { await runtime.verifyBusinessOracle("ORACLE-1", async () => { await page.getByRole("heading").isVisible(); }); });',
     ["APP-CASE-001"],
-    { manifestSchemaVersion: "formal-execution-manifest-v3" }
+    { manifestSchemaVersion: "formal-execution-manifest-v1" }
   );
   assert.match(
     observationWithoutDecision.issues.join("\n"),
@@ -188,24 +188,25 @@ test("v3 source gate rejects direct outcomes and empty evaluators while legacy i
   const mutatingEvaluator = inspectFormalSpecSource(
     'formalCase("APP-CASE-001", "one", async ({ page }, runtime) => { await runtime.verifyBusinessOracle("ORACLE-1", async () => { await page.click("button"); await expect(page).toBeTruthy(); }); });',
     ["APP-CASE-001"],
-    { manifestSchemaVersion: "formal-execution-manifest-v3" }
+    { manifestSchemaVersion: "formal-execution-manifest-v1" }
   );
   assert.match(mutatingEvaluator.issues.join("\n"), /mutates runtime state inside a business oracle evaluator/);
 
-  const legacy = inspectFormalSpecSource(
-    'formalCase("APP-CASE-001", "one", async (_f, runtime) => { runtime.addAssertion("legacy diagnostic"); });',
+  const unsupported = inspectFormalSpecSource(
+    'formalCase("APP-CASE-001", "one", async (_f, runtime) => { runtime.addAssertion("unsupported diagnostic"); });',
     ["APP-CASE-001"],
-    { manifestSchemaVersion: "formal-execution-manifest-v2" }
+    { manifestSchemaVersion: "formal-execution-manifest-v1" }
   );
-  assert.deepEqual(legacy.issues, []);
+  assert.match(unsupported.issues.join("\n"), /does not verify any structured business oracle/);
 });
 
-test("v3 oracle identity is caseId plus oracleId, while duplicates inside one case are rejected", async (context) => {
+test("current oracle identity is caseId plus oracleId, while duplicates inside one case are rejected", async (context) => {
   const root = await mkdtemp(resolve(tmpdir(), "formal-business-oracle-identity-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const sharedOracleId = "ORACLE-SHARED";
   const manifest: FormalExecutionManifest = {
-    schemaVersion: "formal-execution-manifest-v3",
+    schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId: "web/example/business-oracle-identity",
     projectId: "example",
     environment: "test",
@@ -284,7 +285,7 @@ test("v3 oracle identity is caseId plus oracleId, while duplicates inside one ca
 
 async function createRecordHarness(
   context: TestContext,
-  schemaVersion: FormalExecutionRecord["schemaVersion"] = "formal-execution-record-v3",
+  schemaVersion: FormalExecutionRecord["schemaVersion"] = "formal-execution-record-v1",
   oracleDefinitions: FormalBusinessOracleDefinition[] = [oracle]
 ) {
   const root = await mkdtemp(resolve(tmpdir(), "formal-business-oracle-"));
@@ -339,7 +340,7 @@ async function createRecordHarness(
   };
 }
 
-test("v3 Store derives passed and failed only from complete immutable oracle results", async (context) => {
+test("current Store derives passed and failed only from complete immutable oracle results", async (context) => {
   const { store } = await createRecordHarness(context);
   const firstAttempt = await store.beginCase(authorizationDigest, "CASE-001");
   await assert.rejects(
@@ -384,7 +385,7 @@ test("v3 Store derives passed and failed only from complete immutable oracle res
 test("a conclusive Oracle violation dominates missing Oracles and cannot become blocked", async (context) => {
   const { store, recordPath } = await createRecordHarness(
     context,
-    "formal-execution-record-v3",
+    "formal-execution-record-v1",
     [oracle, secondOracle]
   );
   const record = JSON.parse(await readFile(recordPath, "utf8")) as FormalExecutionRecord;
@@ -440,7 +441,7 @@ test("a conclusive Oracle violation dominates missing Oracles and cannot become 
   assert.equal((await store.summarize(authorizationDigest)).cases[0]?.status, "failed");
 });
 
-test("v3 runnable cases cannot bypass business oracles through skipped", async (context) => {
+test("v1 runnable cases cannot bypass business oracles through skipped", async (context) => {
   const { store } = await createRecordHarness(context);
   const attempt = await store.beginCase(authorizationDigest, "CASE-001");
   await assert.rejects(
@@ -461,11 +462,11 @@ test("v3 runnable cases cannot bypass business oracles through skipped", async (
   });
   await assert.rejects(
     () => store.finishCase(authorizationDigest, "CASE-001", attempt, "skipped"),
-    /v3 runnable cases cannot finish as skipped/u
+    /runnable cases cannot finish as skipped/u
   );
 });
 
-test("v3 blocked results require a persisted non-business fact", async (context) => {
+test("current blocked results require a persisted non-business fact", async (context) => {
   const { store } = await createRecordHarness(context);
   const attempt = await store.beginCase(authorizationDigest, "CASE-001");
   await assert.rejects(
@@ -570,7 +571,7 @@ test("Store maps assertion violations and evaluator errors without caller-writte
   });
 });
 
-test("v3 Store persists terminal unknown without converting it to product failure and refuses a seal", async (context) => {
+test("current Store persists terminal unknown without converting it to product failure and refuses a seal", async (context) => {
   const { store, recordPath, artifactRoot } = await createRecordHarness(context);
   const attempt = await store.beginCase(authorizationDigest, "CASE-001");
   const secretReason = "otp=314159 token=must-never-reach-disk";
@@ -628,7 +629,7 @@ test("v3 Store persists terminal unknown without converting it to product failur
   );
 });
 
-test("seal rejects a legacy v3 retry that hides an earlier Oracle violation", async (context) => {
+test("seal rejects a unsupported retry that hides an earlier Oracle violation", async (context) => {
   const { store, recordPath } = await createRecordHarness(context);
   const attempt = await store.beginCase(authorizationDigest, "CASE-001");
   await store.verifyBusinessOracle({
@@ -759,7 +760,7 @@ test("finish and seal reject business oracle contract digest drift", async (cont
   );
 });
 
-test("interrupted v3 attempts reconcile to terminal infrastructure unknown", async (context) => {
+test("interrupted current attempts reconcile to terminal infrastructure unknown", async (context) => {
   const { store } = await createRecordHarness(context);
   await store.beginCase(authorizationDigest, "CASE-001");
   assert.deepEqual(
@@ -776,27 +777,13 @@ test("interrupted v3 attempts reconcile to terminal infrastructure unknown", asy
   });
 });
 
-test("legacy formal records remain readable but reject every continuation write", async (context) => {
-  const { store, recordPath } = await createRecordHarness(context, "formal-execution-record-v2");
-  const legacyRecord = JSON.parse(await readFile(recordPath, "utf8")) as FormalExecutionRecord;
-  const timestamp = new Date().toISOString();
-  legacyRecord.cases["CASE-001"]!.status = "failed";
-  legacyRecord.cases["CASE-001"]!.attempts.push({
-    attempt: 1,
-    status: "failed",
-    startedAt: timestamp,
-    endedAt: timestamp,
-    failureClassification: "PRODUCT"
-  });
-  await writeFile(recordPath, `${JSON.stringify(legacyRecord, null, 2)}\n`, "utf8");
-  const summary = await store.summarize(authorizationDigest);
-  assert.equal(summary.cases[0]?.attemptFinality, "terminal");
-  assert.equal(summary.cases[0]?.failureClassification, "PRODUCT");
+test("non-v1 formal records are rejected without replay", async (context) => {
+  const { store, recordPath } = await createRecordHarness(context, "formal-execution-record-v1");
+  const unsupported = JSON.parse(await readFile(recordPath, "utf8")) as Record<string, unknown>;
+  unsupported.schemaVersion = "unsupported-version";
+  await writeFile(recordPath, `${JSON.stringify(unsupported, null, 2)}\n`, "utf8");
   await assert.rejects(
-    () => store.beginCase(authorizationDigest, "CASE-001"),
-    /Legacy formal execution records are read-only/
+    () => store.read(authorizationDigest),
+    /formal-execution-record-v1/
   );
-  const record = JSON.parse(await readFile(recordPath, "utf8")) as FormalExecutionRecord;
-  assert.equal(record.schemaVersion, "formal-execution-record-v2");
-  assert.equal(record.cases["CASE-001"]?.attempts.length, 1);
 });

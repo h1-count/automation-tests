@@ -10,10 +10,9 @@ import {
 import {
   FORMAL_SOURCE_CONTRACT_SCHEMA_VERSION,
   resolveFormalSourceContract,
-  validateLegacyEvidenceSourceFiles
+  validateEvidenceSourceFiles
 } from "./sourceContract.js";
 import { validateBrowserExplorationEvidence } from "../web/browserExploration.js";
-import { semanticBuildEvidenceDigest } from "./buildEvidenceIdentity.js";
 
 export interface SelectorBuildIdentity {
   targetBuildDigest: string;
@@ -28,18 +27,16 @@ export interface FrozenBuildIdentityInput {
   selectorEvidenceDigests: string[];
 }
 
-export function assertFormalBuildAuthorizationCompatibility(input: {
+type BrowserResponseFinality = "accepted" | "final" | "conditional";
+
+export function assertFormalBuildAuthorization(input: {
   manifest: FormalExecutionManifest;
   authorizationSchemaVersion: string;
 }): void {
-  if (
-    ["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(input.manifest.schemaVersion)
-    && !["execution-authorization-v3", "execution-authorization-v4", "execution-authorization-v5"].includes(
-      input.authorizationSchemaVersion
-    )
-  ) {
+  if (input.manifest.schemaVersion !== "formal-execution-manifest-v1"
+    || input.authorizationSchemaVersion !== "execution-authorization-v1") {
     throw new Error(
-      "formal-execution-manifest-v3 requires a readiness-bound execution authorization."
+      "formal-execution-manifest-v1 requires a readiness-bound execution authorization."
     );
   }
 }
@@ -51,16 +48,7 @@ export async function resolveSelectorBuildIdentity(input: {
   suppliedEvidenceDigests?: string[];
 }): Promise<SelectorBuildIdentity> {
   const workspaceRoot = await realpath(resolve(input.workspaceRoot));
-  const evidenceDefinitions = input.manifest.schemaVersion !== "formal-execution-manifest-v1"
-    ? (input.manifest.buildEvidence ?? [])
-    : input.manifest.capabilities.flatMap((capability) => {
-          if (capability.source.kind !== "provider"
-            || capability.source.providerId !== "selector_evidence") return [];
-          const path = capability.source.configuration?.path;
-          return typeof path === "string" && path.trim()
-            ? [{ kind: "selector_contract" as const, path: path.trim() }]
-            : [];
-        });
+  const evidenceDefinitions = input.manifest.buildEvidence ?? [];
   const sources = [...new Set(evidenceDefinitions.map((item) => item.path.trim()))].sort();
   if (!sources.length) {
     throw new Error(
@@ -70,7 +58,7 @@ export async function resolveSelectorBuildIdentity(input: {
 
   const evidenceDigests: string[] = [];
   const targetBuildDigests = new Set<string>();
-  const browserResponseContracts = new Map<string, { finality: "accepted" | "final"; source: string }>();
+  const browserResponseContracts = new Map<string, { finality: BrowserResponseFinality; source: string }>();
   for (const definition of evidenceDefinitions) {
     const source = definition.path.trim();
     const absolute = resolve(workspaceRoot, source);
@@ -91,12 +79,7 @@ export async function resolveSelectorBuildIdentity(input: {
       throw new Error(`Selector evidence source must be a regular file: ${source}.`);
     }
     const content = await readFile(canonicalEvidencePath);
-    if (
-      ["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(input.manifest.schemaVersion)
-      && (input.manifest.schemaVersion === "formal-execution-manifest-v4"
-        ? semanticBuildEvidenceDigest(definition.kind, content)
-        : sha256(content)) !== ("sha256" in definition ? definition.sha256 : undefined)
-    ) {
+    if (sha256(content) !== definition.sha256) {
       throw new Error(`Build evidence ${source} digest differs from its frozen manifest SHA-256.`);
     }
     if (definition.kind === "test_asset") {
@@ -167,7 +150,7 @@ export async function resolveSelectorBuildIdentity(input: {
       throw new Error(`Selector evidence has an invalid targetBuildDigest: ${source}.`);
     }
     targetBuildDigests.add(digest);
-    await validateLegacyEvidenceSourceFiles({
+    await validateEvidenceSourceFiles({
       evidence,
       workspaceRoot,
       sourcePath: source
@@ -185,9 +168,7 @@ export async function resolveSelectorBuildIdentity(input: {
     }
     evidenceDigests.push(sha256(content));
   }
-  if (["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(input.manifest.schemaVersion)) {
-    validateBrowserResponseOracleContracts(input.manifest, browserResponseContracts);
-  }
+  validateBrowserResponseOracleContracts(input.manifest, browserResponseContracts);
   if (targetBuildDigests.size !== 1) {
     throw new Error(
       `Selector evidence sources disagree on targetBuildDigest: ${[...targetBuildDigests].join(", ")}; sources=${sources.join(", ")}.`
@@ -226,7 +207,7 @@ export async function resolveSelectorBuildIdentity(input: {
 
 /**
  * Recomputes every frozen build input and compares it with an accepted
- * execution-authorization v3/v4 snapshot. Runner and workflow finalization
+ * execution-authorization v1 snapshot. Runner and workflow finalization
  * must reuse this helper instead of implementing separate drift checks.
  */
 export async function verifyFrozenBuildIdentity(
@@ -251,20 +232,18 @@ export async function verifyFrozenBuildIdentity(
 }
 
 function evidenceSchemasFor(
-  manifest: FormalExecutionManifest,
+  _manifest: FormalExecutionManifest,
   kind: "source_contract" | "selector_contract" | "browser_response_contract"
 ): string[] {
   if (kind === "selector_contract") return ["selector-contract-evidence-v1"];
   if (kind === "browser_response_contract") return ["browser-response-contract-evidence-v1"];
-  return ["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)
-    ? [FORMAL_SOURCE_CONTRACT_SCHEMA_VERSION]
-    : ["source-contract-evidence-v1"];
+  return [FORMAL_SOURCE_CONTRACT_SCHEMA_VERSION];
 }
 
 function collectBrowserResponseContracts(
   evidence: Record<string, unknown>,
   source: string,
-  contracts: Map<string, { finality: "accepted" | "final"; source: string }>
+  contracts: Map<string, { finality: BrowserResponseFinality; source: string }>
 ): void {
   if (!Array.isArray(evidence.contracts)) {
     throw new Error(`Browser response evidence requires contracts: ${source}.`);
@@ -276,19 +255,19 @@ function collectBrowserResponseContracts(
     const contract = value as Record<string, unknown>;
     const id = contract.id;
     const finality = contract.finality;
-    if (typeof id !== "string" || !id.trim() || !["accepted", "final"].includes(String(finality))) {
+    if (typeof id !== "string" || !id.trim() || !["accepted", "final", "conditional"].includes(String(finality))) {
       throw new Error(`Browser response contract ${source}#${index} has invalid id or finality.`);
     }
     if (contracts.has(id)) {
       throw new Error(`Browser response contract ${id} is duplicated across build evidence.`);
     }
-    contracts.set(id, { finality: finality as "accepted" | "final", source });
+    contracts.set(id, { finality: finality as BrowserResponseFinality, source });
   }
 }
 
 function validateBrowserResponseOracleContracts(
   manifest: FormalExecutionManifest,
-  contracts: Map<string, { finality: "accepted" | "final"; source: string }>
+  contracts: Map<string, { finality: BrowserResponseFinality; source: string }>
 ): void {
   for (const definition of manifest.cases) {
     for (const oracle of definition.businessOracles ?? []) {
@@ -303,6 +282,11 @@ function validateBrowserResponseOracleContracts(
       if (!frozen) {
         throw new Error(
           `${definition.caseId}/${oracle.oracleId} browser response contract ${contractId} is not frozen build evidence.`
+        );
+      }
+      if (frozen.finality === "conditional") {
+        throw new Error(
+          `${definition.caseId}/${oracle.oracleId} conditional browser response ${contractId} cannot bind to a formal operation oracle.`
         );
       }
       const matchingOperations = (definition.operationEvidence ?? []).filter((item) =>

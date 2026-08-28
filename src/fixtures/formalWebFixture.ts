@@ -1,4 +1,5 @@
 import type { Browser, BrowserContext, Page } from "@playwright/test";
+import { existsSync } from "node:fs";
 import { expect, test as base } from "@playwright/test";
 import {
   formalCaseIdFromTestTitle,
@@ -111,7 +112,19 @@ async function createSession(
   browser: Browser,
   baseURL: string | undefined
 ): Promise<SharedFormalBrowserSession> {
-  const context = await browser.newContext(baseURL ? { baseURL } : undefined);
+  // 已捕获登录态（storageState）注入：正式执行会话默认不携带任何登录态；
+  // 当 Runner 声明了 PLAYWRIGHT_FORMAL_STORAGE_STATE 时以该会话态启动上下文。
+  // 声明了但文件缺失属于配置错误，显式失败而不是静默降级为未登录会话。
+  const storageStatePath = process.env.PLAYWRIGHT_FORMAL_STORAGE_STATE?.trim();
+  const contextOptions: { baseURL?: string; storageState?: string } = {};
+  if (baseURL) contextOptions.baseURL = baseURL;
+  if (storageStatePath) {
+    if (!existsSync(storageStatePath)) {
+      throw new Error(`PLAYWRIGHT_FORMAL_STORAGE_STATE points to a missing storage state file.`);
+    }
+    contextOptions.storageState = storageStatePath;
+  }
+  const context = await browser.newContext(contextOptions);
   return {
     context,
     page: await context.newPage()

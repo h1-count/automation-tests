@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { execFile as execFileCallback } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, relative, resolve, sep } from "node:path";
+import { promisify } from "node:util";
 import type { ExecutionOperationKind } from "./authorization.js";
 import { operationEvidenceDefinitionIssues } from "./operationEvidence.js";
 import { assertFormalSpecSources } from "./runnerPolicy.js";
@@ -12,20 +13,17 @@ import { resolveLocalScriptDependencyClosure } from "./scriptDependencyClosure.j
 import type { FormalCaseDefinition, FormalExecutionManifest } from "./types.js";
 import { canonicalJson } from "../task-workflow/canonicalJson.js";
 import type {
-  ReviewPolicy,
   SafeJsonValue,
   WorkflowCapability
 } from "../task-workflow/types.js";
 
-export const SCRIPT_REVIEW_POLICY_VERSION = "script-review-policy-v3" as const;
-export const SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION = "script-review-evidence-v2" as const;
-export const LEGACY_SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION = "script-review-evidence-v1" as const;
+export const SCRIPT_REVIEW_POLICY_VERSION = "script-review-policy-v1" as const;
+export const SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION = "script-review-evidence-v1" as const;
 
 export type ScriptReviewLevel = "light" | "standard" | "strict";
 export type ScriptReviewRole = "script_quality" | "execution_safety";
 export type ScriptReviewDataWritePolicy =
   | "no_write"
-  | "managed_cleanup"
   | "ephemeral_cleanup"
   | "reusable_fixture"
   | "tracked_residual";
@@ -54,8 +52,6 @@ export interface ScriptReviewAssessmentInput {
   residualTtlHours: number;
   capabilities: WorkflowCapability[];
   caseRiskAssessments?: ScriptReviewCaseRisk[];
-  /** @deprecated Kept only so v1 callers compile; request-level risk is not a v2 floor. */
-  caseReviewPolicy?: ReviewPolicy;
   executionHasCleanupActivity: boolean;
   formalCases?: FormalCaseDefinition[];
   formalManifestSchemaVersion?: FormalExecutionManifest["schemaVersion"];
@@ -71,8 +67,16 @@ export interface ScriptReviewAssessment {
   reviewerScopes: Partial<Record<ScriptReviewRole, ScriptReviewRoleScope>>;
   caseRiskAssessments: ScriptReviewCaseRisk[];
   staticChecks: string[];
+  /** Every independent static gate is run concurrently and reported once. */
+  staticCheckResults: ScriptStaticCheckResult[];
   blockingIssues: string[];
   publishable: boolean;
+}
+
+export interface ScriptStaticCheckResult {
+  check: string;
+  durationMilliseconds: number;
+  issues: string[];
 }
 
 export interface ScriptReviewEvidenceDigest {
@@ -81,9 +85,7 @@ export interface ScriptReviewEvidenceDigest {
 }
 
 interface ScriptReviewEvidence {
-  schemaVersion:
-    | typeof SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION
-    | typeof LEGACY_SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION;
+  schemaVersion: typeof SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION;
   role: ScriptReviewRole;
   inputDigest: string;
   verdict: "approved" | "changes_required" | "blocked";
@@ -166,6 +168,7 @@ const typescriptCompiler = resolve(
   dirname(moduleRequire.resolve("typescript/package.json")),
   "bin/tsc"
 );
+const execFile = promisify(execFileCallback);
 
 export async function assessScriptReview(
   input: ScriptReviewAssessmentInput
@@ -283,27 +286,22 @@ export async function assessScriptReview(
     promoteCases(caseIds, "standard", "unscoped_standard_engineering_signal");
   }
 
-  const blockingIssues = [
-    ...loadedScripts.dependencyIssues,
-    ...compileIssues(workspaceRoot, scripts),
-    ...formalSourceIssues(
-      input.requestId,
-      scripts,
-      caseIds,
-      input.formalManifestSchemaVersion
-    ),
-    ...playwrightDiscoveryIssues(workspaceRoot, input.requestId, caseIds),
-    ...sensitiveLiteralIssues(scripts.filter((script) => !script.runtimeLeaf)),
-    ...executionSafetyIssues({
-      environment: input.environment,
-      operations,
-      budgets,
-      dataWritePolicy: input.dataWritePolicy,
-      residualTtlHours: input.residualTtlHours,
-      executionHasCleanupActivity: input.executionHasCleanupActivity,
-      formalCases: input.formalCases
-    })
-  ];
+  const staticCheckResults = await runStaticChecksInParallel({
+    workspaceRoot,
+    requestId: input.requestId,
+    scripts,
+    caseIds,
+    manifestSchemaVersion: input.formalManifestSchemaVersion,
+    dependencyIssues: loadedScripts.dependencyIssues,
+    environment: input.environment,
+    operations,
+    budgets,
+    dataWritePolicy: input.dataWritePolicy,
+    residualTtlHours: input.residualTtlHours,
+    executionHasCleanupActivity: input.executionHasCleanupActivity,
+    formalCases: input.formalCases
+  });
+  const blockingIssues = staticCheckResults.flatMap((result) => result.issues);
   const requiredReviewerRoles: ScriptReviewRole[] = level === "light"
     ? []
     : level === "standard"
@@ -405,6 +403,7 @@ export async function assessScriptReview(
     reviewerScopes,
     caseRiskAssessments: caseRisks,
     staticChecks,
+    staticCheckResults,
     blockingIssues: unique(blockingIssues),
     publishable: blockingIssues.length === 0
   };
@@ -508,10 +507,7 @@ function parseEvidence(value: unknown): ScriptReviewEvidence {
   if (unexpected.length) {
     throw new Error(`Script review evidence contains unsupported fields: ${unexpected.join(", ")}.`);
   }
-  if (
-    record.schemaVersion !== SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION
-    && record.schemaVersion !== LEGACY_SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION
-  ) {
+  if (record.schemaVersion !== SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION) {
     throw new Error("Unsupported script review evidence schema.");
   }
   if (!["script_quality", "execution_safety"].includes(String(record.role))) {
@@ -688,7 +684,66 @@ function localScriptDependencies(
   return script.dependencies.filter((dependency) => scriptByPath.has(dependency));
 }
 
-function compileIssues(workspaceRoot: string, scripts: LoadedScript[]): string[] {
+async function runStaticChecksInParallel(input: {
+  workspaceRoot: string;
+  requestId: string;
+  scripts: LoadedScript[];
+  caseIds: string[];
+  manifestSchemaVersion?: FormalExecutionManifest["schemaVersion"];
+  dependencyIssues: string[];
+  environment: string;
+  operations: ExecutionOperationKind[];
+  budgets: Array<{ resourceType: string; maxCreates: number }>;
+  dataWritePolicy: ScriptReviewDataWritePolicy;
+  residualTtlHours: number;
+  executionHasCleanupActivity: boolean;
+  formalCases?: FormalCaseDefinition[];
+}): Promise<ScriptStaticCheckResult[]> {
+  const checks: Array<{ check: string; run: () => Promise<string[]> }> = [
+    { check: "local_dependency_closure", run: async () => input.dependencyIssues },
+    { check: "project_typescript_compile", run: () => compileIssues(input.workspaceRoot, input.scripts) },
+    {
+      check: "formal_source_gate",
+      run: async () => formalSourceIssues(
+        input.requestId,
+        input.scripts,
+        input.caseIds,
+        input.manifestSchemaVersion
+      )
+    },
+    { check: "playwright_discovery", run: () => playwrightDiscoveryIssues(input.workspaceRoot, input.requestId, input.caseIds) },
+    {
+      check: "sensitive_literal_scan",
+      run: async () => sensitiveLiteralIssues(input.scripts.filter((script) => !script.runtimeLeaf))
+    },
+    {
+      check: "operation_outcome_evidence",
+      run: async () => executionSafetyIssues({
+        environment: input.environment,
+        operations: input.operations,
+        budgets: input.budgets,
+        dataWritePolicy: input.dataWritePolicy,
+        residualTtlHours: input.residualTtlHours,
+        executionHasCleanupActivity: input.executionHasCleanupActivity,
+        formalCases: input.formalCases
+      })
+    }
+  ];
+  return Promise.all(checks.map(async ({ check, run }) => {
+    const startedAt = Date.now();
+    try {
+      return { check, durationMilliseconds: Date.now() - startedAt, issues: await run() };
+    } catch (error) {
+      return {
+        check,
+        durationMilliseconds: Date.now() - startedAt,
+        issues: [`${check} failed: ${error instanceof Error ? error.message : String(error)}`]
+      };
+    }
+  }));
+}
+
+async function compileIssues(workspaceRoot: string, scripts: LoadedScript[]): Promise<string[]> {
   const typedScripts = scripts
     .map((script) => script.path)
     .filter((path) => /\.[cm]?tsx?$/u.test(path));
@@ -708,45 +763,39 @@ function compileIssues(workspaceRoot: string, scripts: LoadedScript[]): string[]
         "nodenext",
         ...typedScripts
       ];
-  const result = spawnSync(process.execPath, compilerArgs, {
-    cwd: workspaceRoot,
-    encoding: "utf8"
-  });
-  if (result.error) {
-    return ["TypeScript compiler is unavailable for script review."];
+  try {
+    await execFile(process.execPath, compilerArgs, { cwd: workspaceRoot });
+    return [];
+  } catch {
+    return [`TypeScript compile failed for: ${typedScripts.join(", ")}.`];
   }
-  return result.status === 0
-    ? []
-    : [`TypeScript compile failed for: ${typedScripts.join(", ")}.`];
 }
 
-function playwrightDiscoveryIssues(
+async function playwrightDiscoveryIssues(
   workspaceRoot: string,
   requestId: string,
   expectedCaseIds: string[]
-): string[] {
+): Promise<string[]> {
   if (!["web", "h5"].includes(requestId.split("/")[0]!)) return [];
   const configPath = resolve(workspaceRoot, "playwright.config.ts");
   const executable = resolve(workspaceRoot, "node_modules/.bin/playwright");
   if (!existsSync(configPath) || !existsSync(executable)) return [];
-  const result = spawnSync(executable, [
-    "test",
-    "--list",
-    "--config=playwright.config.ts"
-  ], {
-    cwd: workspaceRoot,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      AUTOMATION_REQUEST_ID: requestId,
-      PLAYWRIGHT_AUTHORIZED_CASE_IDS: expectedCaseIds.join(","),
-      PLAYWRIGHT_FORMAL_WORKERS: "1"
-    }
-  });
-  if (result.error || result.status !== 0) {
+  let output: string;
+  try {
+    const result = await execFile(executable, ["test", "--list", "--config=playwright.config.ts"], {
+      cwd: workspaceRoot,
+      env: {
+        ...process.env,
+        AUTOMATION_REQUEST_ID: requestId,
+        PLAYWRIGHT_FORMAL_SCRIPT_SCOPE: `.local/test-runs/${requestId}/candidate-scripts`,
+        PLAYWRIGHT_AUTHORIZED_CASE_IDS: expectedCaseIds.join(","),
+        PLAYWRIGHT_FORMAL_WORKERS: "1"
+      }
+    });
+    output = `${result.stdout}\n${result.stderr}`;
+  } catch {
     return ["Playwright discovery failed for the frozen formal script scope."];
   }
-  const output = `${result.stdout}\n${result.stderr}`;
   const missing = expectedCaseIds.filter((caseId) => !output.includes(`${caseId}：`));
   return missing.length > 0
     ? [`Playwright discovery omitted caseIds: ${missing.join(", ")}.`]
@@ -803,7 +852,7 @@ function executionSafetyIssues(input: {
   if (input.dataWritePolicy === "no_write" && hasMutation) {
     issues.push("no_write cannot authorize mutating operations.");
   }
-  if (["managed_cleanup", "ephemeral_cleanup"].includes(input.dataWritePolicy) && hasMutation) {
+  if (input.dataWritePolicy === "ephemeral_cleanup" && hasMutation) {
     if (!operationSet.has("cleanup_test_resource")) {
       issues.push("ephemeral_cleanup mutations require cleanup_test_resource.");
     }

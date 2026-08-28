@@ -5,13 +5,12 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 import {
-  STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
   assertCurrentAuthorizedScripts,
   buildExecutionAuthorizationManifest
 } from "../../../src/support/formal-execution/authorization.js";
 
-test("execution-authorization-v5 separates run identity from a frozen stable suite", async () => {
-  const root = await mkdtemp(resolve(tmpdir(), "suite-auth-v5-"));
+test("execution-authorization-v1 separates run identity from a frozen stable suite", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "suite-auth-v1-"));
   await Promise.all([
     mkdir(resolve(root, "testcases/web/demo/suites/registration"), { recursive: true }),
     mkdir(resolve(root, "tests/web/demo/source"), { recursive: true })
@@ -22,7 +21,7 @@ test("execution-authorization-v5 separates run identity from a frozen stable sui
   await writeFile(resolve(root, "tests/web/demo/source/case.formal.spec.ts"), "export const caseId = 'CASE-001';\n");
   const suiteManifestDigest = createHash("sha256").update("{}\n").digest("hex");
   const manifest = buildExecutionAuthorizationManifest({
-    schemaVersion: STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+    mode: "stable_suite",
     requestId: "web/demo/retest-001",
     environment: "test",
     scriptPaths: [
@@ -53,6 +52,7 @@ test("execution-authorization-v5 separates run identity from a frozen stable sui
     workspaceRoot: root,
     createdAt: "2026-08-10T00:00:00.000Z",
     suiteRef: {
+      sourceRequestId: "web/demo/source-001",
       suiteId: "web/demo/registration",
       suiteVersion: "4".repeat(64),
       suiteManifestPath: "testcases/web/demo/suites/registration/suite.manifest.json",
@@ -66,10 +66,11 @@ test("execution-authorization-v5 separates run identity from a frozen stable sui
       authorizationMode: "policy_auto_no_write"
     }
   });
-  assert.equal(manifest.schemaVersion, "execution-authorization-v5");
-  if (manifest.schemaVersion !== "execution-authorization-v5") return;
+  assert.equal(manifest.schemaVersion, "execution-authorization-v1");
+  assert.equal(manifest.mode, "stable_suite");
+  if (manifest.mode !== "stable_suite") return;
   assert.equal(manifest.requestId, "web/demo/retest-001");
-  assert.equal(manifest.runRequestId, "web/demo/retest-001");
+  assert.equal(manifest.sourceRequestId, "web/demo/source-001");
   assert.equal(manifest.suiteId, "web/demo/registration");
   assert.equal(manifest.authorizationMode, "policy_auto_no_write");
   assert.match(manifest.digest, /^[a-f0-9]{64}$/u);
@@ -89,7 +90,7 @@ test("execution-authorization-v5 separates run identity from a frozen stable sui
 });
 
 test("policy_auto_no_write rejects a write-capable case scope", async () => {
-  const root = await mkdtemp(resolve(tmpdir(), "suite-auth-v5-write-"));
+  const root = await mkdtemp(resolve(tmpdir(), "suite-auth-v1-write-"));
   await Promise.all([
     mkdir(resolve(root, "testcases/web/demo/suites/registration"), { recursive: true }),
     mkdir(resolve(root, "tests/web/demo/source"), { recursive: true })
@@ -99,7 +100,7 @@ test("policy_auto_no_write rejects a write-capable case scope", async () => {
   await writeFile(resolve(root, "tests/web/demo/source/execution.manifest.ts"), "export const formalExecutionManifest = {};\n");
   await writeFile(resolve(root, "tests/web/demo/source/case.formal.spec.ts"), "export const caseId = 'CASE-001';\n");
   assert.throws(() => buildExecutionAuthorizationManifest({
-    schemaVersion: STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+    mode: "stable_suite",
     requestId: "web/demo/retest-001",
     environment: "test",
     scriptPaths: ["tests/web/demo/source/execution.manifest.ts", "tests/web/demo/source/case.formal.spec.ts"],
@@ -122,6 +123,7 @@ test("policy_auto_no_write rejects a write-capable case scope", async () => {
     dataWritePolicy: "ephemeral_cleanup",
     workspaceRoot: root,
     suiteRef: {
+      sourceRequestId: "web/demo/source-001",
       suiteId: "web/demo/registration",
       suiteVersion: "4".repeat(64),
       suiteManifestPath: "testcases/web/demo/suites/registration/suite.manifest.json",

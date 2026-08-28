@@ -6,11 +6,7 @@ export interface FormalSpecInspection {
 }
 
 export interface FormalSpecInspectionOptions {
-  manifestSchemaVersion?:
-    | "formal-execution-manifest-v1"
-    | "formal-execution-manifest-v2"
-    | "formal-execution-manifest-v3"
-    | "formal-execution-manifest-v4";
+  manifestSchemaVersion?: "formal-execution-manifest-v1";
   allowedCaseIds?: string[];
 }
 
@@ -67,10 +63,9 @@ export function inspectFormalSpecSource(
     sourceType: "module",
     plugins: ["typescript", "jsx"]
   }) as unknown as AstNode;
+  inspectStaticFormalCaseRegistration(sourceFile, issues);
   const callbacks = formalCaseCallbacks(sourceFile);
-  const requiresBusinessOracle = options.manifestSchemaVersion !== undefined
-    && ["formal-execution-manifest-v3", "formal-execution-manifest-v4"]
-      .includes(options.manifestSchemaVersion);
+  const requiresBusinessOracle = options.manifestSchemaVersion === "formal-execution-manifest-v1";
   for (const callback of callbacks) {
     if (!callback.body.body.length) {
       issues.push(`${callback.caseId} has an empty formalCase implementation.`);
@@ -80,7 +75,7 @@ export function inspectFormalSpecSource(
       issues.push(`${callback.caseId} uses a fixed missing-contract blocker instead of a candidate implementation.`);
     }
     if (requiresBusinessOracle) {
-      inspectV3BusinessOracleUsage(callback, issues);
+      inspectBusinessOracleUsage(callback, issues);
     }
     const substantive = containsSubstantiveImplementation(callback.body, requiresBusinessOracle);
     const last = callback.body.body.at(-1);
@@ -103,7 +98,29 @@ export function inspectFormalSpecSource(
   return { caseIds, issues };
 }
 
-function inspectV3BusinessOracleUsage(
+/**
+ * The formal runner seals and authorizes individual caseIds. Parameterized
+ * registration would make that identity depend on runtime execution, so the
+ * build and review gates require literal top-level formalCase declarations.
+ */
+function inspectStaticFormalCaseRegistration(sourceFile: AstNode, issues: string[]): void {
+  visitAstWithAncestors(sourceFile, [], (node, ancestors) => {
+    if (node.type !== "CallExpression" || callName(node.callee) !== "formalCase") return;
+    const args = isAstNodeArray(node.arguments) ? node.arguments : [];
+    if (args[0]?.type !== "StringLiteral" || args[1]?.type !== "StringLiteral") {
+      issues.push("dynamic_registration: formalCase caseId and title must be string literals.");
+    }
+    if (ancestors.some((ancestor) => [
+      "ForStatement", "ForInStatement", "ForOfStatement", "WhileStatement", "DoWhileStatement"
+    ].includes(ancestor.type)) || ancestors.some((ancestor) =>
+      ancestor.type === "CallExpression" && ["map", "forEach"].includes(callName(ancestor.callee))
+    )) {
+      issues.push("dynamic_registration: formalCase must not be registered from a loop, map(), or forEach().");
+    }
+  });
+}
+
+function inspectBusinessOracleUsage(
   callback: FormalCaseCallback,
   issues: string[]
 ): void {
@@ -121,7 +138,7 @@ function inspectV3BusinessOracleUsage(
     }
   }
   if (containsCall(callback.body, "classifyFailure")) {
-    issues.push(`${callback.caseId} uses legacy classifyFailure() in a v3 formal case.`);
+    issues.push(`${callback.caseId} uses unsupported classifyFailure() in a formal-execution-manifest-v1 case.`);
   }
   for (const call of verifyCalls) {
     const args = isAstNodeArray(call.arguments) ? call.arguments : [];
@@ -151,6 +168,9 @@ function inspectV3BusinessOracleUsage(
       || !containsEvaluatorObservation(evaluatorBody)
     ) {
       issues.push(`${callback.caseId} business oracle evaluator has no reviewed assertion decision.`);
+    }
+    if (isVisibleOnlyOracle(evaluatorBody) && containsBusinessInteraction(callback.body)) {
+      issues.push(`${callback.caseId} generic_oracle: an interactive case cannot use only container visibility as its business oracle.`);
     }
   }
 }
@@ -308,6 +328,24 @@ function containsEvaluatorObservation(node: AstNode): boolean {
   return found;
 }
 
+function isVisibleOnlyOracle(node: AstNode): boolean {
+  const calls: string[] = [];
+  visitAst(node, (child) => {
+    if (child.type === "CallExpression") calls.push(callName(child.callee));
+  });
+  return calls.includes("toBeVisible")
+    && calls.every((name) => ["expect", "getByRole", "toBeVisible"].includes(name));
+}
+
+function containsBusinessInteraction(node: AstNode): boolean {
+  const methods = new Set(["fill", "selectOption", "check", "uncheck", "setInputFiles", "click"]);
+  let found = false;
+  visitAst(node, (child) => {
+    if (!found && child.type === "CallExpression" && methods.has(callName(child.callee))) found = true;
+  });
+  return found;
+}
+
 function containsEvaluatorMutation(node: AstNode): boolean {
   let found = false;
   const mutationMethods = new Set([
@@ -360,6 +398,22 @@ function visitAst(node: AstNode, visitor: (node: AstNode) => void): void {
     else if (Array.isArray(value)) {
       for (const item of value) {
         if (isAstNode(item)) visitAst(item, visitor);
+      }
+    }
+  }
+}
+
+function visitAstWithAncestors(
+  node: AstNode,
+  ancestors: AstNode[],
+  visitor: (node: AstNode, ancestors: AstNode[]) => void
+): void {
+  visitor(node, ancestors);
+  for (const value of Object.values(node)) {
+    if (isAstNode(value)) visitAstWithAncestors(value, [...ancestors, node], visitor);
+    else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (isAstNode(item)) visitAstWithAncestors(item, [...ancestors, node], visitor);
       }
     }
   }
