@@ -518,6 +518,18 @@ materials:
     status: active
     notes: Axure 导出的原型资料包；以目录入口及页面 HTML 作为按需读取定位，目录内运行资源不单独登记。
     sha256: 0c21f0f7c472d2fd0cf712201c46cfd584ec5607cfe6a4b01d778c5243bc08e6
+  - id: open-platform-password-reset-prototype-20260828
+    type: prototype
+    path: open-platform/原型包/密码重置/密码重置页面-脱敏.md
+    source: user-provided
+    source_version: "2026-08-28"
+    applicable_projects:
+      - open-platform
+    reference_scopes:
+      - account-password-reset
+    status: active
+    notes: 基于用户提供脱敏截图的事实转录；仅用于页面结构、必填提示和密码规则，不含手机号、验证码或密码值。
+    sha256: 66a7bffbe3175eaf447e01042c6341a2a72df743a18d1424d92b8e6cbca40f30
   - id: lazy-cat-app-product-requirement
     type: requirement
     path: lazy-cat/需求/V1.0 懒猫慧居app产品需求文档.docx
