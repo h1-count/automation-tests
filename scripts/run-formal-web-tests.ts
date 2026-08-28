@@ -200,7 +200,7 @@ try {
   );
   if (manualOtpCases.length > 0) {
     process.stdout.write(
-      `[正式执行] ${manualOtpCases.join(", ")} 将在短信发送后等待用户直接在浏览器输入验证码；验证码不会进入终端、Secret 或测试产物。\n`
+      `[正式执行] ${manualOtpCases.join(", ")} 含人工安全挑战/验证码环节：点选验证码与短信验证码由用户直接在可见浏览器内完成；凭据与验证码不会进入终端、Secret 或测试产物。\n`
     );
   }
   browserServer = await chromium.launchServer({
@@ -209,18 +209,25 @@ try {
   });
   // 已捕获登录态注入：显式变量优先，其次回退到环境解析出的开放平台认证态文件。
   // 文件不存在时不注入，让依赖登录态的用例以可见的登录页重定向失败，而不是静默跳过。
+  // 匿名会话请求（登录/注册链路）不注入任何已捕获登录态，保证未登录前置成立。
+  const anonymousSession = manifest.sessionAuthentication === "anonymous";
   const formalStorageState = process.env.PLAYWRIGHT_FORMAL_STORAGE_STATE?.trim()
-    ?? (() => {
-      try {
-        const authStatePath = resolveTestEnvironment().openPlatformAuthStatePath;
-        return authStatePath && existsSync(authStatePath) ? authStatePath : undefined;
-      } catch {
-        return undefined;
-      }
-    })();
+    ?? (anonymousSession
+      ? undefined
+      : (() => {
+          try {
+            const authStatePath = resolveTestEnvironment().openPlatformAuthStatePath;
+            return authStatePath && existsSync(authStatePath) ? authStatePath : undefined;
+          } catch {
+            return undefined;
+          }
+        })());
   if (formalStorageState) {
     process.env.PLAYWRIGHT_FORMAL_STORAGE_STATE = formalStorageState;
     process.stdout.write(`[正式执行] 已声明登录态 storageState（路径不回显）供正式会话注入。\n`);
+  } else if (anonymousSession) {
+    delete process.env.PLAYWRIGHT_FORMAL_STORAGE_STATE;
+    process.stdout.write("[正式执行] 本请求声明匿名会话策略，未登录态运行全部用例。\n");
   }
   process.stdout.write(
     `[正式执行] Runner 已持有浏览器进程 PID ${browserServer.process()?.pid ?? "unknown"}；worker 失败时只重连该进程。\n`

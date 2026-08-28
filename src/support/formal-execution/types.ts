@@ -305,6 +305,11 @@ export interface FormalExecutionManifest {
   sourceRequestId?: string;
   projectId: string;
   environment: string;
+  /**
+   * 会话认证策略：`anonymous` 要求 Runner 以未登录会话运行全部用例（登录/注册链路），
+   * 不得注入已捕获登录态；缺省按既有 Runner 行为（声明了存储态则注入）。
+   */
+  sessionAuthentication?: "anonymous" | "default";
   cases: FormalCaseDefinition[];
   capabilities: FormalCapabilityDefinition[];
   buildEvidence?: FormalBuildEvidenceDefinition[];

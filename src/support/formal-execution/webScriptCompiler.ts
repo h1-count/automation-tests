@@ -44,17 +44,27 @@ export const FORMAL_WEB_SCRIPT_COMPILER_VERSION = "formal-web-script-compiler-v1
 
 export type FormalWebAction =
   | { kind: "goto"; path: string }
-  | { kind: "expect_role_visible"; role: string; name: string }
+  | { kind: "expect_role_visible"; role: string; name?: string; nameRef?: WebValueRef; timeoutMs?: number }
   | { kind: "expect_role_text"; role: string; name: string; text: string }
   | { kind: "expect_role_value"; role: string; name: string; value: WebValueRef }
   | { kind: "expect_validation_message"; role?: string; name?: string; text: string }
-  | { kind: "expect_url"; path: string }
+  | { kind: "expect_url"; path: string; timeoutMs?: number }
   | { kind: "fill_role"; role: string; name: string; value: WebValueRef }
   | { kind: "clear_role"; role: string; name: string }
   | { kind: "blur_role"; role: string; name: string }
   | { kind: "select_role_option"; role: string; name: string; value: WebValueRef }
-  | { kind: "check_role"; role: string; name: string }
-  | { kind: "uncheck_role"; role: string; name: string }
+  | { kind: "check_role"; role: string; name: string; force?: boolean }
+  | { kind: "uncheck_role"; role: string; name: string; force?: boolean }
+  /**
+   * 等待角色元素进入禁用态。用于人工挑战链路（如短信发送后的重发倒计时），
+   * timeoutMs 允许超出默认 expect 超时以覆盖最小人工接管窗口。
+   */
+  | { kind: "expect_role_disabled"; role: string; name: string; timeoutMs?: number }
+  /**
+   * 轮询等待角色输入框的值匹配只读正则。用于人工在同一可见会话内输入一次性凭据
+   * （验证码等）：脚本不读取、不持久化该值，仅验证其形态后继续。
+   */
+  | { kind: "expect_role_value_pattern"; role: string; name: string; pattern: string; timeoutMs?: number; message?: string }
   | {
       kind: "set_files_label";
       label: string;
@@ -63,7 +73,7 @@ export type FormalWebAction =
       response: { method: string; path: string; contractId: string; successStatusCodes: number[] };
     }
   | { kind: "trial_click_role"; role: string; name: string }
-  | { kind: "click_read_only_role"; role: string; name: string }
+  | { kind: "click_read_only_role"; role: string; name?: string; nameRef?: WebValueRef }
   | { kind: "click_read_only_text"; text: string; exact?: boolean }
   | {
       kind: "click_role";
@@ -121,7 +131,7 @@ export type WebValueRef =
   | { kind: "resource_metadata"; resourceName: string; key: string };
 
 export interface FormalWebOracleCheck {
-  kind: "role_visible" | "role_hidden" | "role_text" | "role_value" | "validation_message" | "validation_message_absent" | "url" | "response_status";
+  kind: "role_visible" | "role_hidden" | "role_attached" | "role_text" | "role_value" | "validation_message" | "validation_message_absent" | "url" | "response_status";
   role?: string;
   name?: string;
   text?: string;
@@ -129,6 +139,8 @@ export interface FormalWebOracleCheck {
   path?: string;
   contractId?: string;
   successStatusCodes?: number[];
+  /** 可选的显式 expect 超时；缺省沿用 Playwright 默认，人工挑战后置断言用它延长等待窗口。 */
+  timeoutMs?: number;
 }
 
 export interface FormalWebScriptSpecStep {
@@ -181,8 +193,10 @@ export interface FormalWebScriptSpec {
   /** Frozen review-time capacity for operations that create controlled resources. */
   resourceBudgets: Array<{ resourceType: string; maxCreates: number }>;
   /**
-   * 全部用例共同依赖的真实运行环境能力（如已登录会话态文件）。
-   * 编译为 manifest 的 environment 能力声明，由 readiness 在执行前核实。
+   * 真实运行环境能力（如隔离账号、环境登记的已注册企业数据）。
+   * 编译为 manifest 的 environment 能力声明，由 readiness 在执行前核实；
+   * 未声明 requiredForCaseIds 时视为全部用例共同依赖，声明时只对所列用例生效，
+   * 避免单用例专属数据缺失把整批用例误判为 deferred。
    */
   environmentCapabilities?: Array<{
     id: string;
@@ -190,7 +204,13 @@ export interface FormalWebScriptSpec {
     pattern?: string;
     unavailableReason: string;
     unblockCondition: string;
+    requiredForCaseIds?: string[];
   }>;
+  /**
+   * 会话认证策略：`anonymous` 表示本请求全部用例以未登录会话运行（登录/注册链路），
+   * Runner 不得注入已捕获登录态；缺省 `default` 维持既有注入行为。
+   */
+  sessionAuthentication?: "anonymous" | "default";
   cases: FormalWebScriptSpecCase[];
 }
 
@@ -251,6 +271,7 @@ export function parseFormalWebScriptSpec(value: unknown): FormalWebScriptSpec {
     throw new Error("formal-web-script-spec-v1 resourceBudgets must contain safe resourceType and non-negative maxCreates.");
   }
   const environmentCapabilities = spec.environmentCapabilities ?? [];
+  const selectedCaseIdSet = new Set(spec.selectedCaseIds);
   if (!Array.isArray(environmentCapabilities)
     || environmentCapabilities.some((capability) =>
       !isNonEmptyString(capability?.id)
@@ -259,8 +280,16 @@ export function parseFormalWebScriptSpec(value: unknown): FormalWebScriptSpec {
       || (capability.pattern !== undefined && !isNonEmptyString(capability.pattern))
       || !isNonEmptyString(capability?.unavailableReason)
       || !isNonEmptyString(capability?.unblockCondition)
+      || (capability.requiredForCaseIds !== undefined
+        && (!Array.isArray(capability.requiredForCaseIds)
+          || capability.requiredForCaseIds.length === 0
+          || capability.requiredForCaseIds.some((caseId) => !selectedCaseIdSet.has(caseId))))
     ) || new Set(environmentCapabilities.map((capability) => capability.id)).size !== environmentCapabilities.length) {
-    throw new Error("formal-web-script-spec-v1 environmentCapabilities must be unique ids with TEST_* variables and explicit reasons.");
+    throw new Error("formal-web-script-spec-v1 environmentCapabilities must be unique ids with TEST_* variables, explicit reasons, and case scopes within the selected case set.");
+  }
+  if (spec.sessionAuthentication !== undefined
+    && !["anonymous", "default"].includes(spec.sessionAuthentication)) {
+    throw new Error("formal-web-script-spec-v1 sessionAuthentication must be anonymous or default.");
   }
   if (!Array.isArray(spec.cases) || spec.cases.length !== spec.selectedCaseIds.length) {
     throw new Error("formal-web-script-spec-v1 must provide exactly one case entry for every selected caseId.");
@@ -424,6 +453,7 @@ export function renderFormalWebScriptBundle(input: {
     requestId: spec.requestId,
     projectId: spec.projectId,
     environment: spec.environment,
+    ...(spec.sessionAuthentication ? { sessionAuthentication: spec.sessionAuthentication } : {}),
     buildEvidence: [{
       kind: "source_contract",
       path: relative(input.workspaceRoot, contractPath).split(sep).join("/"),
@@ -431,7 +461,7 @@ export function renderFormalWebScriptBundle(input: {
     }],
     capabilities: environmentCapabilities.map((capability) => ({
       id: capability.id,
-      requiredForCaseIds: [...spec.selectedCaseIds],
+      requiredForCaseIds: [...(capability.requiredForCaseIds ?? spec.selectedCaseIds)],
       source: {
         kind: "environment" as const,
         variable: capability.variable,
@@ -443,7 +473,9 @@ export function renderFormalWebScriptBundle(input: {
     cases: spec.cases.map((entry) => ({
       caseId: entry.caseId,
       title: entry.title,
-      requiredCapabilities: environmentCapabilities.map((capability) => capability.id),
+      requiredCapabilities: environmentCapabilities
+        .filter((capability) => (capability.requiredForCaseIds ?? spec.selectedCaseIds).includes(entry.caseId))
+        .map((capability) => capability.id),
       requiredResources: entry.requiredResources ?? [],
       producesResources: entry.producesResources ?? [],
       permissionProfile: entry.permissionProfile,
@@ -604,7 +636,14 @@ function renderAction(action: FormalWebAction): string {
     case "goto":
       return `await page.goto(${quote(action.path)});`;
     case "expect_role_visible":
-      return `await expect(page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} })).toBeVisible();`;
+      return `await expect(page.getByRole(${quote(action.role)}, { name: ${renderRoleName(action.name, action.nameRef)} })).toBeVisible(${renderExpectOptions(action.timeoutMs)});`;
+    case "expect_role_disabled":
+      return `await expect(page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} })).toBeDisabled(${renderExpectOptions(action.timeoutMs)});`;
+    case "expect_role_value_pattern":
+      return [
+        `await expect.poll(async () => new RegExp(${quote(action.pattern)}).test(await page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} }).inputValue()),`,
+        `  { ${renderPollOptions(action.timeoutMs, action.message)} }).toBe(true);`
+      ].join("");
     case "expect_role_text":
       return `await expect(page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} })).toHaveText(${quote(action.text)});`;
     case "expect_role_value":
@@ -614,7 +653,7 @@ function renderAction(action: FormalWebAction): string {
         ? `await expect(page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} })).toHaveText(${quote(action.text)});`
         : `await expect(page.getByText(${quote(action.text)}, { exact: false })).toBeVisible();`;
     case "expect_url":
-      return `await expect(page).toHaveURL(new RegExp(${quote(escapeRegex(action.path) + "(?:\\\\?.*)?$")}));`;
+      return `await expect(page).toHaveURL(new RegExp(${quote(escapeRegex(action.path) + "(?:\\\\?.*)?$")}), ${renderExpectOptions(action.timeoutMs)});`;
     case "fill_role":
       return `await page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} }).fill(${renderValue(action.value)});`;
     case "clear_role":
@@ -624,21 +663,21 @@ function renderAction(action: FormalWebAction): string {
     case "select_role_option":
       return `await page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} }).selectOption(${renderValue(action.value)});`;
     case "check_role":
-      return `await page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} }).check();`;
+      return `await page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} }).check(${action.force ? "{ force: true }" : ""});`;
     case "uncheck_role":
-      return `await page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} }).uncheck();`;
+      return `await page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} }).uncheck(${action.force ? "{ force: true }" : ""});`;
     case "set_files_label":
       return [
         `await runtime.reserveOperation("upload_synthetic_file", "upload_synthetic_file:declared-action");`,
-        `const operationOutcome = await captureWebOperationOutcome({ page, operation: "upload_synthetic_file", method: ${quote(action.response.method)}, path: ${quote(action.response.path)}, contractId: ${quote(action.response.contractId)}, timeoutMs: 10_000,`,
+        `const operationOutcomeFor${operationVariableSuffix(action.response.contractId)} = await captureWebOperationOutcome({ page, operation: "upload_synthetic_file", method: ${quote(action.response.method)}, path: ${quote(action.response.path)}, contractId: ${quote(action.response.contractId)}, timeoutMs: 10_000,`,
         `  trigger: async () => page.getByLabel(${quote(action.label)}).setInputFiles(${quote(action.asset.assetPath)}),`,
         `  parse: async (response) => ({ outcome: ${JSON.stringify(action.response.successStatusCodes)}.includes(response.status()) ? "succeeded" : "rejected", finality: "final" })`,
-        `}); observedResponseStatuses.set(${quote(action.response.contractId)}, operationOutcome.response?.status()); runtime.addOperationEvidence(operationOutcome.evidence);`
+        `}); observedResponseStatuses.set(${quote(action.response.contractId)}, operationOutcomeFor${operationVariableSuffix(action.response.contractId)}.response?.status()); runtime.addOperationEvidence(operationOutcomeFor${operationVariableSuffix(action.response.contractId)}.evidence);`
       ].join(" ");
     case "trial_click_role":
       return `await page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} }).click({ trial: true });`;
     case "click_read_only_role":
-      return `await page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} }).click();`;
+      return `await page.getByRole(${quote(action.role)}, { name: ${renderRoleName(action.name, action.nameRef)} }).click();`;
     case "click_read_only_text":
       // 受限兜底：目标交互元素（品类/开发方式卡片等）无 ARIA 角色与名称，
       // 按定位规范以唯一文本定位；exact 默认 true，合并文本节点（卡片名+描述）可声明 exact:false；
@@ -647,10 +686,10 @@ function renderAction(action: FormalWebAction): string {
     case "click_role":
       return [
         `await runtime.reserveOperation(${quote(action.operation)}, ${quote(`${action.operation}:declared-action`)});`,
-        `const operationOutcome = await captureWebOperationOutcome({ page, operation: ${quote(action.operation)}, method: ${quote(action.response.method)}, path: ${quote(action.response.path)}, contractId: ${quote(action.response.contractId)}, timeoutMs: 10_000,`,
+        `const operationOutcomeFor${operationVariableSuffix(action.response.contractId)} = await captureWebOperationOutcome({ page, operation: ${quote(action.operation)}, method: ${quote(action.response.method)}, path: ${quote(action.response.path)}, contractId: ${quote(action.response.contractId)}, timeoutMs: 10_000,`,
         `  trigger: async () => page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} }).click(),`,
         `  parse: async (response) => ({ outcome: ${JSON.stringify(action.response.successStatusCodes)}.includes(response.status()) ? "succeeded" : "rejected", finality: "final" })`,
-        `}); observedResponseStatuses.set(${quote(action.response.contractId)}, operationOutcome.response?.status()); runtime.addOperationEvidence(operationOutcome.evidence);`
+        `}); observedResponseStatuses.set(${quote(action.response.contractId)}, operationOutcomeFor${operationVariableSuffix(action.response.contractId)}.response?.status()); runtime.addOperationEvidence(operationOutcomeFor${operationVariableSuffix(action.response.contractId)}.evidence);`
       ].join(" ");
     case "begin_synthetic_create":
       return [
@@ -679,17 +718,20 @@ function renderAction(action: FormalWebAction): string {
 
 function renderOracleCheck(check: FormalWebOracleCheck): string {
   switch (check.kind) {
-    case "role_visible": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} })).toBeVisible();`;
-    case "role_hidden": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} })).toBeHidden();`;
-    case "role_text": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} })).toHaveText(${quote(check.text!)});`;
+    case "role_visible": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} })).toBeVisible(${renderExpectOptions(check.timeoutMs)});`;
+    case "role_hidden": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} })).toBeHidden(${renderExpectOptions(check.timeoutMs)});`;
+    // Element Plus 等组件库把原生复选框视觉隐藏：以「已挂载」观察控件存在性，
+    // 可见性由其包装标签承载（配套 check_role 的 force 声明）。
+    case "role_attached": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} })).toBeAttached(${renderExpectOptions(check.timeoutMs)});`;
+    case "role_text": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} })).toHaveText(${quote(check.text!)}${check.timeoutMs === undefined ? "" : `, { timeout: ${check.timeoutMs} }`});`;
     case "validation_message": return check.role && check.name
-      ? `await expect(page.getByRole(${quote(check.role)}, { name: ${quote(check.name)} })).toHaveText(${quote(check.text!)});`
-      : `await expect(page.getByText(${quote(check.text!)}, { exact: false })).toBeVisible();`;
+      ? `await expect(page.getByRole(${quote(check.role)}, { name: ${quote(check.name)} })).toHaveText(${quote(check.text!)}${check.timeoutMs === undefined ? "" : `, { timeout: ${check.timeoutMs} }`});`
+      : `await expect(page.getByText(${quote(check.text!)}, { exact: false })).toBeVisible(${renderExpectOptions(check.timeoutMs)});`;
     case "validation_message_absent": return check.role && check.name
-      ? `await expect(page.getByRole(${quote(check.role)}, { name: ${quote(check.name)} })).toBeHidden();`
-      : `await expect(page.getByText(${quote(check.text!)}, { exact: false })).toBeHidden();`;
-    case "role_value": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} })).toHaveValue(${renderValue(check.value!)});`;
-    case "url": return `await expect(page).toHaveURL(new RegExp(${quote(escapeRegex(check.path!) + "(?:\\\\?.*)?$")}));`;
+      ? `await expect(page.getByRole(${quote(check.role)}, { name: ${quote(check.name)} })).toBeHidden(${renderExpectOptions(check.timeoutMs)});`
+      : `await expect(page.getByText(${quote(check.text!)}, { exact: false })).toBeHidden(${renderExpectOptions(check.timeoutMs)});`;
+    case "role_value": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} })).toHaveValue(${renderValue(check.value!)}${check.timeoutMs === undefined ? "" : `, { timeout: ${check.timeoutMs} }`});`;
+    case "url": return `await expect(page).toHaveURL(new RegExp(${quote(escapeRegex(check.path!) + "(?:\\\\?.*)?$")}), ${renderExpectOptions(check.timeoutMs)});`;
     case "response_status": return `await expect(observedResponseStatuses.get(${quote(check.contractId!)}), ${quote(`missing response for ${check.contractId}`)}).toBeDefined(); await expect(${JSON.stringify(check.successStatusCodes!)}).toContain(observedResponseStatuses.get(${quote(check.contractId!)}));`;
   }
 }
@@ -698,6 +740,27 @@ function renderValue(value: WebValueRef): string {
   if (value.kind === "frozen_data") return quote(value.value);
   if (value.kind === "environment") return `requiredEnv(${quote(value.variable)})`;
   return `await runtime.resourceMetadata(${quote(value.resourceName)}, ${quote(value.key)})`;
+}
+
+function renderRoleName(name: string | undefined, nameRef: WebValueRef | undefined): string {
+  if (name !== undefined) return quote(name);
+  if (!nameRef) throw new Error("Role actions require a literal name or a nameRef.");
+  return renderValue(nameRef);
+}
+
+function operationVariableSuffix(contractId: string): string {
+  return contractId.replace(/[^A-Za-z0-9]/g, "_");
+}
+
+function renderExpectOptions(timeoutMs: number | undefined): string {
+  return timeoutMs === undefined ? "" : `{ timeout: ${timeoutMs} }`;
+}
+
+function renderPollOptions(timeoutMs: number | undefined, message: string | undefined): string {
+  const parts: string[] = [];
+  if (timeoutMs !== undefined) parts.push(`timeout: ${timeoutMs}`);
+  if (message !== undefined) parts.push(`message: ${quote(message)}`);
+  return parts.join(", ");
 }
 
 function validateCase(entry: unknown, seen: Set<string>): asserts entry is FormalWebScriptSpecCase {
@@ -851,8 +914,21 @@ function validateAction(
   }
   const value = action as Partial<FormalWebAction> & Record<string, unknown>;
   if (value.kind === "goto" && isSafeRoute(value.path)) return;
-  if (["expect_role_visible", "trial_click_role", "click_read_only_role", "clear_role", "blur_role", "check_role", "uncheck_role"].includes(value.kind ?? "")
+  if (value.kind === "expect_url" && isSafeRoute(value.path) && isOptionalTimeout(value.timeoutMs)) return;
+  if (value.kind === "expect_role_visible" && isNonEmptyString(value.role) && hasRoleNameRef(value)) return;
+  if (value.kind === "expect_role_disabled" && isNonEmptyString(value.role) && isNonEmptyString(value.name)
+    && isOptionalTimeout(value.timeoutMs)) return;
+  if (value.kind === "expect_role_value_pattern" && isNonEmptyString(value.role) && isNonEmptyString(value.name)
+    && isSafeInputPattern(value.pattern) && isOptionalTimeout(value.timeoutMs)
+    && (value.message === undefined || isNonEmptyString(value.message))) return;
+  if (["expect_role_text", "trial_click_role", "clear_role", "blur_role"].includes(value.kind ?? "")
     && isNonEmptyString(value.role) && isNonEmptyString(value.name)) return;
+  // Element Plus 等组件库把原生复选框视觉隐藏、以包装标签承载可见交互；
+  // force 声明用于这类隐藏原生控件的状态设置，仍走 check()/uncheck() 语义。
+  if (["check_role", "uncheck_role"].includes(value.kind ?? "")
+    && isNonEmptyString(value.role) && isNonEmptyString(value.name)
+    && (value.force === undefined || typeof value.force === "boolean")) return;
+  if (value.kind === "click_read_only_role" && isNonEmptyString(value.role) && hasRoleNameRef(value)) return;
   if (value.kind === "click_read_only_text" && isNonEmptyString(value.text)
     && (value.exact === undefined || typeof value.exact === "boolean")
     && !containsSensitiveLiteral(value.text)) return;
@@ -951,8 +1027,11 @@ function validateOracleCheck(caseId: string, check: unknown): void {
     throw new Error(`${caseId} contains an invalid oracle check.`);
   }
   const value = check as Partial<FormalWebOracleCheck>;
+  if (!isOptionalTimeout(value.timeoutMs)) {
+    throw new Error(`${caseId} oracle check timeoutMs must be an integer between 1000 and 600000.`);
+  }
   if (value.kind === "url" && isSafeRoute(value.path)) return;
-  if (["role_visible", "role_hidden"].includes(value.kind ?? "")
+  if (["role_visible", "role_hidden", "role_attached"].includes(value.kind ?? "")
     && isNonEmptyString(value.role) && isNonEmptyString(value.name)) return;
   if (value.kind === "role_text"
     && isNonEmptyString(value.role) && isNonEmptyString(value.name) && isNonEmptyString(value.text)) return;
@@ -1154,6 +1233,34 @@ function isSafeIdentifier(value: unknown): value is string {
 
 function isSafeRoute(value: unknown): value is string {
   return typeof value === "string" && /^\/[A-Za-z0-9._~/?=&%-]*$/u.test(value);
+}
+
+function isOptionalTimeout(value: unknown): value is number | undefined {
+  return value === undefined
+    || (Number.isInteger(value) && (value as number) >= 1_000 && (value as number) <= 600_000);
+}
+
+/** 人工一次性凭据（验证码）只允许以只读形态正则观察；禁止捕获分组与反引用，防止把输入值写进证据。 */
+function isSafeInputPattern(value: unknown): value is string {
+  if (!isNonEmptyString(value) || value.length > 128) return false;
+  if (/\((?!\?[:=!])/.test(value) || /\\[1-9]/.test(value)) return false;
+  try {
+    new RegExp(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 角色定位名要么是字面量 name，要么是环境引用 nameRef，二者恰居其一。 */
+function hasRoleNameRef(value: { name?: unknown; nameRef?: unknown }): boolean {
+  const hasName = isNonEmptyString(value.name);
+  const ref = value.nameRef;
+  const hasRef = !!ref && typeof ref === "object" && !Array.isArray(ref)
+    && ((ref as { kind?: unknown }).kind === "environment"
+      ? /^TEST_[A-Z0-9_]{2,80}$/u.test(String((ref as { variable?: unknown }).variable ?? ""))
+      : (ref as { kind?: unknown }).kind === "resource_metadata" && isWebValueRef(ref));
+  return hasName !== hasRef;
 }
 
 function isTestAssetPath(value: unknown): value is string {

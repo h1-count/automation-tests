@@ -35,6 +35,10 @@ export function validateFormalExecutionManifest(manifest: FormalExecutionManifes
   if (!manifest.requestId.trim() || !manifest.projectId.trim() || !manifest.environment.trim()) {
     throw new Error("Formal execution manifest requires request, project and environment.");
   }
+  if (manifest.sessionAuthentication !== undefined
+    && !["anonymous", "default"].includes(manifest.sessionAuthentication)) {
+    throw new Error("Formal execution manifest sessionAuthentication must be anonymous or default.");
+  }
   if (manifest.scope === "stable_suite") {
     if (Object.hasOwn(manifest, "suiteVersion")) {
       throw new Error(

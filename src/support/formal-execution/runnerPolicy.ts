@@ -28,6 +28,11 @@ export function parseFormalWorkerCount(value: string | undefined): FormalWorkerC
   throw new Error("PLAYWRIGHT_FORMAL_WORKERS must be 1 or 2.");
 }
 
+/**
+ * 需要在可见浏览器中由人工完成安全挑战（点选验证码、短信验证码输入）的用例：
+ * 声明了 send_test_otp 或 authenticate_test_account 操作证据的用例一律要求 --headed，
+ * 一次性凭据只由用户直接输入，不进入终端、Secret 或测试产物。
+ */
 export function interactiveOtpCaseIds(
   manifest: Pick<FormalExecutionManifest, "cases">,
   selectedCaseIds: readonly string[]
@@ -36,7 +41,7 @@ export function interactiveOtpCaseIds(
   return manifest.cases.flatMap((definition) =>
     selected.has(definition.caseId)
     && definition.operationEvidence?.some((evidence) =>
-      evidence.operation === "send_test_otp" && evidence.strategy === "ui_state"
+      evidence.operation === "send_test_otp" || evidence.operation === "authenticate_test_account"
     )
       ? [definition.caseId]
       : []

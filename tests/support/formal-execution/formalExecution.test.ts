@@ -1102,6 +1102,17 @@ test("manual OTP evidence requires a visible-browser execution path without an O
   }];
   assert.deepEqual(interactiveOtpCaseIds(definition, ["CASE-001"]), ["CASE-001"]);
   assert.deepEqual(interactiveOtpCaseIds(definition, ["CASE-002"]), []);
+
+  const authChallenge = manifest();
+  authChallenge.cases[0]!.requiredOperations = ["authenticate_test_account"];
+  authChallenge.cases[0]!.operationEvidence = [{
+    operation: "authenticate_test_account",
+    strategy: "response_contract",
+    responseContractId: "op-auth-login-v1",
+    finality: "final",
+    stableIdentityRequired: false
+  }];
+  assert.deepEqual(interactiveOtpCaseIds(authChallenge, ["CASE-001"]), ["CASE-001"]);
 });
 
 function workflowProjection(input: {

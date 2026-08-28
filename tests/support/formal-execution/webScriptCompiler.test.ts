@@ -366,3 +366,76 @@ test("formal Playwright discovery scopes a request to its candidate scripts", as
   assert.match(config, /\.local\/test-runs\/\$\{process\.env\.AUTOMATION_REQUEST_ID/);
   assert.match(config, /testDir: formalLifecycleEnabled \? "\." : "\.\/tests\/web"/);
 });
+
+test("Web compiler renders manual-challenge primitives with explicit long timeouts", () => {
+  const manual = spec();
+  manual.sessionAuthentication = "anonymous";
+  const loginCase = manual.cases.find((entry) => entry.caseId === "OPEN-LOGIN-003")!;
+  loginCase.steps = [{
+    coverageId: "OPEN-LOGIN-003#S01-R01",
+    stepId: "S01",
+    title: "人工挑战后等待登录落地",
+    oracle: {
+      oracleId: "ORACLE-OPEN-LOGIN-003-MANUAL",
+      observationKind: "dom",
+      authorities: [{ kind: "formal_user_decision", decisionType: "confirmed_testcase_set", subjectDigest: "b".repeat(64) }],
+      checks: [{ kind: "url", path: "/console/home", timeoutMs: 180_000 }]
+    },
+    actions: [
+      { kind: "expect_role_disabled", role: "button", name: "获取注册短信验证码", timeoutMs: 180_000 },
+      { kind: "expect_role_value_pattern", role: "textbox", name: "注册短信验证码", pattern: "^\\d{6}$", timeoutMs: 360_000, message: "请在可见浏览器中输入验证码" },
+      { kind: "expect_role_visible", role: "button", nameRef: { kind: "environment", variable: "TEST_OPEN_PLATFORM_CONSOLE_ACCOUNT_LABEL" } },
+      { kind: "expect_url", path: "/console/home", timeoutMs: 120_000 }
+    ]
+  }];
+  const bundle = renderFormalWebScriptBundle({
+    workspaceRoot: "/workspace/automation-tests",
+    requestId: manual.requestId,
+    spec: manual
+  });
+  assert.match(bundle.formalSpecSource, /toBeDisabled\(\{ timeout: 180000 \}\)/);
+  assert.match(bundle.formalSpecSource, /expect\.poll\(async \(\) => new RegExp\("\^\\\\d\{6\}\$"\)\.test\(await page\.getByRole\("textbox", \{ name: "注册短信验证码" \}\)\.inputValue\(\)\)/);
+  assert.match(bundle.formalSpecSource, /timeout: 360000, message: "请在可见浏览器中输入验证码"/);
+  assert.match(bundle.formalSpecSource, /name: requiredEnv\("TEST_OPEN_PLATFORM_CONSOLE_ACCOUNT_LABEL"\)/);
+  assert.match(bundle.formalSpecSource, /toHaveURL\(new RegExp\("\/console\/home[^"]*"\), \{ timeout: 120000 \}\)/);
+  assert.match(bundle.manifestSource, /"sessionAuthentication": "anonymous"/);
+  assert.doesNotMatch(bundle.formalSpecSource, /\.map\(|\.forEach\(|\bfor\s*\(/);
+});
+
+test("Web compiler rejects unsafe manual-challenge patterns and ambiguous role names", () => {
+  const invalid = spec();
+  const target = invalid.cases.find((entry) => entry.caseId === "OPEN-LOGIN-003")!;
+  target.steps = [{
+    coverageId: "OPEN-LOGIN-003#S01-R01",
+    stepId: "S01",
+    title: "非法人工原语",
+    oracle: {
+      oracleId: "ORACLE-OPEN-LOGIN-003-BAD",
+      observationKind: "dom",
+      authorities: [{ kind: "formal_user_decision", decisionType: "confirmed_testcase_set", subjectDigest: "b".repeat(64) }],
+      checks: [{ kind: "role_visible", role: "button", name: "获取验证码" }]
+    },
+    actions: [
+      { kind: "expect_role_value_pattern", role: "textbox", name: "验证码", pattern: "(\\d{6})" }
+    ]
+  }];
+  assert.throws(() => renderFormalWebScriptBundle({ workspaceRoot: "/workspace/automation-tests", requestId: invalid.requestId, spec: invalid }), /invalid or unauthorized/);
+
+  const ambiguous = spec();
+  const ambiguousCase = ambiguous.cases.find((entry) => entry.caseId === "OPEN-LOGIN-004")!;
+  ambiguousCase.steps = [{
+    coverageId: "OPEN-LOGIN-004#S01-R01",
+    stepId: "S01",
+    title: "名称与名称引用冲突",
+    oracle: {
+      oracleId: "ORACLE-OPEN-LOGIN-004-BAD",
+      observationKind: "dom",
+      authorities: [{ kind: "formal_user_decision", decisionType: "confirmed_testcase_set", subjectDigest: "b".repeat(64) }],
+      checks: [{ kind: "role_visible", role: "button", name: "退出" }]
+    },
+    actions: [
+      { kind: "expect_role_visible", role: "button", name: "账号", nameRef: { kind: "environment", variable: "TEST_CONSOLE_LABEL" } }
+    ]
+  }];
+  assert.throws(() => renderFormalWebScriptBundle({ workspaceRoot: "/workspace/automation-tests", requestId: ambiguous.requestId, spec: ambiguous }), /invalid or unauthorized/);
+});
