@@ -1,4 +1,4 @@
-version: 4
+version: 3
 knowledge_indexes:
   - id: open-platform-knowledge-index
     project: open-platform
@@ -49,7 +49,7 @@ knowledge_indexes:
 materials:
   - id: product-access-system-requirement
     type: requirement
-    path: "open-platform/需求/产品接入系统功能需求说明"
+    path: open-platform/需求/产品接入系统功能需求说明
     source: user-provided
     source_version: "1.2"
     applicable_projects:
@@ -697,3 +697,13 @@ materials:
       - ticket-system
     status: active
     notes: 开放平台+服务平台工单系统需求：工单填报入口、流转流程、工单标签、运维组、工单等级、状态流转机、服务平台工单管理（标签/运维组配置、我提交的/分配给我的、创建/重启/处理工单）、开放平台工单（新增/详情）、飞书通知；附 modao 原型与蓝湖链接；对应发版日志 20250930 工单波次。扫描启发式误判 platform-documentation 已纠正为 requirement。
+  - id: "30"
+    type: requirement
+    path: open-platform/需求/产品接入系统上线需求—3-d9c0b0-1.0
+    sha256: 389b417dc2e6b135b9b879b589eeee7095155e9d237f28e4ba1147de88d0381d
+    source: user-provided
+    source_version: unknown
+    applicable_projects: []
+    reference_scopes: []
+    status: active
+    notes: 上传摄取登记；适用项目与范围待确认。
