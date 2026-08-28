@@ -436,12 +436,44 @@ test("buildCostReport 渲染双口径且不含会话标识原文", () => {
   assert.match(report, /# 请求成本报告：web\/demo\/request-1/);
   assert.match(report, /candidate-generation \| 2 \|/);
   assert.match(report, /时间口径（按尝试）/);
-  assert.match(report, /rev-r1 \| 首轮\/unknown \| 1 \| 0 \| 6\.9 min/);
-  assert.match(report, /rev-r1 \| combined \| 6.9 min \| findings_present/);
+  assert.match(report, /rev-r1 \| 首轮\/unknown \| 1 \| 旧记录 \| 0 \| 6\.9 min/);
+  assert.match(report, /rev-r1 \| combined \| 旧记录 \| 6.9 min \| findings_present/);
+  assert.match(report, /reviewer 代理视图 \| 当前活跃 0 · 历史累计 1 · 故障重派 0/);
   assert.match(report, /\| 总计 \| — \| 45 \| 93420 \| 25818 \| 274448 \|/);
   assert.match(report, /assistant\/message/);
   assert.match(report, /人工等待（callback） \| 4\.5 min/);
   assert.match(report, /活动累计工作量 \|/);
   assert.match(report, /重复尝试 \| 1 次/);
   assert.ok(!report.includes("a1b2c3d4-e5f6"), "不得包含会话标识原文");
+});
+
+test("成本报告区分首审、定向复审、故障重派与当前活跃 reviewer", () => {
+  const timeline = deriveRequestTimeline([
+    event("ReviewBatchStarted", "2026-08-28T08:00:00.000Z", { batchId: "script-r1" }),
+    event("ReviewerDispatched", "2026-08-28T08:00:01.000Z", {
+      batchId: "script-r1", activityId: "script-review-quality", role: "script_quality",
+      dispatchKind: "initial", semanticRound: 0
+    }),
+    event("ReviewerSubmitted", "2026-08-28T08:00:20.000Z", {
+      batchId: "script-r1", role: "script_quality", conclusion: "findings_present"
+    }),
+    event("ReviewBatchStarted", "2026-08-28T08:01:00.000Z", {
+      batchId: "script-r2", scope: { baseBatchId: "script-r1", mode: "targeted" }
+    }),
+    event("ReviewerDispatched", "2026-08-28T08:01:01.000Z", {
+      batchId: "script-r2", activityId: "script-review-quality", role: "script_quality",
+      dispatchKind: "targeted_rereview", semanticRound: 1
+    }),
+    event("ReviewerDispatched", "2026-08-28T08:01:02.000Z", {
+      batchId: "script-r2", activityId: "script-review-safety", role: "execution_safety",
+      dispatchKind: "recovery_rebind", semanticRound: 1
+    })
+  ]);
+  assert.equal(timeline.reviewerOptimization.historicalReviewerDispatches, 3);
+  assert.equal(timeline.reviewerOptimization.activeReviewers, 2);
+  assert.equal(timeline.reviewerOptimization.recoveryRedispatches, 1);
+  assert.deepEqual(timeline.reviewerBatches.find((batch) => batch.batchId === "script-r2")?.dispatchKinds, {
+    targeted_rereview: 1,
+    recovery_rebind: 1
+  });
 });

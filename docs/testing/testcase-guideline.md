@@ -20,7 +20,7 @@
   - `cases.md`：唯一的 `testcase-v1-layered` 完整用例集（活资产，增量修订）；
   - `design.md`：`test-design-index-v1 / rule-design-ledger-v1 / case-relation-projection-v1` 设计台账——请求外来源登记、`REQ`、唯一 RULE 台账、缺口与风险、变更记录；
 - 运行档案：`.local/test-runs/<type>/<project>/<request>/`（被 Git 忽略）；
-  - `plan.md`：本次运行意图（测试类型、目标环境、数据策略、范围与用户排除项、请求内来源、最新 reviewer 结论与正式用户决定行）；
+  - `plan.md`：本次运行意图（测试类型、目标环境、数据策略、范围与用户排除项、请求内来源、最新 reviewer 结论引用与正式用户决定行）；
   - `workflow-history.ndjson`：该次运行 Activity、重试、等待、恢复与终态的唯一事实源。
 
 同一功能反复测试 = 对同一套件发起新运行并按需增量修订；回归 = 直接复用套件重跑。套件不按请求复制，Git 历史（commit + design.md 变更记录）即是套件版本与归档。
@@ -34,11 +34,11 @@
 1. 运行默认值：测试类型、目标环境、数据策略；
 2. 顶层测试范围和用户明确排除项；
 3. 本次运行实际读取的来源（请求内来源）；
-4. 最新 reviewer 结论和正式用户决定行。
+4. 最新 reviewer 结论引用和正式用户决定行。
 
 Activity、重试、等待、完整度和终态只来自 `workflow-history.ndjson` 与真实产物，不写入 `plan.md`。设计台账（REQ、RULE、来源登记、缺口与风险、变更记录）在套件 `design.md` 维护，不在运行档案中重复。不再维护平行覆盖矩阵、用例包目录或重复 caseId 清单。
 
-当前 `direct_execute` 和 `design_reconfirm` 不创建 `plan.md`：运行档案改用 `run-intent.json`（`run-intent-v1`），仅记录套件/版本、复用结论、环境、交付目标、选中 caseId、来源与边界摘要以及安全路径引用。`affected_rebuild` 同时保留本轮候选 `plan.md` 与运行意图；它的 plan 只能经候选预检原子发布。运行意图不是稳定设计资产，也不得记录业务需求正文、授权、账号、能力、数据台账、清理结论或执行结果。
+当前 `direct_execute` 和 `design_reconfirm` 不创建 `plan.md`：运行档案改用 `run-intent.json`（`run-intent-v1`），仅记录套件/版本、复用结论、环境、交付目标、选中 caseId、来源与边界摘要以及安全路径引用。`affected_rebuild` 同时保留本轮候选 `plan.md` 与运行意图；它的 plan 只能经候选预检原子发布。运行意图不是稳定设计资产，也不得记录业务需求正文、授权、账号、能力、数据台账、清理结论、执行结果或 reviewer 发现正文。
 
 ### 2.2 来源登记
 
@@ -46,7 +46,7 @@ Activity、重试、等待、完整度和终态只来自 `workflow-history.ndjso
 
 - 稳定 `SRC-<模块>-<序号>`；
 - 可点击路径、章节/页码/字段和用途；
-- 版本或 SHA-256。
+- SHA-256。
 
 确定跨运行稳定引用的来源晋升到套件 `design.md` 的来源登记区，成为套件资产的一部分；确需跨项目复用时才晋升到全局 manifest。来源摘要变化时，只失效引用该 `SRC` 的 `RULE` 及其 case；无法完整计算映射时才回退 `full_replan`。
 
@@ -188,6 +188,7 @@ v1 的 reviewer 收敛后、发起用例确认前，**必须**由登记的确定
 - **覆盖 lint**：no_write 用例操作列含业务写动词（创建/新增/提交/修改/编辑/更新/删除/上传/写入）为阻断 issue——需要写动作的步骤必须拆分为 ephemeral_cleanup 用例并受执行授权约束；RULE 台账「条件/输入」声明必填但关联参数化用例无空值数据行为 warning，交 reviewer/用户裁决。
 - **歧义前置**：plan.md 必须含「## 需求歧义与未定义预期」节（无歧义显式写「无」）；每条歧义登记冲突的 REQ 对、资料出处与建议默认口径，在 plan 确认回调一次裁决——不在评审后才升级为用户裁决。
 - **单轮复审收敛**：`review-batch-start` 只允许创建首轮批次；语义演进完成后只可执行 `review-rereview-start --from-batch <id>`。工具从冻结快照和角色语义摘要确定性派生批次、范围与复用证据；无语义变化不创建批次，未变化角色零模型调用。第 1 次复审后仍有语义发现必须以 `human_conflict` 进入业务裁决，不再启动 reviewer 模型。
+- **脚本评审收敛**：候选脚本的首审完成后，修订必须先汇总全部发现、一次批修并通过静态复验；只能执行 `script-review-rereview-start --from-batch <id>`。该入口以 compiler 的角色语义摘要识别零语义修订并复用证据，或按受影响 caseId 定向派发变化角色；不得以 SHA/定位/报告字段调整创建新的全量脚本 reviewer 批次。
 - **reviewer 定向读取图（`review-reading-map-v1`，2026-08-21 起）**：reviewer 派发前由 `npx tsx scripts/build-review-reading-map.ts --design <套件 design.md>` 从 RULE 台账 sourceRef 确定性生成读取图（必读区间并集、交叉对照配对、可选抽查区间）；定向复审批次加 `--only-rules <id,…>`。reviewer 的输入文件集与冻结快照 digest 不变，读取方式按图执行：必读区间精读，交叉对照配对两侧必须一起读（§3.2 红线 5 的机判化），与资料矛盾、边界存疑或核对相邻口径需要时回退读取来源全文。读取图只是读取指导，不进入评审语义输入，不写 workflow history。
 
 `case-review-resolution` 汇总 reviewer 发现项时必须逐项归类，并把分类写入发现项处置字段（固定取值：结构修复 / 语义演进 / 需用户裁决）：

@@ -959,7 +959,7 @@ test("core rules and session binding are provider-neutral", () => {
   const genericSession = taskManage.indexOf("process.env.TEST_WORKFLOW_HOST_SESSION_ID");
   assert.ok(genericSession >= 0, "generic host session environment variable must exist");
   assert.doesNotMatch(taskManage, /CODEX_THREAD_ID/);
-  assert.match(taskManage, /process\.env\.TEST_WORKFLOW_HOST_CONTEXT_ID/);
+  assert.doesNotMatch(taskManage, /TEST_WORKFLOW_HOST_CONTEXT_ID|--thread/);
 });
 
 test("Harness lifecycle adapter is a thin session-to-gate adapter", () => {

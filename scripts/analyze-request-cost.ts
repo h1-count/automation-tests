@@ -63,26 +63,6 @@ const timeline = deriveRequestTimeline(parseJsonl(await readFile(historyPath, "u
 const window = usageWindowMs(timeline, preSlackMin * 60_000, postSlackMin * 60_000);
 const degradations: string[] = [];
 
-// reviewer 绑定映射：runtime.json 的 agentTaskId → 会话目录名（裸 UUID）。
-type Binding = { agentTaskId: string; label: string };
-const bindings = new Map<string, string>();
-const runtimePath = resolve(".local", "test-task-runtime", ...request.split("/"), "runtime.json");
-if (existsSync(runtimePath)) {
-  try {
-    const runtime = JSON.parse(await readFile(runtimePath, "utf8")) as {
-      reviewerBindings?: Record<string, { agentTaskId?: unknown; batchId?: unknown; role?: unknown }>;
-    };
-    for (const binding of Object.values(runtime.reviewerBindings ?? {})) {
-      const agentTaskId = typeof binding.agentTaskId === "string" ? binding.agentTaskId : undefined;
-      const batchId = typeof binding.batchId === "string" ? binding.batchId : "";
-      const role = typeof binding.role === "string" ? binding.role : "";
-      if (agentTaskId) bindings.set(agentTaskId, `reviewer ${batchId}/${role}`);
-    }
-  } catch {
-    degradations.push("runtime.json 解析失败，reviewer 会话将显示为未映射。");
-  }
-}
-
 function decompressSession(file: string): string | null {
   if (file.endsWith(".zstd")) {
     const result = spawnSync("zstd", ["-dc", file], { maxBuffer: 1 << 30, encoding: "utf8" });
@@ -133,8 +113,7 @@ sessionUsages.sort((left, right) => (right.totals.inputTokens + right.totals.cac
   - (left.totals.inputTokens + left.totals.cacheReadTokens));
 const seenLabels = new Map<string, number>();
 const sessions = sessionUsages.map((session) => {
-  const bindingLabel = bindings.get(session.dirName);
-  const base = bindingLabel ?? "未映射会话";
+  const base = "宿主会话";
   const count = seenLabels.get(base) ?? 0;
   seenLabels.set(base, count + 1);
   return {

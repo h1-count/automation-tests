@@ -452,8 +452,10 @@ async function loadSourceRegistry(workspaceRoot: string): Promise<{
   const sourcesRoot = resolve(workspaceRoot, "sources");
   const manifestPath = resolve(sourcesRoot, "manifest.yaml");
   const manifest = parseYamlObject(await readFile(manifestPath, "utf8"), "sources/manifest.yaml");
-  if (manifest.version !== 3) {
-    throw new Error("Formal source authority requires sources/manifest.yaml version 3.");
+  // v4 保持 materials/knowledge_indexes 的引擎消费字段面不变（见 validateRegisteredSource），
+  // 守卫放宽为接受 3 与 4；v5 起仍需人工核对消费字段后再放行。
+  if (manifest.version !== 3 && manifest.version !== 4) {
+    throw new Error("Formal source authority requires sources/manifest.yaml version 3 or 4.");
   }
   return { sourcesRoot, manifest };
 }

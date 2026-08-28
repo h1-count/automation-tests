@@ -8,8 +8,6 @@ export const WORKFLOW_RUNTIME_SCHEMA_VERSION = "test-workflow-runtime-v1" as con
 
 export interface RuntimeSessionBinding {
   sessionId: string;
-  targetThreadId?: string;
-  boundAt: string;
   updatedAt: string;
 }
 
@@ -18,9 +16,6 @@ export interface RuntimeReviewerBinding {
   activityId: string;
   batchId: string;
   role: string;
-  agentTaskId: string;
-  status: "running" | "completed" | "failed";
-  startedAt: string;
   updatedAt: string;
 }
 
@@ -112,7 +107,7 @@ export class RuntimeLeaseStore {
     // any unsupported schema is rejected and durable history remains authoritative.
     const runtime = parsed as WorkflowRuntimeState;
     validateRuntime(runtime, this.requestId);
-    return runtime;
+    return normalizeRuntime(runtime);
   }
 
   async initialize(expectedRevision = 0): Promise<WorkflowRuntimeState> {
@@ -157,14 +152,12 @@ export class RuntimeLeaseStore {
     });
   }
 
-  async bindSession(sessionId: string, targetThreadId?: string): Promise<WorkflowRuntimeState> {
+  async bindSession(sessionId: string): Promise<WorkflowRuntimeState> {
     if (!sessionId.trim()) throw new Error("sessionId must not be empty.");
     return this.mutate((runtime) => {
       const timestamp = new Date().toISOString();
       runtime.sessionBinding = {
         sessionId: sessionId.trim(),
-        targetThreadId: targetThreadId?.trim() || undefined,
-        boundAt: runtime.sessionBinding?.boundAt ?? timestamp,
         updatedAt: timestamp
       };
     });
@@ -175,32 +168,21 @@ export class RuntimeLeaseStore {
     activityId: string;
     batchId: string;
     role: string;
-    agentTaskId: string;
-    status?: RuntimeReviewerBinding["status"];
   }): Promise<WorkflowRuntimeState> {
     validateRuntimeKey(input.bindingId, "bindingId");
     validateRuntimeKey(input.activityId, "activityId");
     validateRuntimeKey(input.batchId, "batchId");
     validateRuntimeKey(input.role, "role");
-    if (
-      typeof input.agentTaskId !== "string"
-      || !input.agentTaskId.trim()
-      || input.agentTaskId.length > 512
-    ) {
-      throw new Error("agentTaskId must be a non-empty runtime-only identifier.");
-    }
     return this.mutate((runtime) => {
-      assertReviewerTaskIsIsolated(runtime, input.agentTaskId);
       const timestamp = new Date().toISOString();
       const existing = runtime.reviewerBindings[input.bindingId];
       if (existing && (
         existing.activityId !== input.activityId
         || existing.batchId !== input.batchId
         || existing.role !== input.role
-        || existing.agentTaskId !== input.agentTaskId.trim()
       )) {
         throw new WorkflowRuntimeConflictError(
-          `Reviewer binding ${input.bindingId} already identifies another reviewer task.`
+          `Reviewer binding ${input.bindingId} already identifies another review activity.`
         );
       }
       runtime.reviewerBindings[input.bindingId] = {
@@ -208,25 +190,9 @@ export class RuntimeLeaseStore {
         activityId: input.activityId,
         batchId: input.batchId,
         role: input.role,
-        agentTaskId: input.agentTaskId.trim(),
-        status: input.status ?? existing?.status ?? "running",
-        startedAt: existing?.startedAt ?? timestamp,
         updatedAt: timestamp
       };
     });
-  }
-
-  async assertReviewerTaskIsIsolated(agentTaskId: string): Promise<void> {
-    if (
-      typeof agentTaskId !== "string"
-      || !agentTaskId.trim()
-      || agentTaskId.length > 512
-    ) {
-      throw new Error("agentTaskId must be a non-empty runtime-only identifier.");
-    }
-    const normalized = agentTaskId.trim();
-    const runtime = await this.read();
-    if (runtime) assertReviewerTaskIsIsolated(runtime, normalized);
   }
 
   async requireReviewerBinding(input: {
@@ -234,10 +200,7 @@ export class RuntimeLeaseStore {
     activityId: string;
     batchId: string;
     role: string;
-    agentTaskId: string;
-    status: RuntimeReviewerBinding["status"];
   }): Promise<RuntimeReviewerBinding> {
-    await this.assertReviewerTaskIsIsolated(input.agentTaskId);
     const binding = (await this.read())?.reviewerBindings[input.bindingId];
     if (!binding) {
       throw new WorkflowRuntimeConflictError(
@@ -248,11 +211,9 @@ export class RuntimeLeaseStore {
       binding.activityId !== input.activityId
       || binding.batchId !== input.batchId
       || binding.role !== input.role
-      || binding.agentTaskId !== input.agentTaskId.trim()
-      || binding.status !== input.status
     ) {
       throw new WorkflowRuntimeConflictError(
-        `Reviewer binding ${input.bindingId} does not match the isolated reviewer submission.`
+        `Reviewer binding ${input.bindingId} does not match the running review activity.`
       );
     }
     return binding;
@@ -711,21 +672,6 @@ export class RuntimeLeaseStore {
   }
 }
 
-function assertReviewerTaskIsIsolated(
-  runtime: WorkflowRuntimeState,
-  agentTaskId: string
-): void {
-  const normalized = agentTaskId.trim();
-  if (
-    runtime.sessionBinding?.sessionId === normalized
-    || runtime.sessionBinding?.targetThreadId === normalized
-  ) {
-    throw new WorkflowRuntimeConflictError(
-      "Reviewer task must be isolated from the bound primary session and thread."
-    );
-  }
-}
-
 function emptyRuntime(requestId: string): WorkflowRuntimeState {
   return {
     schemaVersion: WORKFLOW_RUNTIME_SCHEMA_VERSION,
@@ -735,6 +681,37 @@ function emptyRuntime(requestId: string): WorkflowRuntimeState {
     leases: {},
     inFlightOperations: {},
     stagingRefs: {}
+  };
+}
+
+/**
+ * Runtime snapshots are disposable and may contain fields from an earlier
+ * local tool version. Read them for recovery, but never carry host task data
+ * or retired reviewer metadata into a new write.
+ */
+function normalizeRuntime(runtime: WorkflowRuntimeState): WorkflowRuntimeState {
+  return {
+    ...runtime,
+    ...(runtime.sessionBinding
+      ? {
+          sessionBinding: {
+            sessionId: runtime.sessionBinding.sessionId,
+            updatedAt: runtime.sessionBinding.updatedAt
+          }
+        }
+      : {}),
+    reviewerBindings: Object.fromEntries(
+      Object.entries(runtime.reviewerBindings).map(([bindingId, binding]) => [
+        bindingId,
+        {
+          bindingId: binding.bindingId,
+          activityId: binding.activityId,
+          batchId: binding.batchId,
+          role: binding.role,
+          updatedAt: binding.updatedAt
+        }
+      ])
+    )
   };
 }
 

@@ -96,7 +96,7 @@ setup → 正式测试 → teardown → 报告
 
 ### 3.1.2 动态状态与产出
 
-运行级 `.local/test-runs/<type>/<project>/<request>/workflow-history.ndjson` 是唯一运行事实（本机运行档案，不进 Git；跨机器恢复等于从套件重新发起运行）。`.local/test-task-runtime/<type>/<project>/<test-request>/` 仅保存可丢弃的 claim token、lease、session/reviewer 工具绑定、暂存路径与在途操作引用；宿主长期任务只是外部实时状态，不写入 runtime、history 或计划。`WorkflowCompleted` 或 `WorkflowCancelled` 已持久化后，管理器自动删除该请求的 runtime；删除 runtime 不得改变 Activity、阶段、确认、阻塞或整体结果。运行档案保留至显式 `cleanup:local-runs` 清理，默认只接受终态请求；已明确指定的中断请求可用 `--include-incomplete --request <type/project/request>` 精确删除，批量清理仍须 `--include-incomplete --keep <当前请求>`，且有效租约或运行中的 reviewer 会阻断删除。运行档案中的 `plan.md` 只保存运行意图（范围、默认值、请求内来源、正式用户决定、reviewer 结论和发现项），不保存任务表、阶段进度、用例生成进度或 history head；稳定设计资产（cases.md/design.md）在套件目录维护。
+运行级 `.local/test-runs/<type>/<project>/<request>/workflow-history.ndjson` 是唯一运行事实（本机运行档案，不进 Git；跨机器恢复等于从套件重新发起运行）。`.local/test-task-runtime/<type>/<project>/<test-request>/` 仅保存可丢弃的 claim token、lease、停止钩子所需的 session 关联、活跃 reviewer 的逻辑绑定、暂存路径与在途操作引用；宿主长期任务只是外部实时状态，不写入 runtime、history 或计划。`WorkflowCompleted` 或 `WorkflowCancelled` 已持久化后，管理器自动删除该请求的 runtime；删除 runtime 不得改变 Activity、阶段、确认、阻塞或整体结果。运行档案保留至显式 `cleanup:local-runs` 清理，默认只接受终态请求；已明确指定的中断请求可用 `--include-incomplete --request <type/project/request>` 精确删除，批量清理仍须 `--include-incomplete --keep <当前请求>`，且有效租约或运行中的 reviewer 会阻断删除。运行档案中的 `plan.md` 只保存运行意图（范围、默认值、请求内来源、正式用户决定、reviewer 结论引用与发现摘要），不保存任务表、阶段进度、用例生成进度、history head 或 reviewer 发现正文；稳定设计资产（cases.md/design.md）在套件目录维护。
 
 `task:status` 从 history、工作流定义和真实产物即时渲染阶段、完整度、等待项与下一动作。v1 面向用户只投影“用例设计、脚本、执行、报告”四个阶段。该视图不新增确认，也不删除或改写底层 Activity、workflow state 和恢复事件。
 
@@ -104,7 +104,7 @@ setup → 正式测试 → teardown → 报告
 
 ### 3.1.3 阶段交接核验与中断恢复
 
-每次推进阶段、宣告阶段结论或请求确认前，必须完成“阶段交接核验”：history 派生的 Activity 事实、`plan.md` 中的正式决定与评审结论、真实产物及其摘要必须在适用对象、证据和下游资格上相互一致。任一项缺失或冲突时，不得推进受影响的 Activity；追加 `ArtifactDriftDetected` 或 `BlockerRaised`，按实际风险进入 `RECONCILING` 或 `BLOCKED`。最终复审仍由唯一可恢复入口完成关系同步、把安全文件引用写入对应 `ActivitySucceeded.outputRefs`、校验 `plan.md` 正式 reviewer 记录与发现项闭环；最终成功只能追加对应 reviewer/Activity 事件，不能直接写父任务状态。
+每次推进阶段、宣告阶段结论或请求确认前，必须完成“阶段交接核验”：history 派生的 Activity 事实、`plan.md` 中的正式决定与 reviewer 结论引用、真实产物及其摘要必须在适用对象、证据和下游资格上相互一致。任一项缺失或冲突时，不得推进受影响的 Activity；追加 `ArtifactDriftDetected` 或 `BlockerRaised`，按实际风险进入 `RECONCILING` 或 `BLOCKED`。最终复审仍由唯一可恢复入口完成关系同步、把安全文件引用写入对应 `ActivitySucceeded.outputRefs`、校验 reviewer 发现文件与结论引用闭环；最终成功只能追加对应 reviewer/Activity 事件，不能直接写父任务状态。
 
 ### 3.1.4 Durable Workflow、生命周期与恢复
 
@@ -120,7 +120,7 @@ setup → 正式测试 → teardown → 报告
 - 人工与阻塞：`CallbackRequested`、`CallbackResolved`、`PlanConfirmationCarriedForward`、`BlockerRaised`、`BlockerResolved`。
 - 评审：`ReviewBatchStarted`、`ReviewerDispatched`、`ReviewerModelCallStarted`、`ReviewerModelCallCompleted`、`ReviewerSubmitted`、`ReviewBatchInvalidated`。
 
-事件禁止保存密码、验证码、Cookie、Token、真实用户数据、宿主任务或会话 ID、reviewer/Agent 任务标识、claim token 与 lease。宿主 reviewer 绑定只写 `.local/test-task-runtime/`；history 只保存角色、Activity、输入摘要和派发/提交语义，`plan.md` 只保存设计索引、正式决定和评审结论。复用请求的 `direct_execute`/`design_reconfirm` 以 `run-intent-v1` 替代运行 plan，设计侧 LLM 调用数必须为零；affected 分支在初始化时固定 delta/full-replan 双分支，闭包结果只激活其中一个，定义图不得事后改写。`TestcaseReviewWorkbookPublished` 保存工作簿相对路径及摘要，不保存 Excel 正文。
+事件禁止保存密码、验证码、Cookie、Token、真实用户数据、宿主任务或会话 ID、reviewer/Agent 任务标识、claim token 与 lease。活跃 reviewer 的逻辑绑定只写 `.local/test-task-runtime/`；history 只保存角色、Activity、输入摘要、发现摘要和派发/提交语义，`plan.md` 只保存设计索引、正式决定与 reviewer 结论引用。复用请求的 `direct_execute`/`design_reconfirm` 以 `run-intent-v1` 替代运行 plan，设计侧 LLM 调用数必须为零；affected 分支在初始化时固定 delta/full-replan 双分支，闭包结果只激活其中一个，定义图不得事后改写。`TestcaseReviewWorkbookPublished` 保存工作簿相对路径及摘要，不保存 Excel 正文。
 
 #### Activity、工作流与测试结果
 
@@ -339,9 +339,19 @@ Web/H5 在 `build` Activity 内按“资格满足时的只读真实页面候选�
 
 批次输入由 manager 从 `plan.md`、定义声明的用例集和计划实际引用的受控/请求内来源读取并计算，调用方不得注入摘要。`ReviewBatchStarted` 固定 `inputDigestAlgorithm: review-input-digest-v1`。`review-input-snapshot-v1` 同时冻结完整原件、语义输入摘要、角色输入摘要和 `reviewer-input-packet-v1`：派发仅提供该角色的用例块、REQ/RULE 台账行、可定位的来源摘录及全局边界；完整原件只用于恢复与审计。history 只登记 packet 的 runtime 路径、摘要和字节数，不写正文。`review-batch-scope-v1` 冻结 epoch、语义演进轮次和角色 scope。reviewer 记录、workflow、工程和报告区块不进入语义输入。`combined` 读取语义触发的相关 case，包括因冲突或待确认而触发的 light case；`impact` 读取写入/strict case 及安全邻域。
 
-每次 `reviewer-dispatch` 和 `reviewer-submit` 都必须携带宿主创建真实只读子 Agent 后返回的 `agentTaskId`。该标识必须与主 session/thread 不同，只写 runtime；提交前 manager 必须验证同一 `batchId + activityId + role` 的 running binding。`ReviewerSubmitted` 只持久化不含标识的隔离证明版本。缺少绑定、runtime 丢失或绑定不一致时不写提交事件，gate 输出 rebind；durable 派发已成功但 runtime 写入失败时仍只保留一次派发。
+reviewer 的正式身份是同一 `batchId + activityId + role`；主 Agent 可按宿主并发能力动态创建、等待或取消子 Agent，但子 Agent ID 不进入任何 task CLI、workflow 事件、计划或 runtime。派发后 manager 创建该三元组的活跃逻辑绑定；模型调用与提交必须匹配该绑定和当前 running Activity。绑定缺失、runtime 丢失或字段不一致时不写提交事件，gate 输出 rebind；durable 派发已成功但 runtime 写入失败时仍只保留一次派发。提交成功后立即删除绑定，子任务的具体生命周期继续只由宿主管理。
 
 reviewer 批次固定 `reviewer-execution-policy-v1`：宿主在每次实际 LLM 调用前以专用 CLI 领取该 reviewer attempt 的调用配额并记录开始，完成后只记录结果摘要与耗时。每 attempt 默认一次主调用；仅首响结构无效、失效摘要已登记且剩余墙钟允许时可补充一次。自首个调用开始到提交不得超过 10 分钟；确定性 structural reviewer 不能登记模型调用。调用事件不保存模型正文、密钥或宿主任务标识；成本报告把 reviewer 模型墙钟、补充预算命中、未闭合调用和批次关键路径分开列示。
+
+#### 子代理派发与复审收敛
+
+主 Agent 是唯一调度者：子代理只处理其 `activityId + batchId + role` 的冻结分片，不能自行派生下一批。源码/契约侦查按路由、`coverageId` 或来源责任域分片，最多 3 个并发槽位；同一文件、staging 产物或汇总文档只能有一个写入责任人，超出槽位排队。静态门禁全部通过后，普通脚本仅派 `script_quality`，OTP、权限、设备、生产或结果未知的脚本并行加派 `execution_safety`。
+
+每个 reviewer 角色固定“首审 + 一次定向复审”两轮语义预算。`ReviewerDispatched` 记录 `dispatchKind`（`initial`、`submit_only`、`recovery_rebind`、`targeted_rereview`）和 `semanticRound`；已有可验证结果但提交窗口失效时只补交，不得再次模型调用或创建子代理。没有结果的宿主中断/绑定丢失只允许同批次一次 `recovery_rebind`，再次失败即 `reviewer_failure` blocker。多个角色发现先汇总为单一修订清单，完成一次原子修复和静态复验后，必须由 `script-review-rereview-start --from-batch <id>` 依据 `affectedRefs` 派生定向复审；通用 `review-batch-start` 不能创建后续脚本全量批次。
+
+来源定位、SHA 登记和报告字段等未改变 compiler role semantic digest 的修订只做确定性复验并复用证据，零模型调用。脚本候选、冻结输入或共享引擎在评审中漂移时追加 `shared_input_drift` blocker，不自动滚动创建新批次；冻结输入并完成静态验证后，才可使用剩余定向复审预算恢复。第二轮仍有语义发现时追加 `review_convergence_failed` blocker，并输出合并问题清单，不得继续创建 r3、r4 等 reviewer。
+
+`cost:analyze` 必须分别显示当前活跃 reviewer、历史累计派发和按 `dispatchKind` 的重派数量；UI 的历史子任务数量不得被描述为当前并发数。
 
 初审批次默认覆盖当前草案的完整适用范围；自动演进后的批次优先使用定向复审。每个定向 scope 必须绑定 `affectedRefs`、`baseBatchId`、复审原因、明确排除引用，以及所有未重审角色的可复用 `ReviewerSubmitted` 证据；缺少任一未重审角色证据时安全失败，不能把“未派发”视为沿用通过。只有变更跨业务域、触及共享规则邻域、数据/执行边界或安全影响，或者无法证明局部影响时，才扩大受影响引用或回到完整适用评审。
 

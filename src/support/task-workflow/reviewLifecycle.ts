@@ -13,8 +13,6 @@ import {
   type ReviewBatchScope
 } from "./reviewBatchScope.js";
 
-export const REVIEWER_ISOLATION_PROOF_VERSION = "reviewer-isolation-proof-v1" as const;
-
 export class ReviewInputDriftError extends Error {
   constructor(readonly batchId: string, readonly detail: string) {
     super(`Review batch ${batchId} input drifted; start a new batch. ${detail}`);
@@ -67,14 +65,6 @@ export async function verifyOrRepairReviewSnapshot(
 
 export function reviewerBindingId(activityId: string, role: string, batchId: string): string {
   return `${batchId}:${activityId}:${role}`;
-}
-
-/**
- * 修订分层 structural 档的确定性评审员哨兵标识：无宿主任务，按活动+批次唯一，
- * 天然满足评审任务隔离断言（不等于主会话标识）。
- */
-export function deterministicReviewerTaskId(activityId: string, batchId: string): string {
-  return `deterministic-reviewer/${batchId}/${activityId}`;
 }
 
 export function reviewBatchStarted(
@@ -252,7 +242,10 @@ export interface ReviewLifecycleEventInput {
   reviewerExecutionPolicy?: "reviewer-execution-policy-v1";
   /** Safe runtime references and aggregate sizes only; never packet content. */
   rolePackets?: SafeJsonValue;
-  isolationProofVersion?: typeof REVIEWER_ISOLATION_PROOF_VERSION;
+  /** Compiler-owned script semantics; metadata-only repairs keep this stable. */
+  scriptRoleInputDigests?: Record<string, string>;
+  dispatchKind?: "initial" | "submit_only" | "recovery_rebind" | "targeted_rereview";
+  semanticRound?: number;
   /** 修订分层 structural 档标记：该评审由确定性分级器收口，非隔离 LLM 评审员。 */
   deterministic?: { classifierDigest: string };
   /** 发现文件结论枚举（与 findingsDigest 一同构成 review-findings-evidence-v1 证据）。 */
@@ -323,7 +316,7 @@ export function prepareReviewLifecycleEvent(
     }
   }
   if (input.type === "ReviewerDispatched") {
-    const maxAttempts = projection.reviewPolicy?.maxAttemptsPerRole ?? 3;
+    const maxAttempts = projection.reviewPolicy?.maxAttemptsPerRole ?? 2;
     if (reviewerActivity && reviewerActivity.attempt >= maxAttempts) {
       throw new Error(
         `Reviewer ${reviewerActivity.id} exhausted its ${maxAttempts} allowed attempts.`
@@ -367,9 +360,9 @@ export function prepareReviewLifecycleEvent(
     ...(input.inputDigestAlgorithm ? { inputDigestAlgorithm: input.inputDigestAlgorithm } : {}),
     ...(input.reviewerExecutionPolicy ? { reviewerExecutionPolicy: input.reviewerExecutionPolicy } : {}),
     ...(input.rolePackets ? { rolePackets: input.rolePackets } : {}),
-    ...(input.isolationProofVersion
-      ? { isolationProofVersion: input.isolationProofVersion }
-      : {}),
+    ...(input.scriptRoleInputDigests ? { scriptRoleInputDigests: input.scriptRoleInputDigests } : {}),
+    ...(input.dispatchKind ? { dispatchKind: input.dispatchKind } : {}),
+    ...(input.semanticRound !== undefined ? { semanticRound: input.semanticRound } : {}),
     ...(input.conclusion ? { conclusion: input.conclusion } : {}),
     ...(input.deterministic
       ? {
@@ -391,11 +384,6 @@ export function prepareReviewLifecycleEvent(
     }
     if (!input.planEvidenceRef || !input.planEvidenceDigest) {
       throw new Error("Reviewer submission requires plan evidence path and digest.");
-    }
-    if (input.isolationProofVersion !== REVIEWER_ISOLATION_PROOF_VERSION) {
-      throw new Error(
-        `Reviewer submission requires ${REVIEWER_ISOLATION_PROOF_VERSION}.`
-      );
     }
   }
   return { payload, duplicate: false };

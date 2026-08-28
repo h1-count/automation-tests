@@ -218,6 +218,12 @@ export interface ReviewPolicy extends ReviewPolicyBase {
   schemaVersion: "review-policy-v1";
   mode: "deterministic_only" | "combined" | "combined_with_impact" | "risk_adaptive";
   maxConcurrentReviewers: 2;
+  /** Host-side source/contract reconnaissance is independently sharded. */
+  maxConcurrentScouts?: 3;
+  /** Initial review plus at most one evidence-scoped semantic rereview. */
+  maxSemanticReviewBatchesPerRole?: 2;
+  /** A lost worker may be replaced once within the same durable batch. */
+  maxRecoveryRedispatchesPerBatch?: 1;
   maxSemanticEvolutionCycles: number;
 }
 /** mode expresses business routing, not version compatibility. */

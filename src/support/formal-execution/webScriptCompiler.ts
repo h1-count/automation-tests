@@ -70,7 +70,12 @@ export type FormalWebAction =
       label: string;
       asset: FormalWebFileAsset;
       operation: "upload_synthetic_file";
-      response: { method: string; path: string; contractId: string; successStatusCodes: number[] };
+      response: FormalWebResponseCaptureContract;
+      /**
+       * 交互式上传触发点兜底：当可访问名称只存在于上传触发按钮（el-upload 的
+       * input[type=file] 无 label 关联）时，按表单作用域 + CSS 定位真实文件输入。
+       */
+      fileInput?: { formName: string; css: string };
     }
   | { kind: "trial_click_role"; role: string; name: string }
   | { kind: "click_read_only_role"; role: string; name?: string; nameRef?: WebValueRef }
@@ -80,7 +85,7 @@ export type FormalWebAction =
       role: string;
       name: string;
       operation: ExecutionOperationKind;
-      response: { method: string; path: string; contractId: string; successStatusCodes: number[] };
+      response: FormalWebResponseCaptureContract;
     }
   /** Reserve a local, authorized test-data creation intent before the UI submit. */
   | {
@@ -104,8 +109,23 @@ export type FormalWebAction =
       resourceName: string;
       role: string;
       name: string;
-      response: { method: string; path: string; contractId: string; successStatusCodes: number[] };
+      response: FormalWebResponseCaptureContract;
     };
+
+/**
+ * 浏览器响应捕获契约：captureTimeoutMs 覆盖人工挑战门控请求的等待窗口
+ * （默认 10s；点选人机验证后发出的登录/短信请求应给到人工预算 ≥180s）；
+ * stableIdentityJsonPaths 声明响应体中稳定资源标识的点分路径（如 "data.id"），
+ * tracked_residual 受控操作据此把 stableIdentity 观察为 observed。
+ */
+export interface FormalWebResponseCaptureContract {
+  method: string;
+  path: string;
+  contractId: string;
+  successStatusCodes: number[];
+  captureTimeoutMs?: number;
+  stableIdentityJsonPaths?: string[];
+}
 
 /** A file input can only use a Git-registered sample or this request's generated boundary file. */
 export type FormalWebFileAsset =
@@ -131,7 +151,7 @@ export type WebValueRef =
   | { kind: "resource_metadata"; resourceName: string; key: string };
 
 export interface FormalWebOracleCheck {
-  kind: "role_visible" | "role_hidden" | "role_attached" | "role_text" | "role_value" | "validation_message" | "validation_message_absent" | "url" | "response_status";
+  kind: "role_visible" | "role_hidden" | "role_attached" | "role_text" | "role_value" | "validation_message" | "validation_message_absent" | "url" | "response_status" | "field_error_visible" | "form_text_visible" | "role_attribute" | "field_required";
   role?: string;
   name?: string;
   text?: string;
@@ -141,6 +161,15 @@ export interface FormalWebOracleCheck {
   successStatusCodes?: number[];
   /** 可选的显式 expect 超时；缺省沿用 Playwright 默认，人工挑战后置断言用它延长等待窗口。 */
   timeoutMs?: number;
+  /** role 名称精确匹配：用于区分同名子串入口（如独立「注册」与合并「登录/注册」链接）。 */
+  exact?: boolean;
+  /** form_text_visible：按表单可访问名称作用域断言文本，规避双表单同时挂载的重复匹配。 */
+  formName?: string;
+  /** role_attribute：待断言的 ARIA/HTML 属性名与期望值（如 tab 的 aria-selected）。 */
+  attribute?: string;
+  attributeValue?: string;
+  /** role_visible 的运行时名称引用（环境变量等），用于账号入口等环境相关定位。 */
+  nameRef?: WebValueRef;
 }
 
 export interface FormalWebScriptSpecStep {
@@ -172,6 +201,11 @@ export interface FormalWebScriptSpecCase {
   /** Current-run test resources produced by this case. */
   producesResources?: FormalProducedResourceContract[];
   operationEvidence?: FormalOperationEvidenceDefinition[];
+  /**
+   * 凭据/一次性验证码输入用例声明 sensitive：Runner 关闭 trace/截图、归零重试，
+   * 防止 fill() 输入值随 DOM 快照持久化到产物树。
+   */
+  evidencePolicy?: "standard" | "sensitive";
   noWriteNetworkPolicy?: {
     reviewedReadOnlyRequests: Array<{ contractId: string; method: string; path: string }>;
     forbiddenMutationPaths: string[];
@@ -211,6 +245,12 @@ export interface FormalWebScriptSpec {
    * Runner 不得注入已捕获登录态；缺省 `default` 维持既有注入行为。
    */
   sessionAuthentication?: "anonymous" | "default";
+  /**
+   * 浏览器响应契约的冻结构建证据声明。click_role / cleanup_role 的 response.contractId
+   * 与 browser_response oracle 引用的 contractId 都必须在此登记（readiness 校验），
+   * 编译为 browser-response-contract-evidence-v1 证据并列入 manifest.buildEvidence。
+   */
+  browserResponseContracts?: Array<{ id: string; finality: "accepted" | "final" | "conditional" }>;
   cases: FormalWebScriptSpecCase[];
 }
 
@@ -290,6 +330,37 @@ export function parseFormalWebScriptSpec(value: unknown): FormalWebScriptSpec {
   if (spec.sessionAuthentication !== undefined
     && !["anonymous", "default"].includes(spec.sessionAuthentication)) {
     throw new Error("formal-web-script-spec-v1 sessionAuthentication must be anonymous or default.");
+  }
+  const browserResponseContracts = spec.browserResponseContracts ?? [];
+  const referencedContractIds = new Set<string>();
+  for (const entry of Array.isArray(spec.cases) ? spec.cases : []) {
+    for (const step of entry.steps) {
+      if (step.oracle.observationKind === "browser_response" && step.oracle.contractId) {
+        referencedContractIds.add(step.oracle.contractId);
+      }
+      for (const action of step.actions) {
+        if ("response" in action && action.response?.contractId) {
+          referencedContractIds.add(action.response.contractId);
+        }
+      }
+    }
+  }
+  if (!Array.isArray(browserResponseContracts)
+    || browserResponseContracts.some((contract) =>
+      !isNonEmptyString(contract?.id)
+      || !/^[A-Z][A-Z0-9._:-]{2,127}$/u.test(contract.id)
+      || !["accepted", "final", "conditional"].includes(contract?.finality ?? "")
+    ) || new Set(browserResponseContracts.map((contract) => contract.id)).size !== browserResponseContracts.length) {
+    throw new Error(
+      "formal-web-script-spec-v1 browserResponseContracts must be unique ids matching the contract id pattern with accepted/final/conditional finality."
+    );
+  }
+  const declaredContractIds = new Set(browserResponseContracts.map((contract) => contract.id));
+  const undeclared = [...referencedContractIds].filter((id) => !declaredContractIds.has(id));
+  if (undeclared.length) {
+    throw new Error(
+      `formal-web-script-spec-v1 references browser response contracts missing from browserResponseContracts: ${undeclared.join(", ")}.`
+    );
   }
   if (!Array.isArray(spec.cases) || spec.cases.length !== spec.selectedCaseIds.length) {
     throw new Error("formal-web-script-spec-v1 must provide exactly one case entry for every selected caseId.");
@@ -425,6 +496,17 @@ export function renderFormalWebScriptBundle(input: {
     })))
   }, null, 2)}\n`;
   const sourceContractDigest = sha256(sourceContract);
+  const browserResponsePath = resolve(candidateRoot, "contracts", "browser-response-contracts.json");
+  const browserResponseEvidence = (spec.browserResponseContracts ?? []).length ? `${JSON.stringify({
+    schemaVersion: "browser-response-contract-evidence-v1",
+    requestId: spec.requestId,
+    targetBuildDigest: spec.sourceContract.targetBuildDigest,
+    contracts: (spec.browserResponseContracts ?? []).map((contract) => ({
+      id: contract.id,
+      finality: contract.finality
+    }))
+  }, null, 2)}\n` : "";
+  const browserResponseDigest = browserResponseEvidence ? sha256(browserResponseEvidence) : "";
   const formalImport = relative(dirname(formalSpecPath), resolve(input.workspaceRoot, "src/support/formal-execution/formalCase.js"))
     .split(sep).join("/");
   const noWriteGuardImport = relative(dirname(formalSpecPath), resolve(input.workspaceRoot, "src/support/web/networkOperationGuard.js"))
@@ -441,6 +523,26 @@ export function renderFormalWebScriptBundle(input: {
     `import { formalExecutionManifest } from ${quote(relativeImport(manifestImport))};`,
     "",
     "function requiredEnv(name: string): string { const value = process.env[name]?.trim(); if (!value) throw new Error(`Missing required environment variable: ${name}`); return value; }",
+    // 稳定资源标识提取：按声明点分路径取第一个非空原始值（string/number/boolean），
+    // 供 tracked_residual 受控操作把 stableIdentity 观察为 observed。
+    ...(spec.cases.some((entry) => entry.steps.some((step) => step.actions.some((action) =>
+      (action.kind === "click_role" || action.kind === "set_files_label" || action.kind === "cleanup_role")
+      && (action.response.stableIdentityJsonPaths ?? []).length > 0)))
+      ? ["function extractStableIdentityByPaths(body: unknown, paths: string[]): string | undefined {"
+        , "  for (const path of paths) {"
+        , "    let cursor: unknown = body;"
+        , "    for (const segment of path.split(\".\")) {"
+        , "      if (cursor === null || typeof cursor !== \"object\") { cursor = undefined; break; }"
+        , "      cursor = (cursor as Record<string, unknown>)[segment];"
+        , "    }"
+        , "    if (cursor !== null && cursor !== undefined && (typeof cursor === \"string\" || typeof cursor === \"number\" || typeof cursor === \"boolean\")) {"
+        , "      const text = String(cursor).trim();"
+        , "      if (text) return text;"
+        , "    }"
+        , "  }"
+        , "  return undefined;"
+        , "}"]
+      : []),
     "",
     "configureFormalSuite(formalExecutionManifest);",
     "",
@@ -454,11 +556,18 @@ export function renderFormalWebScriptBundle(input: {
     projectId: spec.projectId,
     environment: spec.environment,
     ...(spec.sessionAuthentication ? { sessionAuthentication: spec.sessionAuthentication } : {}),
-    buildEvidence: [{
-      kind: "source_contract",
-      path: relative(input.workspaceRoot, contractPath).split(sep).join("/"),
-      sha256: sourceContractDigest
-    }],
+    buildEvidence: [
+      {
+        kind: "source_contract",
+        path: relative(input.workspaceRoot, contractPath).split(sep).join("/"),
+        sha256: sourceContractDigest
+      },
+      ...(browserResponseEvidence ? [{
+        kind: "browser_response_contract" as const,
+        path: relative(input.workspaceRoot, browserResponsePath).split(sep).join("/"),
+        sha256: browserResponseDigest
+      }] : [])
+    ],
     capabilities: environmentCapabilities.map((capability) => ({
       id: capability.id,
       requiredForCaseIds: [...(capability.requiredForCaseIds ?? spec.selectedCaseIds)],
@@ -495,6 +604,7 @@ export function renderFormalWebScriptBundle(input: {
           }
         : {}),
       ...(entry.operationEvidence ? { operationEvidence: entry.operationEvidence } : {}),
+      ...(entry.evidencePolicy ? { evidencePolicy: entry.evidencePolicy } : {}),
       dataWritePolicy: entry.dataWritePolicy,
       implementation: { status: "source_complete" },
       businessOracles: entry.steps.map((step) => ({
@@ -537,7 +647,11 @@ export function renderFormalWebScriptBundle(input: {
     { targetPath: relative(input.workspaceRoot, resolve(candidateRoot, "formal-web-script-spec.json")).split(sep).join("/"), content: `${JSON.stringify(spec, null, 2)}\n` },
     { targetPath: relative(input.workspaceRoot, formalSpecPath).split(sep).join("/"), content: formalSpecSource },
     { targetPath: relative(input.workspaceRoot, manifestPath).split(sep).join("/"), content: manifestSource },
-    { targetPath: relative(input.workspaceRoot, contractPath).split(sep).join("/"), content: sourceContract }
+    { targetPath: relative(input.workspaceRoot, contractPath).split(sep).join("/"), content: sourceContract },
+    ...(browserResponseEvidence ? [{
+      targetPath: relative(input.workspaceRoot, browserResponsePath).split(sep).join("/"),
+      content: browserResponseEvidence
+    }] : [])
   ];
   if (input.coveragePlan) {
     artifacts.push({
@@ -669,9 +783,9 @@ function renderAction(action: FormalWebAction): string {
     case "set_files_label":
       return [
         `await runtime.reserveOperation("upload_synthetic_file", "upload_synthetic_file:declared-action");`,
-        `const operationOutcomeFor${operationVariableSuffix(action.response.contractId)} = await captureWebOperationOutcome({ page, operation: "upload_synthetic_file", method: ${quote(action.response.method)}, path: ${quote(action.response.path)}, contractId: ${quote(action.response.contractId)}, timeoutMs: 10_000,`,
-        `  trigger: async () => page.getByLabel(${quote(action.label)}).setInputFiles(${quote(action.asset.assetPath)}),`,
-        `  parse: async (response) => ({ outcome: ${JSON.stringify(action.response.successStatusCodes)}.includes(response.status()) ? "succeeded" : "rejected", finality: "final" })`,
+        `const operationOutcomeFor${operationVariableSuffix(action.response.contractId)} = await captureWebOperationOutcome({ page, operation: "upload_synthetic_file", method: ${quote(action.response.method)}, path: ${quote(action.response.path)}, contractId: ${quote(action.response.contractId)}, timeoutMs: ${renderCaptureTimeout(action.response)},`,
+        `  trigger: async () => ${renderFileInputTrigger(action)}.setInputFiles(${quote(action.asset.assetPath)}),`,
+        `  parse: ${renderOutcomeParse(action.response)}`,
         `}); observedResponseStatuses.set(${quote(action.response.contractId)}, operationOutcomeFor${operationVariableSuffix(action.response.contractId)}.response?.status()); runtime.addOperationEvidence(operationOutcomeFor${operationVariableSuffix(action.response.contractId)}.evidence);`
       ].join(" ");
     case "trial_click_role":
@@ -686,9 +800,9 @@ function renderAction(action: FormalWebAction): string {
     case "click_role":
       return [
         `await runtime.reserveOperation(${quote(action.operation)}, ${quote(`${action.operation}:declared-action`)});`,
-        `const operationOutcomeFor${operationVariableSuffix(action.response.contractId)} = await captureWebOperationOutcome({ page, operation: ${quote(action.operation)}, method: ${quote(action.response.method)}, path: ${quote(action.response.path)}, contractId: ${quote(action.response.contractId)}, timeoutMs: 10_000,`,
+        `const operationOutcomeFor${operationVariableSuffix(action.response.contractId)} = await captureWebOperationOutcome({ page, operation: ${quote(action.operation)}, method: ${quote(action.response.method)}, path: ${quote(action.response.path)}, contractId: ${quote(action.response.contractId)}, timeoutMs: ${renderCaptureTimeout(action.response)},`,
         `  trigger: async () => page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} }).click(),`,
-        `  parse: async (response) => ({ outcome: ${JSON.stringify(action.response.successStatusCodes)}.includes(response.status()) ? "succeeded" : "rejected", finality: "final" })`,
+        `  parse: ${renderOutcomeParse(action.response)}`,
         `}); observedResponseStatuses.set(${quote(action.response.contractId)}, operationOutcomeFor${operationVariableSuffix(action.response.contractId)}.response?.status()); runtime.addOperationEvidence(operationOutcomeFor${operationVariableSuffix(action.response.contractId)}.evidence);`
       ].join(" ");
     case "begin_synthetic_create":
@@ -708,9 +822,9 @@ function renderAction(action: FormalWebAction): string {
     case "cleanup_role":
       return [
         `await runtime.reserveOperation("cleanup_test_resource", ${quote(`cleanup_test_resource:${action.resourceName}`)});`,
-        `const cleanupOutcome = await captureWebOperationOutcome({ page, operation: "cleanup_test_resource", method: ${quote(action.response.method)}, path: ${quote(action.response.path)}, contractId: ${quote(action.response.contractId)}, timeoutMs: 10_000,`,
+        `const cleanupOutcome = await captureWebOperationOutcome({ page, operation: "cleanup_test_resource", method: ${quote(action.response.method)}, path: ${quote(action.response.path)}, contractId: ${quote(action.response.contractId)}, timeoutMs: ${renderCaptureTimeout(action.response)},`,
         `  trigger: async () => page.getByRole(${quote(action.role)}, { name: ${quote(action.name)} }).click(),`,
-        `  parse: async (response) => ({ outcome: ${JSON.stringify(action.response.successStatusCodes)}.includes(response.status()) ? "succeeded" : "rejected", finality: "final" })`,
+        `  parse: ${renderOutcomeParse(action.response)}`,
         `}); observedResponseStatuses.set(${quote(action.response.contractId)}, cleanupOutcome.response?.status()); runtime.addOperationEvidence(cleanupOutcome.evidence); if (cleanupOutcome.evidence.outcome !== "succeeded") { await runtime.markResourceDirty(${quote(action.resourceName)}, ${quote(`UI cleanup was not confirmed for ${action.resourceName}.`)}); throw new Error(${quote(`UI cleanup was not confirmed for ${action.resourceName}.`)}); } await runtime.restoreSyntheticResource(${quote(action.resourceName)}, ${quote(`UI cleanup verified for ${action.resourceName}.`)});`
       ].join(" ");
   }
@@ -718,12 +832,21 @@ function renderAction(action: FormalWebAction): string {
 
 function renderOracleCheck(check: FormalWebOracleCheck): string {
   switch (check.kind) {
-    case "role_visible": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} })).toBeVisible(${renderExpectOptions(check.timeoutMs)});`;
-    case "role_hidden": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} })).toBeHidden(${renderExpectOptions(check.timeoutMs)});`;
+    case "role_visible": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${renderRoleName(check.name, check.nameRef)}${renderExactFlag(check)} })).toBeVisible(${renderExpectOptions(check.timeoutMs)});`;
+    case "role_hidden": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)}${renderExactFlag(check)} })).toBeHidden(${renderExpectOptions(check.timeoutMs)});`;
     // Element Plus 等组件库把原生复选框视觉隐藏：以「已挂载」观察控件存在性，
     // 可见性由其包装标签承载（配套 check_role 的 force 声明）。
-    case "role_attached": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} })).toBeAttached(${renderExpectOptions(check.timeoutMs)});`;
-    case "role_text": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} })).toHaveText(${quote(check.text!)}${check.timeoutMs === undefined ? "" : `, { timeout: ${check.timeoutMs} }`});`;
+    case "role_attached": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)}${renderExactFlag(check)} })).toBeAttached(${renderExpectOptions(check.timeoutMs)});`;
+    case "role_text": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)}${renderExactFlag(check)} })).toHaveText(${quote(check.text!)}${check.timeoutMs === undefined ? "" : `, { timeout: ${check.timeoutMs} }`});`;
+    // 字段级错误提示存在性（中性断言）：在字段所属 form-item 作用域内断言错误元素可见，
+    // 不绑定具体文案，覆盖用例声明「仅断言提示存在」的中性行。
+    case "field_error_visible": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} }).locator("xpath=ancestor::div[contains(concat(\" \", normalize-space(@class), \" \"), \"ep-form-item \")][1]").locator(${quote(".ep-form-item__error")})).toBeVisible(${renderExpectOptions(check.timeoutMs)});`;
+    // 表单作用域文本断言：登录/注册双表单同时挂载时避免 getByText 严格模式重复匹配。
+    case "form_text_visible": return `await expect(page.getByRole("form", { name: ${quote(check.formName!)} }).getByText(${quote(check.text!)}, { exact: false }).first()).toBeVisible(${renderExpectOptions(check.timeoutMs)});`;
+    // 角色属性断言：如 tab 的 aria-selected=true（区分「进入注册页」与「落在登录 tab」）。
+    case "role_attribute": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)}${renderExactFlag(check)} })).toHaveAttribute(${quote(check.attribute!)}, ${quote(check.attributeValue!)}${check.timeoutMs === undefined ? "" : `, { timeout: ${check.timeoutMs} }`});`;
+    // 字段必填态：Element Plus 在含 required 规则的 form-item 根上追加 is-required 类。
+    case "field_required": return `await expect(page.getByRole(${quote(check.role!)}, { name: ${quote(check.name!)} }).locator("xpath=ancestor::div[contains(concat(\" \", normalize-space(@class), \" \"), \"ep-form-item \")][1]")).toHaveClass(/(^|\\s)is-required(\\s|$)/${check.timeoutMs === undefined ? "" : `, { timeout: ${check.timeoutMs} }`});`;
     case "validation_message": return check.role && check.name
       ? `await expect(page.getByRole(${quote(check.role)}, { name: ${quote(check.name)} })).toHaveText(${quote(check.text!)}${check.timeoutMs === undefined ? "" : `, { timeout: ${check.timeoutMs} }`});`
       : `await expect(page.getByText(${quote(check.text!)}, { exact: false })).toBeVisible(${renderExpectOptions(check.timeoutMs)});`;
@@ -748,8 +871,60 @@ function renderRoleName(name: string | undefined, nameRef: WebValueRef | undefin
   return renderValue(nameRef);
 }
 
+function renderExactFlag(check: FormalWebOracleCheck): string {
+  return check.exact === true ? ", exact: true" : "";
+}
+
+function renderCaptureTimeout(response: FormalWebResponseCaptureContract): string {
+  return String(response.captureTimeoutMs ?? 10_000);
+}
+
+function renderFileInputTrigger(action: { label: string; fileInput?: { formName: string; css: string } }): string {
+  // 默认按可访问名称定位；当上传触发点只有按钮承载 ARIA 名称（el-upload 的
+  // 原生 input[type=file] 无 label 关联）时，按表单作用域 + CSS 锁定真实文件输入。
+  if (action.fileInput) {
+    return `page.getByRole("form", { name: ${quote(action.fileInput.formName)} }).locator(${quote(action.fileInput.css)})`;
+  }
+  return `page.getByLabel(${quote(action.label)})`;
+}
+
+function renderOutcomeParse(response: FormalWebResponseCaptureContract): string {
+  const base = `async (response) => ({ outcome: ${JSON.stringify(response.successStatusCodes)}.includes(response.status()) ? "succeeded" : "rejected", finality: "final" })`;
+  const paths = response.stableIdentityJsonPaths ?? [];
+  if (!paths.length) return base;
+  // 从响应体按声明路径提取稳定资源标识：不匹配任何路径时保持 undefined，
+  // 由结构化操作证据完成门将 stableIdentityRequired 的缺失暴露为失败。
+  return [
+    "async (response) => {",
+    `  const outcome = ${JSON.stringify(response.successStatusCodes)}.includes(response.status()) ? "succeeded" : "rejected";`,
+    "  let stableResourceId;",
+    "  try { const body = await response.json();",
+    `    stableResourceId = extractStableIdentityByPaths(body, ${JSON.stringify(paths)});`,
+    "  } catch {}",
+    '  return { outcome, finality: "final", stableResourceId };',
+    "}"
+  ].join(" ");
+}
+
 function operationVariableSuffix(contractId: string): string {
   return contractId.replace(/[^A-Za-z0-9]/g, "_");
+}
+
+function validateResponseCaptureContract(response: unknown): void {
+  if (!response || typeof response !== "object" || Array.isArray(response)) {
+    throw new Error("controlled-action response must be a capture contract object.");
+  }
+  const value = response as Partial<FormalWebResponseCaptureContract>;
+  if (value.captureTimeoutMs !== undefined
+    && (!Number.isInteger(value.captureTimeoutMs) || value.captureTimeoutMs < 1000 || value.captureTimeoutMs > 600_000)) {
+    throw new Error(`${value.contractId} captureTimeoutMs must be an integer between 1000 and 600000.`);
+  }
+  const paths = value.stableIdentityJsonPaths;
+  if (paths !== undefined
+    && (!Array.isArray(paths) || !paths.length
+      || paths.some((item) => typeof item !== "string" || !/^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$/.test(item)))) {
+    throw new Error(`${value.contractId} stableIdentityJsonPaths must be non-empty dotted paths.`);
+  }
 }
 
 function renderExpectOptions(timeoutMs: number | undefined): string {
@@ -778,6 +953,9 @@ function validateCase(entry: unknown, seen: Set<string>): asserts entry is Forma
   if (!Array.isArray(value.requiredOperations)
     || value.requiredOperations.some((operation) => !executionOperationKinds.includes(operation))) {
     throw new Error(`${value.caseId} contains an unsupported required operation.`);
+  }
+  if (value.evidencePolicy !== undefined && !["standard", "sensitive"].includes(value.evidencePolicy)) {
+    throw new Error(`${value.caseId} evidencePolicy must be standard or sensitive.`);
   }
   const requiredResources = value.requiredResources ?? [];
   if (!Array.isArray(requiredResources) || requiredResources.some((name) => !isSafeIdentifier(name))
@@ -943,7 +1121,10 @@ function validateAction(
   if (value.kind === "set_files_label" && isNonEmptyString(value.label)
     && isFormalWebFileAsset(value.asset)
     && value.operation === "upload_synthetic_file" && operations.includes(value.operation)
-    && isResponseContract(value.response)) {
+    && isResponseContract(value.response)
+    && (value.fileInput === undefined
+      || (isNonEmptyString(value.fileInput.formName) && isNonEmptyString(value.fileInput.css)
+        && /^[a-zA-Z][a-zA-Z0-9*(?:\[\])"'= .#:_,>-]*$/.test(value.fileInput.css)))) {
     const response = value.response;
     if (evidence.some((item) => item.operation === value.operation
       && item.responseContractId === response.contractId)) return;
@@ -1140,13 +1321,20 @@ function isWebValueRef(value: unknown): value is WebValueRef {
     && typeof ref.value === "string" && ref.value.length <= 512 && !containsSensitiveLiteral(ref.value);
 }
 
-function isResponseContract(value: unknown): value is { method: string; path: string; contractId: string; successStatusCodes: number[] } {
+function isResponseContract(value: unknown): value is FormalWebResponseCaptureContract {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const contract = value as { method?: unknown; path?: unknown; contractId?: unknown; successStatusCodes?: unknown };
-  return typeof contract.method === "string" && /^[A-Z]{3,7}$/u.test(contract.method)
+  const base = typeof contract.method === "string" && /^[A-Z]{3,7}$/u.test(contract.method)
     && isSafeRoute(contract.path) && typeof contract.contractId === "string" && /^[A-Z][A-Z0-9._:-]{2,127}$/u.test(contract.contractId)
     && Array.isArray(contract.successStatusCodes) && contract.successStatusCodes.length > 0
     && contract.successStatusCodes.every((status) => Number.isInteger(status) && status >= 200 && status <= 299);
+  if (!base) return false;
+  try {
+    validateResponseCaptureContract(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isNoWriteNetworkPolicy(value: unknown): value is NonNullable<FormalWebScriptSpecCase["noWriteNetworkPolicy"]> {

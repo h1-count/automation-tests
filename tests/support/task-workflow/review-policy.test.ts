@@ -22,6 +22,10 @@ test("review policy creates one current v1 policy for a no-write request", () =>
   assert.equal(policy.schemaVersion, "review-policy-v1");
   assert.equal(policy.mode, "deterministic_only");
   assert.deepEqual(policy.requiredRoles, []);
+  assert.equal(policy.maxConcurrentScouts, 3);
+  assert.equal(policy.maxSemanticReviewBatchesPerRole, 2);
+  assert.equal(policy.maxRecoveryRedispatchesPerBatch, 1);
+  assert.equal(policy.maxAttemptsPerRole, 2);
   validateReviewPolicy(policy);
 });
 

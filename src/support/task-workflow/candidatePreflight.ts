@@ -129,10 +129,19 @@ export function parseCandidatePlanSourceLinks(plan: string): CandidatePlanSource
   const rows = markdownTableRows(markdownSection(plan, "## 请求内来源"));
   const header = rows.find((row) => row.includes("来源 ID") && row.includes("路径"));
   const rangeIndex = header?.indexOf("事实范围") ?? -1;
-  return rows.filter((row) => /^SRC-[A-Z0-9-]+$/u.test(cell(row[0]))).flatMap((row) =>
-    [...(row[1] ?? "").matchAll(/\[[^\]]+\]\(([^)]+)\)/gu)].map((match) => ({
-      sourceId: cell(row[0]), path: match[1]!.trim(), factRange: rangeIndex >= 0 ? cell(row[rangeIndex]) : ""
-    })).filter((link) => Boolean(link.path)));
+  return rows.filter((row) => /^SRC-[A-Z0-9-]+$/u.test(cell(row[0]))).flatMap((row) => {
+    // A legacy source registration can contain a primary readable artifact plus
+    // screenshots or supporting files under one immutable source ID.  Fact
+    // ranges have one coordinate space, so preflight must use exactly the
+    // first linked artifact as that source's fact anchor.  The remaining links
+    // remain visible in the ledger, but are not silently concatenated into an
+    // incompatible L/P coordinate space.
+    const match = [...(row[1] ?? "").matchAll(/\[[^\]]+\]\(([^)]+)\)/gu)][0];
+    if (!match?.[1]?.trim()) return [];
+    return [{
+      sourceId: cell(row[0]), path: match[1].trim(), factRange: rangeIndex >= 0 ? cell(row[rangeIndex]) : ""
+    }];
+  });
 }
 
 function parseFactRanges(value: string, kind: CandidateSourceUnitKind): SourceRange[] | undefined {

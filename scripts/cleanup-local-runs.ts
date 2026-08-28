@@ -204,7 +204,7 @@ function runtimeInFlightReason(requestPath: string): string | undefined {
     return "an Activity lease is still valid";
   }
   const reviewers = asRecords(runtime.reviewerBindings);
-  if (Object.values(reviewers).some((binding) => binding.status === "running")) {
+  if (Object.keys(reviewers).length > 0) {
     return "a reviewer binding is still running";
   }
   return undefined;

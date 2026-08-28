@@ -166,14 +166,18 @@ export function candidateCompilerManifest(spec: CandidateCompilerSpec, plan: str
   const specByClause = new Map(spec.clauses.map((item) => [item.clauseId, item]));
   const casesByRule = new Map(parseRuleCaseRecords(plan).map((item) => [item.id, [...item.caseIds].sort()]));
   const sourcesByRule = new Map(parseRuleLedger(plan).map((item) => [item.ruleId, item.sourceRefs]));
-  const unseen = new Set([...casesByRule.keys()]); const groups: string[][] = [];
-  while (unseen.size) {
-    const seed = [...unseen].sort()[0]!; const group = new Set([seed]); const shared = new Set(casesByRule.get(seed) ?? []); unseen.delete(seed); let changed = true;
-    while (changed) { changed = false; for (const ruleId of [...unseen]) if ((casesByRule.get(ruleId) ?? []).some((caseId) => shared.has(caseId))) {
-      group.add(ruleId); unseen.delete(ruleId); (casesByRule.get(ruleId) ?? []).forEach((caseId) => shared.add(caseId)); changed = true;
-    }}
-    groups.push([...group].sort());
+  // A case-only connected component turns a suite with one RULE per case into
+  // one model activity per case. Keep each stable case-prefix domain together
+  // (OPEN-LOGIN, OPEN-REG, ...); multi-domain rules stay isolated.
+  const grouped = new Map<string, string[]>();
+  for (const ruleId of [...casesByRule.keys()].sort()) {
+    const prefixes = [...new Set((casesByRule.get(ruleId) ?? []).map((caseId) => casePrefix([caseId])))];
+    const key = prefixes.length === 1 ? `domain:${prefixes[0]}` : `rule:${ruleId}`;
+    grouped.set(key, [...(grouped.get(key) ?? []), ruleId]);
   }
+  const groups = [...grouped.values()].map((ruleIds) => ruleIds.sort())
+    .sort((left, right) => casePrefix([...new Set(left.flatMap((ruleId) => casesByRule.get(ruleId) ?? []))])
+      .localeCompare(casePrefix([...new Set(right.flatMap((ruleId) => casesByRule.get(ruleId) ?? []))])));
   const modules = groups.map((ruleIds): CandidateFragmentModule => {
     const caseIds = [...new Set(ruleIds.flatMap((ruleId) => casesByRule.get(ruleId) ?? []))].sort();
     const localClauses = clauses.filter((clause) => ruleIds.includes(clause.ruleId));

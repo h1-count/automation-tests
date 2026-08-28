@@ -54,6 +54,8 @@ export type ReviewerSpan = {
   endedAt: string;
   seconds: number;
   conclusion: string;
+  dispatchKind?: "initial" | "submit_only" | "recovery_rebind" | "targeted_rereview";
+  semanticRound?: number;
 };
 
 export type ReviewerModelCallTiming = {
@@ -84,6 +86,7 @@ export type ReviewerBatchTiming = {
   budgetHits: number;
   unclosedCalls: number;
   roleModelSeconds: Record<string, number>;
+  dispatchKinds?: Record<string, number>;
 };
 
 export type ReviewerOptimizationTiming = {
@@ -92,6 +95,9 @@ export type ReviewerOptimizationTiming = {
   fullRereviewFallbacks: number;
   humanConflictEscalations: number;
   criticalPathSeconds: number;
+  activeReviewers: number;
+  historicalReviewerDispatches: number;
+  recoveryRedispatches: number;
 };
 
 export type CandidateGenerationTiming = {
@@ -218,7 +224,11 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
     retryIdle: number;
     attemptDetails: ActivityAttemptCost[];
   }>();
-  const openDispatches = new Map<string, string[]>();
+  const openDispatches = new Map<string, Array<{
+    occurredAt: string;
+    dispatchKind?: ReviewerSpan["dispatchKind"];
+    semanticRound?: number;
+  }>>();
   const openCallbacks = new Map<string, string>();
   const reviewerSpans: ReviewerSpan[] = [];
   const reviewerModelCalls: ReviewerModelCallTiming[] = [];
@@ -233,6 +243,7 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
   }>();
   const reviewerDispatchActivities = new Map<string, string[]>();
   const reviewerRoles = new Map<string, string>();
+  const reviewerDispatchKinds = new Map<string, Map<string, number>>();
   const deterministicFragments = new Set<string>();
   let deterministicCaseCount = 0;
   let modelCaseCount = 0;
@@ -405,9 +416,22 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
         const role = asString(payload.role) ?? "";
         if (!occurredAt || !batchId) break;
         const key = `${batchId}::${role}`;
+        const dispatchKind = ["initial", "submit_only", "recovery_rebind", "targeted_rereview"].includes(String(payload.dispatchKind))
+          ? payload.dispatchKind as ReviewerSpan["dispatchKind"]
+          : undefined;
+        const semanticRound = asNumber(payload.semanticRound);
         const queue = openDispatches.get(key) ?? [];
-        queue.push(occurredAt);
+        queue.push({
+          occurredAt,
+          ...(dispatchKind ? { dispatchKind } : {}),
+          ...(Number.isInteger(semanticRound) ? { semanticRound } : {})
+        });
         openDispatches.set(key, queue);
+        if (dispatchKind) {
+          const counts = reviewerDispatchKinds.get(batchId) ?? new Map<string, number>();
+          counts.set(dispatchKind, (counts.get(dispatchKind) ?? 0) + 1);
+          reviewerDispatchKinds.set(batchId, counts);
+        }
         const activityId = asString(payload.activityId);
         if (activityId) {
           const dispatched = reviewerDispatchActivities.get(batchId) ?? [];
@@ -465,15 +489,17 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
         const role = asString(payload.role) ?? "";
         if (!occurredAt || !batchId) break;
         const queue = openDispatches.get(`${batchId}::${role}`) ?? [];
-        const dispatchAt = queue.shift();
-        if (dispatchAt) {
+        const dispatch = queue.shift();
+        if (dispatch) {
           reviewerSpans.push({
             batchId,
             role,
-            startedAt: dispatchAt,
+            startedAt: dispatch.occurredAt,
             endedAt: occurredAt,
-            seconds: Math.round(secondsBetween(dispatchAt, occurredAt)),
-            conclusion: asString(payload.conclusion) ?? ""
+            seconds: Math.round(secondsBetween(dispatch.occurredAt, occurredAt)),
+            conclusion: asString(payload.conclusion) ?? "",
+            ...(dispatch.dispatchKind ? { dispatchKind: dispatch.dispatchKind } : {}),
+            ...(dispatch.semanticRound !== undefined ? { semanticRound: dispatch.semanticRound } : {})
           });
         }
         break;
@@ -640,6 +666,9 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
             roles.set(role, (roles.get(role) ?? 0) + (call.seconds ?? 0));
             return roles;
           }, new Map<string, number>()).entries())
+        ,...(reviewerDispatchKinds.has(batchId)
+          ? { dispatchKinds: Object.fromEntries(reviewerDispatchKinds.get(batchId)!.entries()) }
+          : {})
       };
     })
     .sort((left, right) => left.batchId.localeCompare(right.batchId));
@@ -670,7 +699,12 @@ export function deriveRequestTimeline(events: HistoryEventLike[]): RequestTimeli
           reviewerSpans.map((span) => span.startedAt).sort()[0]!,
           reviewerSpans.map((span) => span.endedAt).sort().at(-1)!
         ))
-        : 0
+        : 0,
+      activeReviewers: [...openDispatches.values()].reduce((sum, queue) => sum + queue.length, 0),
+      historicalReviewerDispatches: [...reviewerDispatchActivities.values()]
+        .reduce((sum, activities) => sum + activities.length, 0),
+      recoveryRedispatches: [...reviewerDispatchKinds.values()]
+        .reduce((sum, counts) => sum + (counts.get("recovery_rebind") ?? 0), 0)
     },
     ...(runIntent ? { runIntent } : {}),
     reviewWorkbook,
@@ -779,6 +813,7 @@ export function buildCostReport(input: CostReportInput): string {
     : `记录 ${totals.calls} 条`;
   lines.push(`| reviewer 输入分片 | 原始 ${reviewerRawBytes} B · 分发 ${reviewerSlicedBytes} B · 节省 ${reviewerSavedBytes} B（${reviewerRawBytes === 0 ? "0.0" : ((reviewerSavedBytes / reviewerRawBytes) * 100).toFixed(1)}%） |`);
   lines.push(`| reviewer 收敛 | 首轮 ${timeline.reviewerOptimization.initialBatches} · 复审 ${timeline.reviewerOptimization.rereviewBatches} · 全量回退 ${timeline.reviewerOptimization.fullRereviewFallbacks} · 人工裁决 ${timeline.reviewerOptimization.humanConflictEscalations} · 关键路径 ${formatMinutes(timeline.reviewerOptimization.criticalPathSeconds)} |`);
+  lines.push(`| reviewer 代理视图 | 当前活跃 ${timeline.reviewerOptimization.activeReviewers} · 历史累计 ${timeline.reviewerOptimization.historicalReviewerDispatches} · 故障重派 ${timeline.reviewerOptimization.recoveryRedispatches} |`);
   lines.push(`| 模型调用事件 | 候选 ${timeline.modelCalls.candidateCalls} · reviewer ${timeline.modelCalls.reviewerCalls} · 合计 ${modelEventCalls} |`);
   lines.push(`| 模型计时覆盖 | 候选 ${timeline.candidateGeneration.modelTimingCapturedCalls}/${timeline.modelCalls.candidateCalls} · reviewer ${timeline.modelCalls.reviewerTimingCapturedCalls}/${timeline.modelCalls.reviewerCalls} |`);
   lines.push(`| token 采集（窗口内） | ${tokenTelemetry} · input ${totals.inputTokens} · output ${totals.outputTokens} · cacheRead ${totals.cacheReadTokens} |`, "");
@@ -826,22 +861,24 @@ export function buildCostReport(input: CostReportInput): string {
     lines.push(`| ${attempt.activityId} | ${attempt.attempt} | ${formatMinutes(attempt.seconds)} | ${attempt.modelSeconds === undefined ? "未采集" : formatMinutes(attempt.modelSeconds)} | ${attempt.outcome} | 当前事件 |`);
   }
   lines.push("", "## reviewer 批次", "");
-  lines.push("| 批次 | 类型/周期 | 已派发 | 复用免派 | 墙钟 | 模型调用/墙钟 | 角色模型墙钟 | 补充调用 | 未闭合 | 原始输入 | 分片输入 | 节省 |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+  lines.push("| 批次 | 类型/周期 | 已派发 | 派发原因 | 复用免派 | 墙钟 | 模型调用/墙钟 | 角色模型墙钟 | 补充调用 | 未闭合 | 原始输入 | 分片输入 | 节省 |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
   if (timeline.reviewerBatches.length === 0) {
-    lines.push("| 无 | — | — | — | — | 未采集 | — | — | — | — | — | — |");
+    lines.push("| 无 | — | — | — | — | — | 未采集 | — | — | — | — | — | — |");
   }
   for (const batch of timeline.reviewerBatches) {
     const roleWall = Object.entries(batch.roleModelSeconds).sort(([left], [right]) => left.localeCompare(right))
       .map(([role, seconds]) => `${role}:${formatMinutes(seconds)}`).join("；") || "未采集";
-    lines.push(`| ${batch.batchId} | ${batch.reReview ? "复审" : "首轮"}/${batch.mode}${batch.semanticEvolutionCycle === undefined ? "" : `/${batch.semanticEvolutionCycle}`} | ${batch.dispatchedReviewers} | ${batch.reusedReviewers} | ${formatMinutes(batch.wallSeconds)} | ${batch.modelCalls ? `${batch.modelCalls}/${formatMinutes(batch.modelSeconds)}` : "未采集"} | ${roleWall} | ${batch.budgetHits} | ${batch.unclosedCalls} | ${batch.rawInputBytes} B | ${batch.slicedInputBytes} B | ${batch.savedInputBytes} B（${(batch.inputSavingsRatio * 100).toFixed(1)}%） |`);
+    const dispatchKinds = Object.entries(batch.dispatchKinds ?? {}).sort(([left], [right]) => left.localeCompare(right))
+      .map(([kind, count]) => `${kind}:${count}`).join("；") || "旧记录";
+    lines.push(`| ${batch.batchId} | ${batch.reReview ? "复审" : "首轮"}/${batch.mode}${batch.semanticEvolutionCycle === undefined ? "" : `/${batch.semanticEvolutionCycle}`} | ${batch.dispatchedReviewers} | ${dispatchKinds} | ${batch.reusedReviewers} | ${formatMinutes(batch.wallSeconds)} | ${batch.modelCalls ? `${batch.modelCalls}/${formatMinutes(batch.modelSeconds)}` : "未采集"} | ${roleWall} | ${batch.budgetHits} | ${batch.unclosedCalls} | ${batch.rawInputBytes} B | ${batch.slicedInputBytes} B | ${batch.savedInputBytes} B（${(batch.inputSavingsRatio * 100).toFixed(1)}%） |`);
   }
   lines.push("", "## reviewer 派发明细", "");
-  lines.push("| 批次 | 角色 | 时长 | 结论 |", "| --- | --- | --- | --- |");
+  lines.push("| 批次 | 角色 | 派发原因/语义轮次 | 时长 | 结论 |", "| --- | --- | --- | --- | --- |");
   if (timeline.reviewerSpans.length === 0) {
-    lines.push("| 无 | — | — | — |");
+    lines.push("| 无 | — | — | — | — |");
   }
   for (const span of timeline.reviewerSpans) {
-    lines.push(`| ${span.batchId} | ${span.role} | ${formatMinutes(span.seconds)} | ${span.conclusion || "—"} |`);
+    lines.push(`| ${span.batchId} | ${span.role} | ${span.dispatchKind ?? "旧记录"}${span.semanticRound === undefined ? "" : `/${span.semanticRound}`} | ${formatMinutes(span.seconds)} | ${span.conclusion || "—"} |`);
   }
   lines.push("", `## Token 口径（DSH 会话；窗口 = 起点−${window.preSlackMinutes}min → 终点+${window.postSlackMinutes}min）`, "");
   lines.push("| 会话 | 标签 | 调用 | input | output | cacheRead |");

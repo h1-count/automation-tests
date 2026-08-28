@@ -4,7 +4,8 @@ import {
   candidateBaselineCoverageIssues,
   candidateRepairChecklist,
   evaluateCandidatePlanPreflight,
-  extractCandidateSourceFacts
+  extractCandidateSourceFacts,
+  parseCandidatePlanSourceLinks
 } from "../../../src/support/task-workflow/candidatePreflight.ts";
 
 const sha = "a".repeat(64);
@@ -99,6 +100,17 @@ test("candidate preflight accepts complete explicit fact coverage and exact quot
   assert.equal(report.complete, true);
   assert.equal(report.sourceFactCount, 3);
   assert.deepEqual(report.factCoverage, { modeled: 3, excluded: 0, ambiguous: 0 });
+});
+
+test("candidate preflight uses one deterministic fact anchor for a composite legacy source", () => {
+  const composite = plan().replace(
+    "[需求](../../../../sources/demo.txt)",
+    "[可读正文](../../../../sources/demo.txt)；[辅助截图](../../../../sources/demo.png)"
+  );
+  assert.deepEqual(parseCandidatePlanSourceLinks(composite), [{
+    sourceId: "SRC-LOGIN-001", path: "../../../../sources/demo.txt", factRange: "L1-L3"
+  }]);
+  assert.equal(evaluate(composite).complete, true);
 });
 
 test("candidate preflight blocks an unregistered structured fact", () => {

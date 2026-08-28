@@ -128,8 +128,7 @@ test("Gate v1 exposes host continuation without retired scheduling fields", asyn
   const view = await manager.initialize({
     capabilities: ["web"],
     casePackages: ["cases-registration.md"],
-    sessionId: "session-local",
-    targetThreadId: "thread-local"
+    sessionId: "session-local"
   });
 
   assert.equal(view.schemaVersion, "workflow-gate-v1");
@@ -296,8 +295,7 @@ test("deleting runtime preserves business projection and only loses host binding
   await manager.initialize({
     capabilities: ["web"],
     casePackages: ["cases-registration.md"],
-    sessionId: "session-local",
-    targetThreadId: "thread-local"
+    sessionId: "session-local"
   });
   await succeed(manager, "source-selection");
   const before = await manager.projection();

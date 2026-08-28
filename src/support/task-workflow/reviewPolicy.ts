@@ -268,7 +268,10 @@ export function buildReviewPolicy(input: BuildReviewPolicyInput): ReviewPolicy {
           }
         : {}),
       maxConcurrentReviewers: 2,
-      maxAttemptsPerRole: input.maxAttemptsPerRole ?? 3,
+      maxConcurrentScouts: 3,
+      maxSemanticReviewBatchesPerRole: 2,
+      maxRecoveryRedispatchesPerBatch: 1,
+      maxAttemptsPerRole: input.maxAttemptsPerRole ?? 2,
       maxUnchangedRevisionCycles: input.maxUnchangedRevisionCycles ?? 2,
       maxSemanticEvolutionCycles: input.maxSemanticEvolutionCycles ?? 2
     };
@@ -287,8 +290,8 @@ export function buildReviewPolicy(input: BuildReviewPolicyInput): ReviewPolicy {
   ) {
     throw new Error("review-policy-v1 requires maxSemanticEvolutionCycles = 2.");
   }
-  if (input.maxAttemptsPerRole !== undefined && input.maxAttemptsPerRole !== 3) {
-    throw new Error("review-policy-v1 requires maxAttemptsPerRole = 3.");
+  if (input.maxAttemptsPerRole !== undefined && input.maxAttemptsPerRole !== 2) {
+    throw new Error("review-policy-v1 requires maxAttemptsPerRole = 2.");
   }
   if (
     input.maxUnchangedRevisionCycles !== undefined
@@ -303,7 +306,10 @@ export function buildReviewPolicy(input: BuildReviewPolicyInput): ReviewPolicy {
     riskProfile: riskSelection.profile,
     selectionReasons: riskSelection.reasons,
     maxConcurrentReviewers: 2,
-    maxAttemptsPerRole: 3,
+    maxConcurrentScouts: 3,
+    maxSemanticReviewBatchesPerRole: 2,
+    maxRecoveryRedispatchesPerBatch: 1,
+    maxAttemptsPerRole: 2,
     maxUnchangedRevisionCycles: 2,
     maxSemanticEvolutionCycles: 2
   };
@@ -319,6 +325,9 @@ export function buildRiskAdaptiveReviewPolicy(): ReviewPolicy {
     riskProfile: "light",
     selectionReasons: ["candidate_gate_semantic_risk"],
     maxConcurrentReviewers: 2,
+    maxConcurrentScouts: 3,
+    maxSemanticReviewBatchesPerRole: 2,
+    maxRecoveryRedispatchesPerBatch: 1,
     maxAttemptsPerRole: 2,
     maxUnchangedRevisionCycles: 1,
     maxSemanticEvolutionCycles: 1
@@ -364,7 +373,13 @@ export function validateReviewPolicy(policy: ReviewPolicy): void {
         : ["combined", "impact"];
     if (
       policy.maxConcurrentReviewers !== 2
-      || policy.maxAttemptsPerRole !== 3
+      // 兼容旧契约历史：旧固定策略未携带这三个字段；新构建策略必含且值固定。
+      || (policy.maxConcurrentScouts !== undefined && policy.maxConcurrentScouts !== 3)
+      || (policy.maxSemanticReviewBatchesPerRole !== undefined && policy.maxSemanticReviewBatchesPerRole !== 2)
+      || (policy.maxRecoveryRedispatchesPerBatch !== undefined && policy.maxRecoveryRedispatchesPerBatch !== 1)
+      // 兼容旧契约历史：允许已固定 maxAttemptsPerRole=3 的在途工作流继续投影；
+      // 新构建的策略仍默认且仅产 2。
+      || (policy.maxAttemptsPerRole !== 2 && policy.maxAttemptsPerRole !== 3)
       || policy.maxUnchangedRevisionCycles !== 2
       || policy.requiredRoles.length !== expectedRoles.length
       || policy.requiredRoles.some((role, index) => role !== expectedRoles[index])
@@ -378,6 +393,9 @@ export function validateReviewPolicy(policy: ReviewPolicy): void {
   if (isRiskAdaptiveReviewMode(policy) && (
     policy.mode !== "risk_adaptive"
     || policy.maxConcurrentReviewers !== 2
+    || (policy.maxConcurrentScouts !== undefined && policy.maxConcurrentScouts !== 3)
+    || (policy.maxSemanticReviewBatchesPerRole !== undefined && policy.maxSemanticReviewBatchesPerRole !== 2)
+    || (policy.maxRecoveryRedispatchesPerBatch !== undefined && policy.maxRecoveryRedispatchesPerBatch !== 1)
     || policy.maxAttemptsPerRole !== 2
     || policy.maxUnchangedRevisionCycles !== 1
     || policy.maxSemanticEvolutionCycles !== 1
@@ -387,6 +405,11 @@ export function validateReviewPolicy(policy: ReviewPolicy): void {
   }
   if (!Number.isInteger(policy.maxAttemptsPerRole) || policy.maxAttemptsPerRole < 1) {
     throw new Error("Review policy maxAttemptsPerRole must be a positive integer.");
+  }
+  if ((policy.maxConcurrentScouts !== undefined && policy.maxConcurrentScouts !== 3)
+    || (policy.maxSemanticReviewBatchesPerRole !== undefined && policy.maxSemanticReviewBatchesPerRole !== 2)
+    || (policy.maxRecoveryRedispatchesPerBatch !== undefined && policy.maxRecoveryRedispatchesPerBatch !== 1)) {
+    throw new Error("Review policy agent-dispatch limits must use the fixed contract.");
   }
   if (!Number.isInteger(policy.maxUnchangedRevisionCycles) || policy.maxUnchangedRevisionCycles < 1) {
     throw new Error("Review policy maxUnchangedRevisionCycles must be a positive integer.");

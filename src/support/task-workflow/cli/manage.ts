@@ -884,11 +884,12 @@ async function main(): Promise<void> {
       "  callback-resolve --callback <id> --resolution <accepted|rejected|revision_requested|cancelled> [--plan-source <updated-plan.md>]  # design_reconfirm case-confirmation omits plan-source",
       "Review: review-batch-start, review-rereview-start, reviewer-dispatch, reviewer-model-call-start/complete, reviewer-submit/fail, review-batch-invalidate",
       "  review-batch-start --batch <id> [--subflow <case-review|script-review> --activity <review-id> --affected-ref <REQ|RULE|case|section> --excluded-ref <ref> --base-batch <id> --reason <text>]",
-      "  review-rereview-start --from-batch <id>（v1；确定性派生下一批次与角色范围）",
-      "  reviewer-dispatch --batch <id> --activity <review-id> --agent-task <host-task-id>",
-      "  reviewer-model-call-start --batch <id> --activity <review-id> --agent-task <host-task-id> [--supplemental --invalid-response-digest <sha256>]",
-      "  reviewer-model-call-complete --batch <id> --activity <review-id> --agent-task <host-task-id> --result-digest <sha256>",
-      "  reviewer-submit --batch <id> --activity <review-id> --agent-task <host-task-id> [--plan-evidence <plan.md>]",
+      "  review-rereview-start --from-batch <id>（用例评审；确定性派生下一批次与角色范围）",
+      "  script-review-rereview-start --from-batch <id>（脚本评审；仅允许首审后的定向复审）",
+      "  reviewer-dispatch --batch <id> --activity <review-id>",
+      "  reviewer-model-call-start --batch <id> --activity <review-id> [--supplemental --invalid-response-digest <sha256>]",
+      "  reviewer-model-call-complete --batch <id> --activity <review-id> --result-digest <sha256>",
+      "  reviewer-submit --batch <id> --activity <review-id> [--plan-evidence <plan.md>]",
       "  review-batch-invalidate --batch <id> --reason <text> [--activity <review-id> --revision-digest <sha256> --findings-digest <sha256>]",
       "Testcase review: testcase-review-render-publish  # v1 renders or reuses a local workbook body, then publishes this request's cases-review.xlsx",
       "  testcase-review-prepare --output <model.json>, testcase-review-publish --model <model.json> --workbook <staged.xlsx> --receipt <receipt.json> --output <cases-review.xlsx>",
@@ -913,9 +914,6 @@ async function main(): Promise<void> {
   const manager = new DurableWorkflowManager(requestId);
   const sessionId = option(args, "--session")
     ?? process.env.TEST_WORKFLOW_HOST_SESSION_ID;
-  const targetThreadId = option(args, "--thread")
-    ?? process.env.TEST_WORKFLOW_HOST_CONTEXT_ID
-    ?? sessionId;
 
   if (command === "init") {
     const casePackages = options(args, "--case-package");
@@ -978,7 +976,6 @@ async function main(): Promise<void> {
           }
         : undefined,
       sessionId,
-      targetThreadId,
       suiteId: option(args, "--suite"),
       reuse: reuse as "auto" | undefined,
       environment: option(args, "--environment"),
@@ -1004,7 +1001,7 @@ async function main(): Promise<void> {
   }
 
   if (command === "resume") {
-    if (sessionId) await manager.bindSession(sessionId, targetThreadId);
+    if (sessionId) await manager.bindSession(sessionId);
     await applyPendingSelectorRepair(manager);
     let view = await manager.resume(option(args, "--reason") ?? "explicit_cli_resume");
     if (
@@ -2510,6 +2507,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "script-review-rereview-start") {
+    const fromBatchId = required(args, "--from-batch");
+    const view = await manager.startScriptReviewerRereview(fromBatchId);
+    output(args, view, `脚本定向复审批次已从 ${fromBatchId} 确定性派生；零语义变化时复用已有证据。`);
+    return;
+  }
+
   if (command === "reviewer-dispatch") {
     const before = await manager.gate();
     const activityId = reviewerActivity(before, args, ["READY", "RETRY_WAIT", "RUNNING"]);
@@ -2526,7 +2530,7 @@ async function main(): Promise<void> {
       role,
       ...(deterministicDispatch
         ? { deterministic: { classifierDigest: required(args, "--classifier-digest") } }
-        : { agentTaskId: required(args, "--agent-task") })
+        : {})
     });
     const reviewPacket = await manager.reviewerInputPacket(batchId, activityId);
     output(
@@ -2567,7 +2571,7 @@ async function main(): Promise<void> {
             findingsPath
           }
         }
-        : { agentTaskId: required(args, "--agent-task") })
+        : {})
     });
     output(
       args,
@@ -2588,7 +2592,6 @@ async function main(): Promise<void> {
       activityId,
       batchId: required(args, "--batch"),
       role: option(args, "--role") ?? String(activity.definition.metadata?.role ?? "reviewer"),
-      agentTaskId: required(args, "--agent-task"),
       supplemental,
       ...(supplemental ? { invalidResponseDigest: required(args, "--invalid-response-digest") } : {})
     });
@@ -2604,7 +2607,6 @@ async function main(): Promise<void> {
       activityId,
       batchId: required(args, "--batch"),
       role: option(args, "--role") ?? String(activity.definition.metadata?.role ?? "reviewer"),
-      agentTaskId: required(args, "--agent-task"),
       resultDigest: required(args, "--result-digest")
     });
     output(args, view, "Reviewer 模型调用已完成并记录摘要。");

@@ -3,10 +3,7 @@ import {
   latestReviewerSubmission,
   reviewerBindingId
 } from "./reviewLifecycle.js";
-import type {
-  RuntimeReviewerBinding,
-  WorkflowRuntimeState
-} from "./runtimeLeaseStore.js";
+import type { WorkflowRuntimeState } from "./runtimeLeaseStore.js";
 import type {
   WorkflowEvent,
   WorkflowProjection
@@ -16,10 +13,6 @@ export type ResumeRecoveryAction =
   | { kind: "finalize_succeeded_runtime"; activityId: string }
   | { kind: "finalize_reconciled_operation"; activityId: string; operationId: string }
   | { kind: "clear_reviewer_binding"; bindingId: string }
-  | {
-      kind: "repair_reviewer_binding";
-      binding: RuntimeReviewerBinding;
-    }
   | {
       kind: "reviewer_rebind_required";
       activityId: string;
@@ -81,7 +74,7 @@ function hasRuntimeResidue(
 }
 
 function bindingMatches(
-  binding: RuntimeReviewerBinding,
+  binding: WorkflowRuntimeState["reviewerBindings"][string],
   activityId: string,
   batchId: string,
   role: string
@@ -154,8 +147,7 @@ export function planResumeRecovery(input: {
         Date.parse(dispatch.occurredAt)
       );
       if (
-        exact.status === "running"
-        && Number.isFinite(livenessAt)
+        Number.isFinite(livenessAt)
         && now - livenessAt > REVIEWER_IDLE_REBIND_THRESHOLD_MS
       ) {
         // Idle dispatch→submitted windows only suggest a rebind; they never
@@ -173,9 +165,6 @@ export function planResumeRecovery(input: {
         continue;
       }
       retainedBindingIds.add(exact.bindingId);
-      if (exact.status !== "running") {
-        actions.push({ kind: "repair_reviewer_binding", binding: exact });
-      }
       continue;
     }
     actions.push({

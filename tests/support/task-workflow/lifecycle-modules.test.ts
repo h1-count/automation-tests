@@ -428,9 +428,6 @@ test("resume recovery suggests an idle rebind after a silent dispatch window", (
         activityId: "case-review-design",
         batchId: "REV-01",
         role: "design",
-        agentTaskId: "host-task-1",
-        status: "running",
-        startedAt: dispatchedAt,
         updatedAt: dispatchedAt
       }
     },
@@ -501,9 +498,6 @@ test("a recently refreshed reviewer binding does not trigger the idle rebind", (
         activityId: "case-review-design",
         batchId: "REV-01",
         role: "design",
-        agentTaskId: "host-task-1",
-        status: "running",
-        startedAt: staleDispatch,
         updatedAt: freshBinding
       }
     },

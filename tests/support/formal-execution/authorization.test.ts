@@ -28,7 +28,6 @@ import {
 import type { FormalExecutionManifest } from "../../../src/support/formal-execution/types.js";
 import { ArtifactPublisher } from "../../../src/support/task-workflow/artifactPublisher.js";
 import { parseReviewBatchScope } from "../../../src/support/task-workflow/reviewBatchScope.js";
-import { deterministicReviewerTaskId } from "../../../src/support/task-workflow/reviewLifecycle.js";
 import type { SafeJsonValue } from "../../../src/support/task-workflow/types.js";
 import {
   DurableWorkflowManager,
@@ -651,7 +650,6 @@ async function succeed(
     const batchId = subflow === "script-review"
       ? `${existingBatchId}-frozen`
       : existingBatchId;
-    const deterministicTaskId = deterministicReviewerTaskId(activityId, batchId);
     if (!existingBatch || subflow === "script-review") {
       const inputPaths = [manager.planPath, resolve(manager.requestRoot, "cases.md")];
       if (subflow === "script-review") {
@@ -673,7 +671,6 @@ async function succeed(
       activityId,
       batchId,
       role,
-      agentTaskId: deterministicTaskId,
       deterministic: { classifierDigest: "a".repeat(64) }
     });
     const findingsPath = await writeReviewerFindings(

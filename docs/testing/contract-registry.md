@@ -74,7 +74,7 @@
 | reviewer 执行预算 | `reviewer-execution-policy-v1` | 无 | 流程规范 | 每 attempt 一主一补充模型调用、10 分钟墙钟和完成事件边界 |
 | 需求事实预提取 | `requirement-facts-v1` | 无 | 用例规范 | 骨架阶段零推理候选事实与覆盖闭包审计 |
 | 修订分层 | `revision-tier-v1` | 无 | 用例规范 | 用例集修订影响面分级与确定性收口 |
-| reviewer readiness | `review-readiness-v1`、`reviewer-isolation-proof-v1` | 无 | 流程规范 | reviewer 可派发性与隔离证明 |
+| reviewer readiness | `review-readiness-v1` | 无 | 流程规范 | reviewer 可派发性与冻结输入可用性 |
 | 规则设计台账 | `rule-design-ledger-v1` | 无 | 用例规范 | 当前 RULE 唯一作者台账 |
 | 脚本评审证据 | `script-review-evidence-v1` | 无 | 流程规范 | 当前脚本评审证据 |
 | 脚本评审策略 | `script-review-policy-v1` | 无 | 流程规范 | 当前脚本风险分级策略 |
@@ -85,7 +85,7 @@
 | 稳定套件 | `stable-test-suite-manifest-v1`、`stable-script-assets-v1`、`test-suite-reuse-assessment-v1` | 无 | 流程规范 | 冻结设计与 verified execution 证据；脚本资产记录 reviewed/verified 绑定、闭包与评审/执行摘要；评估契约用于复用判定 |
 | 测试设计索引 | `test-design-index-v1` | 无 | 用例规范 | 当前内部设计索引 |
 | workflow 定义与事件 | `test-workflow-definition-v1`、`test-workflow-event-v1` | 无 | 流程规范 | Durable Workflow 定义与事件 |
-| workflow runtime | `test-workflow-runtime-v1` | 无 | 流程规范 | 当前可丢弃宿主绑定结构 |
+| workflow runtime | `test-workflow-runtime-v1` | 无 | 流程规范 | 当前可丢弃的协调与逻辑绑定结构 |
 | Excel 评审导出 | `testcase-review-model-v1`、`testcase-review-export-v1`、`testcase-review-workbook-receipt-v1`、`testcase-review-cache-v1` | 无 | 用例规范 | 内容摘要可跨请求复用；绑定摘要、回执与发布事件只属于本轮请求 |
 | Excel 评审渲染器 | `testcase-review-renderer-v1` | 无 | 用例规范 | 内容摘要包含的确定性布局与渲染器版本；升级即缓存失效 |
 | 用例文档 | `testcase-v1-layered` | 无 | 用例规范 | 当前唯一运行时格式 |

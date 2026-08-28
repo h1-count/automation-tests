@@ -28,6 +28,7 @@
 - 清理、重置、归档和恢复必须使用 `package.json` 与 `scripts/README.md` 登记的入口；范围不明确时只允许 `--dry-run`。完整重置使用 `npm run reset:full-test-state`，未处理台账、预演范围冲突或命令失败时必须停止，不能手工扩大删除范围。
 - 所有正式变更必须可审查；不得自动合并、发布或扩大已确认的测试范围。
 - 候选脚本完整性与执行可用性必须分离：有源码/状态契约依据的写入步骤可在 `build` 生成但未授权执行；部署、OTP、provider、预算和清理能力只在 `readiness` 决定 runnable/deferred。禁止用空 callback、固定 blocker 或仅 capability 检查冒充完整候选脚本。
+- 子代理由主 Agent 统一调度：源码/契约侦查最多 3 个并发分片，静态门禁完成后才派 reviewer；每个 reviewer 角色最多首审加一次定向复审。已有结果的提交恢复不得新开模型调用，未产出结果的故障重派每批次最多一次；共享输入漂移或第二轮仍不通过必须阻断并汇总，不得无限创建 reviewer。
 - 同一授权内的用例顺序只能由 manifest 的命名资源生产/消费契约推导。生产者第一阶段可启动时，其消费者必须进入同一执行清单的后续拓扑波次，不得因执行前尚无资源而延期；Runner 不得依赖 caseId、文件名、Playwright discovery 顺序或偶然残留决定先后。
 - 纳入 Git 且登记在 `test-assets/manifest.yaml` 的静态测试资产、其 SHA-256 以及本地确定性生成器属于 `buildEvidence`，不得建模为环境 Capability 或要求 `.env` 重复指定资产。资产缺失、非 active、项目/平台/范围不匹配或摘要漂移属于 `invalid build`；只有账号、OTP、远端 fixture、外部状态和 adapter 等真实运行依赖才能使 case `deferred`。
 - 已确认执行清单可授权 Runner 在非生产测试环境执行清单内的新增、修改、上传、提交和删除，不再逐项确认。明确创建并登记的唯一合成资源可在容量、基线、租约和退役策略约束下晋升为跨请求 `reusable_fixture`；不得自动发现、接管或复用系统中既有企业与真实数据。
@@ -47,7 +48,7 @@
 - `.local/project-knowledge-candidates/`：被 Git 忽略的项目经验候选控制元数据；正文归属、登记和覆盖规则统一见[项目测试经验规范](docs/testing/knowledge/README.md)。
 - `.local/upload-inbox/`：被 Git 忽略的上传摄取待审队列与已处理决策；只保存暂存路径引用、内容哈希与分类建议，不复制文件正文或敏感数据；登记与换版规则统一见 [sources/README.md](sources/README.md)。
 - `.local/test-runs/<type>/<project>/<request>/`：被 Git 忽略的本机运行档案，只保存本次运行意图 `plan.md`、`workflow-history.ndjson`、评审记录与只读评审版产物；`workflow-history.ndjson` 是该次运行 Activity、重试、等待、阻塞、恢复与终态的唯一事实源，只保存可回放的脱敏语义事件，不保存凭据、线程标识、claim token、租约或真实用户数据；跨机器恢复等于从套件重新发起运行。
-- `.local/test-task-runtime/`：被 Git 忽略且可丢弃的本机执行元数据，只保存 claim/fencing、lease、session/reviewer 工具绑定、暂存路径和未收口工具句柄；任何宿主长期任务及其 ID、状态、预算和使用记录只属于对应宿主，不写入此目录、`plan.md` 或 workflow history。删除 runtime 不得改变或丢失业务状态。
+- `.local/test-task-runtime/`：被 Git 忽略且可丢弃的本机执行元数据，只保存 claim/fencing、lease、停止钩子所需的 session 关联、活跃 reviewer 的逻辑绑定、暂存路径和未收口工具句柄；任何宿主长期任务及其 ID、状态、预算和使用记录只属于对应宿主，不写入此目录、`plan.md` 或 workflow history。删除 runtime 不得改变或丢失业务状态。
 - `.local/test-ledger/`：被 Git 忽略的本机测试数据台账；其创建、复用、清理与恢复规则由 `docs/testing/environment-guideline.md` 定义。
 - `docs/testing/knowledge/<project>-testing-knowledge.md`：纳入 Git 的项目测试经验事实源；完整格式、状态、候选关系与冲突覆盖规则统一见[项目测试经验规范](docs/testing/knowledge/README.md)。
 - `docs/testing/knowledge/EXPERIENCE.md`：纳入 Git 的自动化工程经验事实源（测试工程自身：引擎编排、文档契约、工具链）；沉淀规则（写入判据、范围、证据要求、状态生命周期）见文件开头「经验沉淀规则」节；每次任务开始时随启动序列读取。

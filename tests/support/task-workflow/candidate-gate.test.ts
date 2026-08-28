@@ -245,8 +245,7 @@ test("lean reviewer failure is waived once with a durable warning", async (conte
   await manager.dispatchReviewer({
     activityId: "case-review-combined",
     batchId: "REV-LEAN-01",
-    role: "combined",
-    agentTaskId: "lean-reviewer"
+    role: "combined"
   });
   const view = await manager.failReviewer({
     activityId: "case-review-combined",
@@ -330,14 +329,12 @@ test("resume activates a frozen targeted review batch after current evolution", 
   await manager.startReviewBatch({ batchId: baseBatchId });
   for (const role of ["combined", "impact"] as const) {
     const activityId = `case-review-${role}`;
-    const agentTaskId = `${baseBatchId}-${role}`;
-    await manager.dispatchReviewer({ activityId, batchId: baseBatchId, role, agentTaskId });
+    await manager.dispatchReviewer({ activityId, batchId: baseBatchId, role });
     await manager.submitReviewer({
       activityId,
       batchId: baseBatchId,
       role,
       planEvidenceRef: manager.planPath,
-      agentTaskId,
       findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
     });
   }
@@ -474,8 +471,7 @@ test("strict reviewer retries once and then blocks execution", async (context) =
     await manager.dispatchReviewer({
       activityId: "case-review-combined",
       batchId: "REV-STRICT-01",
-      role: "combined",
-      agentTaskId: "strict-reviewer"
+      role: "combined"
     });
     const view = await manager.failReviewer({
       activityId: "case-review-combined",
@@ -608,15 +604,13 @@ test("single-reviewer current evolution auto-activates the review activity witho
   await manager.dispatchReviewer({
     activityId: "case-review-combined",
     batchId: baseBatchId,
-    role: "combined",
-    agentTaskId: `${baseBatchId}-combined`
+    role: "combined"
   });
   await manager.submitReviewer({
     activityId: "case-review-combined",
     batchId: baseBatchId,
     role: "combined",
     planEvidenceRef: manager.planPath,
-    agentTaskId: `${baseBatchId}-combined`,
     findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`, "findings_present")
   });
   const resolution = await manager.startActivity("case-review-resolution", "test");
@@ -731,15 +725,13 @@ test("current formal decision refreshes the review epoch so later batches are no
   await manager.dispatchReviewer({
     activityId: "case-review-combined",
     batchId: batchBeforeDecision,
-    role: "combined",
-    agentTaskId: `${batchBeforeDecision}-combined`
+    role: "combined"
   });
   await manager.submitReviewer({
     activityId: "case-review-combined",
     batchId: batchBeforeDecision,
     role: "combined",
     planEvidenceRef: manager.planPath,
-    agentTaskId: `${batchBeforeDecision}-combined`,
     findingsPath: await writeReviewerFindings(manager.workspaceRoot, `findings-${++findingsCounter}`)
   });
   const resolution = await manager.startActivity("case-review-resolution", "test");

@@ -1181,6 +1181,23 @@ function applyActivityEvent(
             `Reviewer dispatch ${activity.id} requires attempt ${activity.attempt + 1}.`
           );
         }
+        // 兼容旧契约历史：旧派发事件未携带 dispatchKind/semanticRound，按 initial/0 投影。
+        const dispatchKind = payload.dispatchKind ?? "initial";
+        if (![
+          "initial",
+          "submit_only",
+          "recovery_rebind",
+          "targeted_rereview"
+        ].includes(String(dispatchKind))) {
+          throw new WorkflowTransitionError("Reviewer dispatch requires a supported dispatchKind.");
+        }
+        const semanticRound = payload.semanticRound ?? 0;
+        if (!Number.isInteger(semanticRound) || Number(semanticRound) < 0) {
+          throw new WorkflowTransitionError("Reviewer dispatch requires a non-negative semanticRound.");
+        }
+        if (dispatchKind === "initial" && Number(semanticRound) !== 0) {
+          throw new WorkflowTransitionError("Initial reviewer dispatch must use semanticRound 0.");
+        }
       }
       const dispatched = runtime.reviewerDispatches.get(activity.id) ?? new Set<string>();
       if (role && dispatched.has(role)) {

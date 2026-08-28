@@ -38,9 +38,24 @@ test("runtime uses one disposable request snapshot with CAS and fencing", async 
   const initialized = await store.initialize();
   assert.equal(initialized.schemaVersion, "test-workflow-runtime-v1");
   assert.equal(store.runtimePath, resolve(runtimeRoot, "web/demo/request-1/runtime.json"));
-  const bound = await store.bindSession("session-local", "thread-local");
+  const bound = await store.bindSession("session-local");
   assert.equal(bound.sessionBinding?.sessionId, "session-local");
-  assert.equal(bound.sessionBinding?.targetThreadId, "thread-local");
+
+  await store.setReviewerBinding({
+    bindingId: "REV-01:case-review-combined:combined",
+    activityId: "case-review-combined",
+    batchId: "REV-01",
+    role: "combined"
+  });
+  const reviewer = await store.requireReviewerBinding({
+    bindingId: "REV-01:case-review-combined:combined",
+    activityId: "case-review-combined",
+    batchId: "REV-01",
+    role: "combined"
+  });
+  assert.equal(reviewer.role, "combined");
+  assert.equal("agentTaskId" in reviewer, false);
+  await store.removeReviewerBinding(reviewer.bindingId);
 
   await assert.rejects(
     () => store.compareAndSwap(0, () => undefined),
@@ -80,6 +95,54 @@ test("unsupported runtime schema is rejected without migration", async (context)
 
   await assert.rejects(() => store.read(), /invalid identity or revision/);
   await assert.rejects(() => store.initialize(), /invalid identity or revision/);
+});
+
+test("legacy host task fields are ignored and omitted by the next runtime write", async (context) => {
+  const workspace = await mkdtemp(resolve(tmpdir(), "workflow-runtime-legacy-fields-"));
+  context.after(() => rm(workspace, { recursive: true, force: true }));
+  const store = new RuntimeLeaseStore(
+    "web/demo/runtime-legacy-fields",
+    resolve(workspace, ".local/test-task-runtime")
+  );
+  await mkdir(store.requestRoot, { recursive: true });
+  await writeFile(store.runtimePath, JSON.stringify({
+    schemaVersion: "test-workflow-runtime-v1",
+    requestId: "web/demo/runtime-legacy-fields",
+    revision: 1,
+    sessionBinding: {
+      sessionId: "session-local",
+      targetThreadId: "thread-local",
+      boundAt: "2026-08-28T00:00:00.000Z",
+      updatedAt: "2026-08-28T00:00:00.000Z"
+    },
+    reviewerBindings: {
+      "REV-01:case-review-combined:combined": {
+        bindingId: "REV-01:case-review-combined:combined",
+        activityId: "case-review-combined",
+        batchId: "REV-01",
+        role: "combined",
+        agentTaskId: "host-task-1",
+        status: "running",
+        startedAt: "2026-08-28T00:00:00.000Z",
+        updatedAt: "2026-08-28T00:00:00.000Z"
+      }
+    },
+    leases: {},
+    inFlightOperations: {},
+    stagingRefs: {}
+  }), "utf8");
+
+  const runtime = await store.read();
+  assert.equal("targetThreadId" in (runtime?.sessionBinding ?? {}), false);
+  assert.equal("agentTaskId" in runtime!.reviewerBindings["REV-01:case-review-combined:combined"]!, false);
+  await store.setReviewerBinding({
+    bindingId: "REV-01:case-review-combined:combined",
+    activityId: "case-review-combined",
+    batchId: "REV-01",
+    role: "combined"
+  });
+  const persisted = JSON.parse(await readFile(store.runtimePath, "utf8")) as Record<string, unknown>;
+  assert.doesNotMatch(JSON.stringify(persisted), /agentTaskId|targetThreadId|startedAt/);
 });
 
 test("rebuilding a deleted v1 runtime does not alter durable workflow history", async (context) => {

@@ -113,11 +113,9 @@ import {
   reviewBatchStarted,
   reviewFindingsDigest,
   reviewRevisionDigest,
-  REVIEWER_ISOLATION_PROOF_VERSION,
   ReviewInputDriftError,
   assertReviewerFindingsShape,
   reviewerBindingId,
-  deterministicReviewerTaskId,
   rotatedReviewBatchId,
   verifyOrRepairReviewSnapshot,
   type ReviewerConclusion
@@ -287,10 +285,10 @@ export interface WorkflowGateView extends WorkflowProjection {
   };
 }
 
-/** Runtime binding is host-only. Its repair state is observable without
- * changing the durable gate projection. */
+/** Runtime binding is disposable coordination state. Its repair state is
+ * observable without changing the durable gate projection. */
 export interface ReviewLifecycleView extends WorkflowGateView {
-  runtimeBinding: "bound" | "repair_pending";
+  runtimeBinding: "bound" | "released" | "repair_pending";
   reviewBatch?: {
     status: "new_batch_started";
     batchId: string;
@@ -333,7 +331,6 @@ export interface InitializeWorkflowInput {
     sharedAccount?: boolean;
   };
   sessionId?: string;
-  targetThreadId?: string;
   suiteId?: string;
   reuse?: "auto";
   environment?: string;
@@ -431,6 +428,40 @@ const digestPattern = /^[a-f0-9]{64}$/;
 
 function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return value !== null
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.values(value).every((item) => typeof item === "string" && /^[a-f0-9]{64}$/u.test(item));
+}
+
+function sameStringRecord(left: Record<string, string>, right: Record<string, string>): boolean {
+  return canonicalJson(left as unknown as SafeJsonValue)
+    === canonicalJson(right as unknown as SafeJsonValue);
+}
+
+function routeScriptSemanticReview(input: {
+  scope: ReviewBatchScope;
+  allActivityIds: string[];
+  baselineRoleInputDigests: Record<string, string>;
+  currentRoleInputDigests: Record<string, string>;
+  roleCaseIdsByActivity: Record<string, string[]>;
+}): { requiredActivityIds: string[]; affectedRefs: string[] } | undefined {
+  const changed = input.allActivityIds.filter((activityId) => {
+    const role = input.scope.roleScopes.find((scope) => scope.activityId === activityId)?.role;
+    return role !== undefined
+      && input.baselineRoleInputDigests[role] !== input.currentRoleInputDigests[role];
+  });
+  if (!changed.length) return undefined;
+  const affectedRefs = [...new Set(changed.flatMap((activityId) =>
+    input.roleCaseIdsByActivity[activityId] ?? []
+  ))].sort();
+  if (!affectedRefs.length) {
+    throw new Error("Script semantic rereview cannot prove an affected case closure.");
+  }
+  return { requiredActivityIds: changed, affectedRefs };
 }
 
 function requireDigest(value: string, label: string): string {
@@ -733,7 +764,7 @@ export class DurableWorkflowManager {
 
   async initialize(input: InitializeWorkflowInput = {}): Promise<WorkflowGateView> {
     if (this.exists()) {
-      if (input.sessionId) await this.runtime.bindSession(input.sessionId, input.targetThreadId);
+    if (input.sessionId) await this.runtime.bindSession(input.sessionId);
       return this.gate();
     }
     const reuseAssessment = input.reuse === "auto" && input.suiteId
@@ -1065,7 +1096,7 @@ export class DurableWorkflowManager {
       }
     }
     await this.history.appendBatch(initialEvents, { seq: 0, digest: GENESIS_DIGEST });
-    if (input.sessionId) await this.runtime.bindSession(input.sessionId, input.targetThreadId);
+      if (input.sessionId) await this.runtime.bindSession(input.sessionId);
     return this.gate();
   }
 
@@ -1476,8 +1507,8 @@ export class DurableWorkflowManager {
     };
   }
 
-  async bindSession(sessionId: string, targetThreadId?: string): Promise<void> {
-    await this.runtime.bindSession(sessionId, targetThreadId);
+  async bindSession(sessionId: string): Promise<void> {
+    await this.runtime.bindSession(sessionId);
   }
 
   async startActivity(
@@ -2198,7 +2229,9 @@ export class DurableWorkflowManager {
       claimToken: input.claimToken,
       publishId: input.publishId,
       verification: input.verification,
-      artifacts: [{ targetPath: deltaNamespace ? resolve(this.requestRoot, "cases.md") : this.designAssetPath("cases.md"), content: cases }]
+      // Candidate assembly is a request-local review artifact.  Stable suite
+      // assets may only change after case confirmation and explicit promotion.
+      artifacts: [{ targetPath: resolve(this.requestRoot, "cases.md"), content: cases }]
     });
   }
 
@@ -2220,12 +2253,10 @@ export class DurableWorkflowManager {
     }
     const report = evaluateCandidateGate({
       plan: await readFile(this.planPath, "utf8"),
-      cases: await readFile(
-        before.requestPolicy.reuseDecision === "affected_rebuild" && before.activities["impact-closure-build"]?.outcome === "bounded"
-          ? resolve(this.requestRoot, "cases.md")
-          : this.designAssetPath("cases.md"),
-        "utf8"
-      ),
+      // candidate-assemble publishes the frozen review package under this
+      // request.  Reading the stable suite here would evaluate stale content
+      // and could make a repaired candidate gate fail repeatedly.
+      cases: await readFile(resolve(this.requestRoot, "cases.md"), "utf8"),
       speed: await this.reviewSpeed()
     });
     if (report.issues.length > 0) {
@@ -4550,15 +4581,6 @@ export class DurableWorkflowManager {
         );
       } else if (action.kind === "clear_reviewer_binding") {
         await this.runtime.removeReviewerBinding(action.bindingId);
-      } else if (action.kind === "repair_reviewer_binding") {
-        await this.runtime.setReviewerBinding({
-          bindingId: action.binding.bindingId,
-          activityId: action.binding.activityId,
-          batchId: action.binding.batchId,
-          role: action.binding.role,
-          agentTaskId: action.binding.agentTaskId,
-          status: "running"
-        });
       } else if (action.kind === "invalid_reviewer_dispatch") {
         throw new Error(
           `Running reviewer ${action.activityId} has no valid durable dispatch batch.`
@@ -4750,21 +4772,11 @@ export class DurableWorkflowManager {
         }
       })
       : [];
-    const activeReviewBatches = existingReviewBatches.filter((batch) => {
-      const scope = parseReviewBatchScope(batch.payload.scope);
-      return !scope.requiredActivityIds.every((activityId) => events.some((event) =>
-        event.seq > batch.seq
-        && (event.type === "ReviewBatchInvalidated" || event.type === "ActivitiesInvalidated")
-        && Array.isArray(event.payload.activityIds)
-        && event.payload.activityIds.includes(activityId)
-      ));
-    });
     if (before.definitionVersion === CURRENT_WORKFLOW_VERSION) {
-      if (!activeReviewBatches.length && input.controlledRereview) {
-        throw new Error("v1 initial review must use review-batch-start without a parent batch.");
-      }
-      if (activeReviewBatches.length && !input.controlledRereview) {
-        throw new Error("v1 subsequent review must use review-rereview-start --from-batch <id>.");
+      if (existingReviewBatches.length && !input.controlledRereview) {
+        throw new Error(
+          `v1 ${reviewSubflow} has an existing batch; use its controlled rereview entry instead of starting a full batch.`
+        );
       }
       if (input.controlledRereview && (!input.baseBatchId
         || input.activityIds?.length || input.affectedRefs?.length
@@ -4806,6 +4818,9 @@ export class DurableWorkflowManager {
     const roleCaseIdsByActivity = reviewSubflow === "script-review"
       ? await this.scriptReviewRoleCaseIds(activityRoles)
       : undefined;
+    const scriptRoleInputDigests = reviewSubflow === "script-review"
+      ? await this.scriptReviewSemanticRoleDigests()
+      : undefined;
     const scriptReviewInputs = reviewSubflow === "script-review"
       ? await this.scriptReviewInputPaths()
       : [];
@@ -4838,6 +4853,7 @@ export class DurableWorkflowManager {
     let semanticEvolutionCycle = 0;
     if (input.baseBatchId) {
       const baseEvent = reviewBatchStarted(events, input.baseBatchId);
+      const basePayload = baseEvent?.payload;
       const baseScope = baseEvent?.payload.scope === undefined
         ? undefined
         : parseReviewBatchScope(baseEvent.payload.scope);
@@ -4855,12 +4871,22 @@ export class DurableWorkflowManager {
         // against the frozen predecessor: unchanged roles keep their durable
         // evidence, while only roles whose visible scope changed are reopened.
         if (!input.activityIds?.length && !input.affectedRefs?.length) {
-          const route = routeSemanticReview({
-            scope: baseScope,
-            allActivityIds,
-            baselineRoleInputDigests: baseSnapshot.roleInputDigests ?? {},
-            currentRoleInputDigests: currentAgainstBase.roleInputDigests ?? {}
-          });
+          const route = reviewSubflow === "script-review"
+            && isStringRecord(basePayload?.scriptRoleInputDigests)
+            && scriptRoleInputDigests !== undefined
+            ? routeScriptSemanticReview({
+                scope: baseScope,
+                allActivityIds,
+                baselineRoleInputDigests: basePayload.scriptRoleInputDigests,
+                currentRoleInputDigests: scriptRoleInputDigests,
+                roleCaseIdsByActivity: roleCaseIdsByActivity ?? {}
+              })
+            : routeSemanticReview({
+                scope: baseScope,
+                allActivityIds,
+                baselineRoleInputDigests: baseSnapshot.roleInputDigests ?? {},
+                currentRoleInputDigests: currentAgainstBase.roleInputDigests ?? {}
+              });
           if (!route) return before;
           requiredActivityIds = route.requiredActivityIds;
           affectedRefs = route.affectedRefs;
@@ -4976,6 +5002,7 @@ export class DurableWorkflowManager {
       scope,
       scopeDigest: reviewBatchScopeDigest(scope),
       roleInputDigests: snapshot.roleInputDigests,
+      ...(scriptRoleInputDigests ? { scriptRoleInputDigests } : {}),
       ...(before.definitionVersion === CURRENT_WORKFLOW_VERSION
         ? {
           inputDigestAlgorithm: "review-input-digest-v1" as const,
@@ -5031,6 +5058,74 @@ export class DurableWorkflowManager {
       baseBatchId: fromBatchId,
       controlledRereview: true
     });
+  }
+
+  /** Script review has the same one-rereview budget as case review, but its
+   * semantic identity is the compiler's role-scoped script digest. Metadata
+   * repairs therefore reuse the previous reviewer evidence without a model call. */
+  async startScriptReviewerRereview(fromBatchId: string): Promise<WorkflowGateView> {
+    const before = await this.gate();
+    const events = await this.events();
+    const parent = reviewBatchStarted(events, fromBatchId);
+    const parentScope = parent?.payload.scope === undefined
+      ? undefined
+      : parseReviewBatchScope(parent.payload.scope);
+    if (!parent || !parentScope || !hasCompleteReviewBatchScope(parentScope)) {
+      throw new Error(`Script rereview parent ${fromBatchId} must be a complete review batch.`);
+    }
+    const isScriptBatch = parentScope.requiredActivityIds.some((activityId) =>
+      this.isScriptReviewActivity(before, activityId)
+    );
+    if (!isScriptBatch) {
+      throw new Error(`${fromBatchId} is not a script-review batch.`);
+    }
+    const maxCycles = (before.reviewPolicy?.maxSemanticReviewBatchesPerRole ?? 2) - 1;
+    if (parentScope.semanticEvolutionCycle >= maxCycles) {
+      const blockerId = `script-review-convergence-failed-${parentScope.reviewEpochDigest.slice(0, 12)}`;
+      await this.append(
+        "BlockerRaised",
+        "system",
+        {
+          blockerId,
+          affectedActivityIds: parentScope.requiredActivityIds,
+          category: "review_convergence_failed",
+          detail: "Script review exhausted its initial-review plus one targeted-rereview budget.",
+          resolutionCondition: "Resolve the consolidated script findings outside automatic reviewer retries."
+        },
+        `${before.runId}/script-review/${fromBatchId}/convergence-budget`,
+        before.head
+      );
+      return this.gate();
+    }
+    const baseline = isStringRecord(parent.payload.scriptRoleInputDigests)
+      ? parent.payload.scriptRoleInputDigests
+      : undefined;
+    const current = await this.scriptReviewSemanticRoleDigests();
+    if (baseline && sameStringRecord(baseline, current)) return before;
+    const batchId = `script-review-rereview-${sha256(`${fromBatchId}:${canonicalJson(current)}`).slice(0, 20)}`;
+    if (reviewBatchStarted(events, batchId)) return this.gate();
+    const started = await this.startReviewBatch({
+      batchId,
+      subflow: "script-review",
+      baseBatchId: fromBatchId,
+      controlledRereview: true
+    });
+    const derived = reviewBatchStarted(await this.events(), batchId);
+    const scope = derived?.payload.scope === undefined
+      ? undefined
+      : parseReviewBatchScope(derived.payload.scope);
+    const reopen = scope?.requiredActivityIds.filter((activityId) =>
+      started.activities[activityId]?.state === "SUCCEEDED"
+    ) ?? [];
+    return reopen.length
+      ? this.invalidateActivities({
+          activityIds: reopen,
+          reason: "activate_script_targeted_rereview",
+          subjectDigest: typeof derived?.payload.inputDigest === "string"
+            ? derived.payload.inputDigest
+            : undefined
+        })
+      : started;
   }
 
   /**
@@ -5150,14 +5245,9 @@ export class DurableWorkflowManager {
     activityId: string;
     batchId: string;
     role: string;
-    agentTaskId?: string;
     /** 修订分层 structural 档：确定性分级器替代隔离评审员。 */
     deterministic?: { classifierDigest: string };
   }): Promise<ReviewLifecycleView> {
-    const agentTaskId = input.deterministic
-      ? deterministicReviewerTaskId(input.activityId, input.batchId)
-      : input.agentTaskId ?? "";
-    await this.runtime.assertReviewerTaskIsIsolated(agentTaskId);
     const events = await this.events();
     this.assertReviewActivityInBatchScope(events, input.batchId, input.activityId);
     let inputDigest: string;
@@ -5197,11 +5287,7 @@ export class DurableWorkflowManager {
         throw new Error(`Reviewer activity ${input.activityId} is already complete.`);
       }
       try {
-        await this.bindReviewerRuntime({
-          ...input,
-          agentTaskId,
-          status: "running"
-        });
+        await this.bindReviewerRuntime(input);
         return { ...(await this.gate()), runtimeBinding: "bound" };
       } catch (error) {
         if (error instanceof WorkflowRuntimeConflictError) throw error;
@@ -5214,6 +5300,18 @@ export class DurableWorkflowManager {
       batchId: input.batchId,
       role: input.role,
       inputDigest,
+      dispatchKind: existingDispatch?.payload.batchId === input.batchId
+        ? "recovery_rebind"
+        : (() => {
+            const scope = reviewBatchStarted(events, input.batchId)?.payload.scope;
+            return scope !== undefined && parseReviewBatchScope(scope).baseBatchId
+              ? "targeted_rereview"
+              : "initial";
+          })(),
+      semanticRound: (() => {
+        const scope = reviewBatchStarted(events, input.batchId)?.payload.scope;
+        return scope === undefined ? 0 : parseReviewBatchScope(scope).semanticEvolutionCycle;
+      })(),
       ...(input.deterministic
         ? { deterministic: { classifierDigest: input.deterministic.classifierDigest } }
         : {})
@@ -5221,11 +5319,7 @@ export class DurableWorkflowManager {
     try {
       // Runtime handles are disposable. A binding failure must not turn a
       // durable dispatch into a false failure; resume will repair it.
-      await this.bindReviewerRuntime({
-        ...input,
-        agentTaskId,
-        status: "running"
-      });
+      await this.bindReviewerRuntime(input);
       return { ...view, runtimeBinding: "bound" };
     } catch (error) {
       if (error instanceof WorkflowRuntimeConflictError) throw error;
@@ -5244,7 +5338,6 @@ export class DurableWorkflowManager {
     activityId: string;
     batchId: string;
     role: string;
-    agentTaskId: string;
     supplemental?: boolean;
     invalidResponseDigest?: string;
   }): Promise<WorkflowGateView> {
@@ -5270,9 +5363,7 @@ export class DurableWorkflowManager {
       bindingId: reviewerBindingId(input.activityId, input.role, input.batchId),
       activityId: input.activityId,
       batchId: input.batchId,
-      role: input.role,
-      agentTaskId: input.agentTaskId,
-      status: "running"
+      role: input.role
     });
     await this.append(
       "ReviewerModelCallStarted",
@@ -5294,7 +5385,6 @@ export class DurableWorkflowManager {
     activityId: string;
     batchId: string;
     role: string;
-    agentTaskId: string;
     resultDigest: string;
   }): Promise<WorkflowGateView> {
     if (!/^[a-f0-9]{64}$/.test(input.resultDigest)) {
@@ -5312,9 +5402,7 @@ export class DurableWorkflowManager {
       bindingId: reviewerBindingId(input.activityId, input.role, input.batchId),
       activityId: input.activityId,
       batchId: input.batchId,
-      role: input.role,
-      agentTaskId: input.agentTaskId,
-      status: "running"
+      role: input.role
     });
     await this.append(
       "ReviewerModelCallCompleted",
@@ -5331,7 +5419,6 @@ export class DurableWorkflowManager {
     batchId: string;
     role: string;
     planEvidenceRef?: string;
-    agentTaskId?: string;
     /** 修订分层 structural 档：须提供 converged 发现文件与分级器摘要。 */
     deterministic?: { classifierDigest: string; findingsPath: string };
     /** LLM 评审员必须提交发现文件（review-findings-evidence-v1 骨架契约）。 */
@@ -5352,9 +5439,6 @@ export class DurableWorkflowManager {
         "Isolated reviewer submission requires --findings（发现文件缺失或未提交，评审轮不可收口）。"
       );
     }
-    const agentTaskId = input.deterministic
-      ? deterministicReviewerTaskId(input.activityId, input.batchId)
-      : input.agentTaskId ?? "";
     const events = await this.events();
     this.assertReviewActivityInBatchScope(events, input.batchId, input.activityId);
     let inputDigest: string;
@@ -5373,9 +5457,7 @@ export class DurableWorkflowManager {
       bindingId,
       activityId: input.activityId,
       batchId: input.batchId,
-      role: input.role,
-      agentTaskId,
-      status: "running"
+      role: input.role
     });
     const view = await this.appendValidatedReviewLifecycleEvent({
       type: "ReviewerSubmitted",
@@ -5392,15 +5474,10 @@ export class DurableWorkflowManager {
           conclusion
         }
         : { findingsDigest, conclusion }),
-      isolationProofVersion: REVIEWER_ISOLATION_PROOF_VERSION
     });
     try {
-      await this.bindReviewerRuntime({
-        ...input,
-        agentTaskId,
-        status: "completed"
-      });
-      return { ...view, runtimeBinding: "bound" };
+      await this.runtime.removeReviewerBinding(bindingId);
+      return { ...view, runtimeBinding: "released" };
     } catch {
       return { ...view, runtimeBinding: "repair_pending" };
     }
@@ -5410,8 +5487,6 @@ export class DurableWorkflowManager {
     activityId: string;
     batchId: string;
     role: string;
-    agentTaskId: string;
-    status: "running" | "completed";
   }): Promise<void> {
     const view = await this.gate();
     const activity = view.activities[input.activityId];
@@ -5421,19 +5496,14 @@ export class DurableWorkflowManager {
     if (activity.definition.metadata?.role !== input.role) {
       throw new Error(`Reviewer binding role does not match ${input.activityId}.`);
     }
-    if (input.status === "running" && activity.state !== "RUNNING") {
+    if (activity.state !== "RUNNING") {
       throw new Error(`Reviewer binding requires a running activity: ${input.activityId}.`);
-    }
-    if (input.status === "completed" && activity.state !== "SUCCEEDED") {
-      throw new Error(`Completed reviewer binding requires durable submission: ${input.activityId}.`);
     }
     await this.runtime.setReviewerBinding({
       bindingId: reviewerBindingId(input.activityId, input.role, input.batchId),
       activityId: input.activityId,
       batchId: input.batchId,
-      role: input.role,
-      agentTaskId: input.agentTaskId,
-      status: input.status
+      role: input.role
     });
   }
 
@@ -5484,6 +5554,27 @@ export class DurableWorkflowManager {
     const scriptReview = scope?.requiredActivityIds.some((activityId) =>
       this.isScriptReviewActivity(before, activityId)
     ) ?? false;
+    if (scriptReview) {
+      const blockerId = `shared-input-drift-${batchId}`;
+      await this.append(
+        "BlockerRaised",
+        "system",
+        {
+          blockerId,
+          affectedActivityIds: scope.requiredActivityIds,
+          category: "shared_input_drift",
+          detail: error.message,
+          resolutionCondition: "Freeze shared script inputs, run static verification, then use script-review-rereview-start from this batch."
+        },
+        `${before.runId}/script-review/${batchId}/shared-input-drift/${sha256(error.message)}`,
+        before.head
+      );
+      const runtime = await this.runtime.read();
+      for (const binding of Object.values(runtime?.reviewerBindings ?? {})) {
+        if (binding.batchId === batchId) await this.runtime.removeReviewerBinding(binding.bindingId);
+      }
+      return { ...(await this.gate()), runtimeBinding: "released" };
+    }
     const nextScope = !scriptReview
       ? {
           ...scope,
@@ -5698,6 +5789,17 @@ export class DurableWorkflowManager {
     return [assessmentPath, ...paths];
   }
 
+  private async scriptReviewSemanticRoleDigests(): Promise<Record<string, string>> {
+    const assessmentPath = resolve(this.requestRoot, "script-review-assessment.json");
+    const assessment = JSON.parse(await readFile(assessmentPath, "utf8")) as {
+      reviewerInputDigests?: unknown;
+    };
+    if (!isStringRecord(assessment.reviewerInputDigests)) {
+      throw new Error("Frozen script-review assessment has invalid reviewerInputDigests.");
+    }
+    return assessment.reviewerInputDigests;
+  }
+
   /** The script-review assessment is the authority for risk-routed reviewer
    * scope. Convert its role names to workflow activity ids before freezing the
    * review batch so packets cannot silently widen to every case. */
@@ -5898,7 +6000,9 @@ export class DurableWorkflowManager {
     inputDigestAlgorithm?: "review-input-digest-v1";
     reviewerExecutionPolicy?: "reviewer-execution-policy-v1";
     rolePackets?: SafeJsonValue;
-    isolationProofVersion?: typeof REVIEWER_ISOLATION_PROOF_VERSION;
+    scriptRoleInputDigests?: Record<string, string>;
+    dispatchKind?: "initial" | "submit_only" | "recovery_rebind" | "targeted_rereview";
+    semanticRound?: number;
   }): Promise<WorkflowGateView> {
     const before = await this.gate();
     let normalizedInput = input;
@@ -5953,7 +6057,7 @@ export class DurableWorkflowManager {
       && typeof adaptiveProfile === "string"
       && adaptiveProfile.endsWith(":lean")
       && activity.definition.metadata?.failurePolicy === "lean_warning_strict_block";
-    const maxAttempts = before.reviewPolicy?.maxAttemptsPerRole ?? 3;
+    const maxAttempts = before.reviewPolicy?.maxAttemptsPerRole ?? 2;
     const failedKey = `${before.runId}/review/${input.batchId}/${input.activityId}/attempt-${activity.attempt}/failed/${sha256(input.summary)}`;
     if (leanAdaptiveReview) {
       await this.appendSequence([
@@ -7041,10 +7145,10 @@ export class DurableWorkflowManager {
       if (packageName !== "cases.md") {
         throw new Error("Candidate assembly must publish the single cases.md package.");
       }
-      const requestLocal = metadata?.candidateNamespace === "delta";
-      expected = [safeRelativePath(this.workspaceRoot, requestLocal
-        ? resolve(this.requestRoot, packageName)
-        : resolve(this.designAssetPath(packageName)))];
+      // Candidate packages are review artifacts for this request.  Publishing
+      // them to the stable suite before case confirmation would bypass the
+      // confirmation/promotion boundary.
+      expected = [safeRelativePath(this.workspaceRoot, resolve(this.requestRoot, packageName))];
     } else if (
       kind === "relation_sync"
       || kind === "automatic_evolution"
