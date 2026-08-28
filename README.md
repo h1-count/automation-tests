@@ -1,48 +1,43 @@
-# IoT 自动化测试工程
+# IoT 自动化测试工程（快速通道分支）
 
-<!-- role: project-entry-only -->
-
-本项目用于 Web、H5、App、WebView、API、MQTT 和 IoT 链路自动化测试。
+本项目用于 Web、H5、App、WebView、API、MQTT 和 IoT 链路自动化测试。本分支（`workflow-simplification`）以**快速跑通**为目标，已停用正式流程仪式。
 
 ## 从这里开始
 
-1. 阅读 [AGENTS.md](./AGENTS.md) 了解强制门禁与安全边界。
-2. 阅读 [测试规范索引](./docs/testing/README.md)，按任务打开唯一责任规范。
-3. 复制 `.env.example` 为本地 `.env`，填写当前环境所需的非公开配置。
-4. 提供需求、URL、截图、接口资料或物模型；AI 测试 Agent 会直接生成、校验和评审完整用例，用户确认用例后再进入脚本和执行清单确认。
+1. 复制 `.env.example` 为本地 `.env`，确认 `TEST_ENV` 与被测地址（本地默认 `http://127.0.0.1:3098/`）。
+2. 启动本地被测服务（或用 `FAST_BASE_URL` 指向远程测试环境）。
+3. 跑测试：
 
-工程按“业务层 → 工程层 → 治理线”推进；完整流程、Graphify 定位和审核门禁以 [automation-guideline.md](./docs/testing/automation-guideline.md#32-双层模型与贯穿治理线) 为准。
+   ```bash
+   npm run test:fast            # 全部用例
+   npm run test:fast:headed     # 有头调试
+   ```
+
+完整说明见 [docs/FAST-TRACK.md](./docs/FAST-TRACK.md)，硬边界见 [AGENTS.md](./AGENTS.md)。
 
 ## 文档职责
 
 | 需要了解的内容 | 查看位置 |
 | --- | --- |
-| 强制门禁与安全边界 | [AGENTS.md](./AGENTS.md) |
-| 生命周期、统一执行清单与人工挑战恢复 | [automation-guideline.md](./docs/testing/automation-guideline.md) |
-| 环境、运行模式、账号、验证码和测试数据 | [environment-guideline.md](./docs/testing/environment-guideline.md) |
-| 测试设计索引与用例格式 | [testcase-guideline.md](./docs/testing/testcase-guideline.md) |
-| selector、报告、失败分类 | [docs/testing/](./docs/testing/README.md) |
-| Agent 执行步骤、模板和示例 | [SKILL.md](./skills/iot-automation-testing/SKILL.md) |
-
-规则正文只在责任文件维护；本 README 只提供项目入口。完整命令唯一登记在[工程脚本入口](./scripts/README.md)。
+| 快速通道用法、地址解析、产物位置 | [docs/FAST-TRACK.md](./docs/FAST-TRACK.md) |
+| 硬边界（生产、真实数据、凭据） | [AGENTS.md](./AGENTS.md) |
+| 旧正式流程规范（本分支仅参考） | [docs/testing/](./docs/testing/README.md) |
+| 环境变量说明 | [.env.example](./.env.example) |
+| 命令登记 | [scripts/README.md](./scripts/README.md)、`package.json` |
 
 ## 本地配置
 
-真实地址、账号、密码、Token、设备标识和认证会话只能保存于本地 `.env`、CI Secret 或受控的 Git 忽略目录，不能提交到 Git。
-
-环境通过 `TEST_ENV` 切换，无需修改测试脚本的 `baseURL`：
+凭据只放本地 `.env`，不提交 Git。环境通过 `TEST_ENV` 切换：
 
 ```env
 TEST_ENV=test
 ALLOW_PRODUCTION_TESTS=false
 ```
 
-完整变量说明见 [.env.example](./.env.example)，环境选择和生产保护见 [environment-guideline.md](./docs/testing/environment-guideline.md)。
-
-## 命令入口
-
-按用途查找命令请使用[工程脚本入口](./scripts/README.md)；可执行脚本名和参数以 `package.json` 及命令自身帮助为准。本文件不复制命令表。
-
 ## 目录概览
 
-目录职责、提交边界和敏感数据约束以 [AGENTS.md 的“目录边界”](./AGENTS.md#目录边界) 为准；用例目录导航见 [testcases/README.md](./testcases/README.md)，脚本目录导航见 [tests/README.md](./tests/README.md)。
+- `tests/<type>/<project>/`：可执行测试脚本，普通 `*.spec.ts` 被 `npm run test:fast` 自动发现。
+- `src/`：fixtures、actions、clients、env、support 等公共能力。
+- `scripts/`：环境检查、认证初始化、报告等脚本（含停用的正式通道入口）。
+- `artifacts/`：Git 忽略的执行产物（报告、trace）。
+- `docs/testing/`、`skills/`：旧正式流程文档，本分支仅参考。

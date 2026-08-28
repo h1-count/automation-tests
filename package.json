@@ -8,7 +8,9 @@
     "node": ">=20.19 <25"
   },
   "scripts": {
-    "test": "npm run test:web",
+    "test": "npm run test:fast",
+    "test:fast": "playwright test --config=playwright.fast.config.ts",
+    "test:fast:headed": "playwright test --config=playwright.fast.config.ts --headed",
     "test:web": "playwright test",
     "test:web:execute": "tsx scripts/run-formal-web-tests.ts",
     "test:execute": "tsx scripts/run-formal-tests.ts",
