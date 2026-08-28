@@ -95,7 +95,7 @@ export function evaluateTestcasePackage(
     }));
   const reasons = unique([
     ...unsupported.map(({ index }) =>
-      `Source ${index + 1} must use ${TESTCASE_V6_LAYERED_MARKER}; archived formats are not executable inputs.`
+      `Source ${index + 1} must use ${TESTCASE_V6_LAYERED_MARKER}; unsupported formats are not executable inputs.`
     ),
     ...sources.flatMap((source, index) =>
       isCurrentTestcaseDocumentVersion(documents[index]!.version)

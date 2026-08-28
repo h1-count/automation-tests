@@ -18,6 +18,7 @@ import {
   semanticBuildEvidenceDigest,
   semanticBuildEvidenceValue
 } from "../../../src/support/formal-execution/buildEvidenceIdentity.js";
+import { digestStableScriptClosure } from "../../../src/support/test-suite/scriptAssets.js";
 import { sha256Canonical } from "../../../src/support/task-workflow/canonicalJson.js";
 import type { SafeJsonValue } from "../../../src/support/task-workflow/types.js";
 
@@ -32,7 +33,7 @@ test("exact stable suite selects direct execution without regenerating design as
   });
   assert.equal(result.decision, "direct_execute");
   assert.deepEqual(result.selectedCaseIds, ["CASE-001"]);
-  assert.deepEqual(result.reasons, ["suite_assets_exact"]);
+  assert.deepEqual(result.reasons, ["stable_scripts_verified", "suite_assets_exact"]);
   const suite = await loadStableTestSuite(suiteId, harness.root);
   assert.deepEqual(stableSuiteEntryScriptsForCases(suite, ["CASE-001"]), [
     "tests/web/demo/suites/registration/execution.manifest.ts",
@@ -129,6 +130,10 @@ test("one mapped selector component invalidates only its consuming case", async 
     smoke: ["CASE-001"],
     failed_or_blocked: []
   };
+  manifest.caseScriptBindings = [
+    manifest.caseScriptBindings[0]!,
+    { ...manifest.caseScriptBindings[0]!, caseId: "CASE-002" }
+  ];
   manifest.buildContracts[0]!.digest = createHash("sha256").update(contractText).digest("hex");
   manifest.buildContracts[0]!.semanticDigest = semanticBuildEvidenceDigest(
     "selector_contract",
@@ -220,9 +225,17 @@ async function createHarness(
       smoke: ["CASE-001"],
       failed_or_blocked: []
     },
-    formalManifest: { ...(await identity(manifestPath)), schemaVersion: "formal-execution-manifest-v4" as const },
+    formalManifest: { ...(await identity(manifestPath)), schemaVersion: "formal-execution-manifest-v1" as const },
     entryScripts: [await identity(manifestPath), await identity(specPath)].sort((left, right) => left.path.localeCompare(right.path)),
     scriptClosure: [await identity(manifestPath), await identity(specPath)].sort((left, right) => left.path.localeCompare(right.path)),
+    caseScriptBindings: [{
+      caseId: "CASE-001",
+      entryScript: await identity(specPath),
+      closureDigest: "",
+      reviewDigest: "4".repeat(64),
+      level: "verified" as const,
+      verificationDigest: "5".repeat(64)
+    }],
     impactMap: [{
       path: specPath,
       kind: "file" as const,
@@ -249,6 +262,7 @@ async function createHarness(
     allowedEnvironments: ["test", "pre"] as Array<"test" | "pre">,
     scriptReview: { level: "light" as const, evidenceDigests: [] }
   };
+  immutable.caseScriptBindings[0]!.closureDigest = digestStableScriptClosure(immutable.scriptClosure);
   const manifest: StableTestSuiteManifest = {
     ...immutable,
     suiteVersion: digestStableTestSuiteDesign(immutable),

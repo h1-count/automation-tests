@@ -8,8 +8,8 @@ import {
   TESTCASE_V6_LAYERED_MARKER
 } from "../testcase/testcaseDocument.js";
 
-export const PLAN_CONFIRMATION_SUBJECT_SCHEMA_V2 = "plan-confirmation-subject-v2";
-export const CASE_CONFIRMATION_SUBJECT_SCHEMA_V2 = "case-confirmation-subject-v2";
+export const PLAN_CONFIRMATION_SUBJECT_SCHEMA_VERSION = "plan-confirmation-subject-v1";
+export const CASE_CONFIRMATION_SUBJECT_SCHEMA_VERSION = "case-confirmation-subject-v1";
 
 export function normalizeDecisionMarkdown(value: string): string {
   return value.replace(/\r\n/g, "\n").trimEnd() + "\n";
@@ -221,7 +221,7 @@ function normalizedEnvironment(value: string | undefined): string {
 function normalizedDataStrategy(value: string): string {
   const source = normalizedBoundaryValue(value);
   if (/no[_ -]?write|无写入|零写入|只读/.test(source)) return "no_write";
-  if (/managed[_ -]?cleanup|可清理/.test(source)) return "managed_cleanup";
+  if (/可清理/.test(source)) return "ephemeral_cleanup";
   if (/tracked[_ -]?residual|受控残留/.test(source)) return "tracked_residual";
   if (/受控写入|写入/.test(source)) return "controlled_write";
   return source;
@@ -322,7 +322,7 @@ function categoricalBoundaries(value: string, scope: string): {
  * intentionally absent so evidence-backed testcase evolution stays within the
  * accepted plan subject.
  */
-export function planDecisionProjectionV2(value: string): string {
+export function planConfirmationSubjectProjection(value: string): string {
   const source = normalizeDecisionMarkdown(value);
   const firstSection = source.search(/^##\s+/m);
   const basicInformation = markdownSections(source)
@@ -336,14 +336,14 @@ export function planDecisionProjectionV2(value: string): string {
   const categorical = categoricalBoundaries(source, scope);
   const included = scopeItems(scope, "包含");
   const excluded = scopeItems(scope, "不包含");
-  const v3ScopeItems = [...scope.matchAll(/^\s*-\s+(.+)$/gmu)]
+  const ungroupedScopeItems = [...scope.matchAll(/^\s*-\s+(.+)$/gmu)]
     .map((match) => match[1]!.trim());
   return canonicalJson({
-    schemaVersion: PLAN_CONFIRMATION_SUBJECT_SCHEMA_V2,
+    schemaVersion: PLAN_CONFIRMATION_SUBJECT_SCHEMA_VERSION,
     requestId: normalizedBoundaryValue(requestId ?? ""),
     businessScope: {
-      included: included.length ? included : v3ScopeItems.filter((item) => !/^不包含/.test(item)),
-      excluded: excluded.length ? excluded : v3ScopeItems.filter((item) => /^不包含/.test(item))
+      included: included.length ? included : ungroupedScopeItems.filter((item) => !/^不包含/.test(item)),
+      excluded: excluded.length ? excluded : ungroupedScopeItems.filter((item) => /^不包含/.test(item))
     },
     testTypes: normalizedTestTypes(
       keyValueField(basicInformation, "测试类型"),
@@ -485,7 +485,7 @@ export interface CaseConfirmationSemanticCase {
 }
 
 /** Returns the complete semantic body for each testcase while excluding package
- * directories and any legacy status/review backlinks. */
+ * directories and any obsolete status/review backlinks. */
 export function caseConfirmationSemanticCases(value: string): CaseConfirmationSemanticCase[] {
   const source = normalizeDecisionMarkdown(value);
   const document = parseTestcaseDocument(source);
@@ -508,7 +508,31 @@ export function caseConfirmationSemanticCases(value: string): CaseConfirmationSe
       return { caseId: testcase.caseId, semanticSummary, refs };
     });
   }
-  throw new Error("Case confirmation only accepts testcase-v6-layered; archived formats cannot create a new confirmation.");
+  throw new Error("Case confirmation only accepts testcase-v1-layered; unsupported formats cannot create a new confirmation.");
+}
+
+/** The frozen confirmation range is shared by the callback subject and the
+ * review workbook; callers must not independently reimplement affected scope. */
+export function selectCaseConfirmationSemanticCases<T extends CaseConfirmationSemanticCase>(input: {
+  cases: T[];
+  scope: "full" | "affected";
+  affectedCaseIds?: string[];
+}): T[] {
+  const allIds = input.cases.map((testcase) => testcase.caseId);
+  if (new Set(allIds).size !== allIds.length) {
+    throw new Error("Case confirmation requires globally unique caseIds.");
+  }
+  const requested = input.scope === "affected"
+    ? [...new Set(input.affectedCaseIds ?? [])].sort()
+    : [...allIds].sort();
+  const selected = input.cases
+    .filter((testcase) => requested.includes(testcase.caseId))
+    .sort((left, right) => left.caseId.localeCompare(right.caseId));
+  const missing = requested.filter((caseId) => !selected.some((testcase) => testcase.caseId === caseId));
+  if (!selected.length || missing.length) {
+    throw new Error(`Case confirmation scope is incomplete${missing.length ? `: ${missing.join(", ")}` : "."}`);
+  }
+  return selected;
 }
 
 function filterAffectedDesignSection(body: string, refs: Set<string>): string {
@@ -521,9 +545,9 @@ function filterAffectedDesignSection(body: string, refs: Set<string>): string {
   return [heading, ...kept].join("\n").trimEnd();
 }
 
-/** Version-7 case confirmation projection. Formal decisions, runtime state and
+/** Case confirmation projection. Formal decisions, runtime state and
  * post-confirmation engineering mapping never participate in the subject. */
-export function caseConfirmationPlanProjectionV2(input: {
+export function caseConfirmationPlanProjection(input: {
   plan: string;
   scope: "full" | "affected";
   caseIds: string[];
@@ -560,8 +584,8 @@ export function caseConfirmationPlanProjectionV2(input: {
     return affected.split("\n").length > 1 ? [affected] : [];
   });
   return canonicalJson({
-    schemaVersion: CASE_CONFIRMATION_SUBJECT_SCHEMA_V2,
-    globalBoundary: planDecisionProjectionV2(source),
+    schemaVersion: CASE_CONFIRMATION_SUBJECT_SCHEMA_VERSION,
+    globalBoundary: planConfirmationSubjectProjection(source),
     design: normalizeDecisionMarkdown([preamble, ...sections].filter(Boolean).join("\n\n"))
   });
 }

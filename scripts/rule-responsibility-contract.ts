@@ -62,11 +62,11 @@ const rootRuleDelegatedDetailPatterns = [
   },
   {
     label: "automatic execution authorization algorithm",
-    pattern: /policy_auto_no_write_v2|read_only\s*\+\s*no_write/u
+    pattern: /policy_auto_no_write_v1|read_only\s*\+\s*no_write/u
   },
   {
     label: "reviewer lifecycle implementation",
-    pattern: /review-policy-v2|deterministic_only|ReviewerSubmitted/u
+    pattern: /review-policy-v1|deterministic_only|ReviewerSubmitted/u
   },
   {
     label: "host lifecycle state implementation",
@@ -176,8 +176,8 @@ const forbiddenSupportingRuleDetailPatterns: Partial<
       pattern: /文件顶部[^。\n]*不授权执行|前置条件[^。\n]*本轮不执行/u
     },
     {
-      label: "testcase legacy migration contract",
-      pattern: /旧 testcase-v2\/v3\/v4\/v5[^。\n]*(?:不迁移|原格式)/u
+      label: "testcase current contract boundary",
+      pattern: /旧工程用例格式[^。\n]*(?:不迁移|原格式)/u
     },
     {
       label: "Excel workbook layout contract",
@@ -185,7 +185,7 @@ const forbiddenSupportingRuleDetailPatterns: Partial<
     },
     {
       label: "execution auto-authorization algorithm",
-      pattern: /policy_auto_no_write_v2/u
+      pattern: /policy_auto_no_write_v1/u
     },
     {
       label: "reviewer lifecycle algorithm",

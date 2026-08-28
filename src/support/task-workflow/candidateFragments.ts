@@ -9,13 +9,24 @@ import {
 } from "../testcase/testcaseDocument.js";
 
 export const CANDIDATE_FRAGMENT_MANIFEST_SCHEMA_VERSION = "candidate-fragment-manifest-v1" as const;
+export type CandidateFragmentGenerationMode = "deterministic" | "model" | "mixed";
 
 export interface CandidateFragmentModule {
   id: string;
   title: string;
   ruleIds: string[];
+  caseIds: string[];
+  ruleCaseIds: Array<{ ruleId: string; caseIds: string[] }>;
   casePrefix: string;
   sourceRefs: string[];
+  generationMode: CandidateFragmentGenerationMode;
+  deterministicRuleIds: string[];
+  modelRuleIds: string[];
+  caseGeneration?: Array<{ caseId: string; clauseIds: string[]; mode: "deterministic" | "model" }>;
+  deterministicCaseIds?: string[];
+  modelCaseIds?: string[];
+  deterministicClauseIds?: string[];
+  modelClauseIds?: string[];
 }
 
 export interface CandidateFragmentManifest {
@@ -56,6 +67,7 @@ export function parseCandidateFragmentManifest(content: string): CandidateFragme
   }
   const ids = new Set<string>();
   const rules = new Set<string>();
+  const cases = new Set<string>();
   const modules = record.modules.map((raw): CandidateFragmentModule => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
       throw new Error("Candidate fragment module must be an object.");
@@ -67,6 +79,17 @@ export function parseCandidateFragmentManifest(content: string): CandidateFragme
     const ruleIds = Array.isArray(module.ruleIds) && module.ruleIds.every((item) => typeof item === "string")
       ? [...new Set(module.ruleIds)].sort()
       : [];
+    const caseIds = Array.isArray(module.caseIds) && module.caseIds.every((item) => typeof item === "string")
+      ? [...new Set(module.caseIds)].sort()
+      : [];
+    const ruleCaseIds = Array.isArray(module.ruleCaseIds) ? module.ruleCaseIds.map((item) => {
+      const value = item as Record<string, unknown>;
+      return {
+        ruleId: typeof value?.ruleId === "string" ? value.ruleId : "",
+        caseIds: Array.isArray(value?.caseIds) && value.caseIds.every((caseId) => typeof caseId === "string")
+          ? [...new Set(value.caseIds)].sort() : []
+      };
+    }).sort((left, right) => left.ruleId.localeCompare(right.ruleId)) : [];
     const sourceRefs = Array.isArray(module.sourceRefs) && module.sourceRefs.every((item) => typeof item === "string")
       ? [...new Set(module.sourceRefs)].sort()
       : [];
@@ -76,14 +99,92 @@ export function parseCandidateFragmentManifest(content: string): CandidateFragme
     if (!ruleIds.length || ruleIds.some((ruleId) => !ruleIdPattern.test(ruleId) || rules.has(ruleId))) {
       throw new Error(`Candidate fragment module ${id} has missing, invalid, or cross-module RULE ownership.`);
     }
+    if (!caseIds.length || caseIds.some((caseId) => !caseId.startsWith(`${casePrefix}-`) || cases.has(caseId))
+      || ruleCaseIds.length !== ruleIds.length
+      || ruleCaseIds.some((entry) => !ruleIds.includes(entry.ruleId) || !entry.caseIds.length
+        || entry.caseIds.some((caseId) => !caseIds.includes(caseId)))) {
+      throw new Error(`Candidate fragment module ${id} has invalid derived case ownership.`);
+    }
     if (!sourceRefs.length || sourceRefs.some((source) => !source.trim())) {
       throw new Error(`Candidate fragment module ${id} requires frozen source references.`);
     }
+    const generationMode = module.generationMode;
+    const deterministicRuleIds = Array.isArray(module.deterministicRuleIds) && module.deterministicRuleIds.every((item) => typeof item === "string")
+      ? [...new Set(module.deterministicRuleIds)].sort()
+      : [];
+    const modelRuleIds = Array.isArray(module.modelRuleIds) && module.modelRuleIds.every((item) => typeof item === "string")
+      ? [...new Set(module.modelRuleIds)].sort()
+      : [];
+    const hasCaseGeneration = true;
+    if (!["deterministic", "model", "mixed"].includes(generationMode as string)
+      || deterministicRuleIds.some((ruleId) => !ruleIds.includes(ruleId))
+      || modelRuleIds.some((ruleId) => !ruleIds.includes(ruleId))
+      || new Set([...deterministicRuleIds, ...modelRuleIds]).size !== ruleIds.length
+      || deterministicRuleIds.some((ruleId) => modelRuleIds.includes(ruleId))
+      || (generationMode === "deterministic" && modelRuleIds.length)
+      || (generationMode === "model" && deterministicRuleIds.length)
+      || (generationMode === "mixed" && (!deterministicRuleIds.length || !modelRuleIds.length))) {
+      throw new Error(`Candidate fragment module ${id} has invalid compiler generation ownership.`);
+    }
+    const caseGeneration = Array.isArray(module.caseGeneration) ? module.caseGeneration.map((raw) => {
+      const entry = raw as Record<string, unknown>;
+      return {
+        caseId: typeof entry?.caseId === "string" ? entry.caseId : "",
+        clauseIds: Array.isArray(entry?.clauseIds) && entry.clauseIds.every((item) => typeof item === "string")
+          ? [...new Set(entry.clauseIds)].sort() : [],
+        mode: entry?.mode === "deterministic" || entry?.mode === "model" ? entry.mode : ""
+      };
+    }).sort((left, right) => left.caseId.localeCompare(right.caseId)) : [];
+    const deterministicCaseIds = Array.isArray(module.deterministicCaseIds) && module.deterministicCaseIds.every((item) => typeof item === "string")
+      ? [...new Set(module.deterministicCaseIds)].sort() : [];
+    const modelCaseIds = Array.isArray(module.modelCaseIds) && module.modelCaseIds.every((item) => typeof item === "string")
+      ? [...new Set(module.modelCaseIds)].sort() : [];
+    const deterministicClauseIds = Array.isArray(module.deterministicClauseIds) && module.deterministicClauseIds.every((item) => typeof item === "string")
+      ? [...new Set(module.deterministicClauseIds)].sort() : [];
+    const modelClauseIds = Array.isArray(module.modelClauseIds) && module.modelClauseIds.every((item) => typeof item === "string")
+      ? [...new Set(module.modelClauseIds)].sort() : [];
+    const allGeneratedCases = [...deterministicCaseIds, ...modelCaseIds].sort();
+    const allGeneratedClauses = caseGeneration.flatMap((entry) => entry.clauseIds);
+    const partitionedClauses = [...deterministicClauseIds, ...modelClauseIds].sort();
+    if (hasCaseGeneration && (caseGeneration.length !== caseIds.length
+      || caseGeneration.some((entry) => !caseIds.includes(entry.caseId) || !entry.clauseIds.length || !["deterministic", "model"].includes(entry.mode))
+      || new Set(allGeneratedClauses).size !== allGeneratedClauses.length
+      || allGeneratedCases.join("|") !== caseIds.join("|")
+      || caseGeneration.some((entry) => entry.mode === "deterministic" ? !deterministicCaseIds.includes(entry.caseId) : !modelCaseIds.includes(entry.caseId))
+      || partitionedClauses.length !== allGeneratedClauses.length
+      || partitionedClauses.join("|") !== [...allGeneratedClauses].sort().join("|")
+      || deterministicCaseIds.length > 0 && !deterministicClauseIds.length
+      || modelCaseIds.length > 0 && !modelClauseIds.length)) {
+      throw new Error(`Candidate fragment module ${id} has invalid v11 case generation ownership.`);
+    }
     ids.add(id);
     ruleIds.forEach((ruleId) => rules.add(ruleId));
-    return { id, title, ruleIds, casePrefix, sourceRefs };
+    caseIds.forEach((caseId) => cases.add(caseId));
+    return {
+      id,
+      title,
+      ruleIds,
+      caseIds,
+      ruleCaseIds,
+      casePrefix,
+      sourceRefs,
+      generationMode: generationMode as CandidateFragmentGenerationMode,
+      deterministicRuleIds,
+      modelRuleIds,
+      ...(hasCaseGeneration ? {
+        caseGeneration: caseGeneration as CandidateFragmentModule["caseGeneration"],
+        deterministicCaseIds,
+        modelCaseIds,
+        deterministicClauseIds,
+        modelClauseIds
+      } : {})
+    };
   });
-  return { schemaVersion: CANDIDATE_FRAGMENT_MANIFEST_SCHEMA_VERSION, scope: record.scope, modules };
+  return {
+    schemaVersion: record.schemaVersion as CandidateFragmentManifest["schemaVersion"],
+    scope: record.scope,
+    modules
+  };
 }
 
 export function candidateFragmentManifestDigest(manifest: CandidateFragmentManifest): string {
@@ -110,8 +211,28 @@ export function validateCandidateFragmentContent(
   }
   const caseIds = [...content.matchAll(/<summary>\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\s*｜/gu)]
     .map((match) => match[1]!);
-  if (!caseIds.length || caseIds.some((caseId) => !caseId.startsWith(`${module.casePrefix}-`))) {
+  if (!caseIds.length || new Set(caseIds).size !== caseIds.length
+    || caseIds.some((caseId) => !module.caseIds.includes(caseId))) {
     throw new Error(`Candidate fragment ${module.id} has a caseId outside its frozen prefix.`);
+  }
+  if (caseIds.length !== module.caseIds.length || module.caseIds.some((caseId) => !caseIds.includes(caseId))) {
+    throw new Error(`Candidate fragment ${module.id} does not cover every frozen caseId.`);
+  }
+  const expectedRulesByCase = new Map(module.caseIds.map((caseId) => [
+    caseId,
+    module.ruleCaseIds.filter((entry) => entry.caseIds.includes(caseId)).map((entry) => entry.ruleId).sort()
+  ]));
+  const details = [...content.matchAll(/<details(?:\s+open)?>([\s\S]*?)<\/details>/gu)];
+  if (details.length !== caseIds.length) throw new Error(`Candidate fragment ${module.id} has malformed case blocks.`);
+  for (const block of details) {
+    const caseId = /<summary>\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\s*｜/u.exec(block[1] ?? "")?.[1];
+    const ruleLine = /^>\s*规则：([^\n]+)$/mu.exec(block[1] ?? "")?.[1];
+    const actualRules = ruleLine ? [...new Set(ruleLine.split("、").map((ruleId) => ruleId.trim()).filter(Boolean))].sort() : [];
+    const expectedRules = caseId ? expectedRulesByCase.get(caseId) : undefined;
+    if (!caseId || !expectedRules || actualRules.length !== expectedRules.length
+      || actualRules.some((ruleId, index) => ruleId !== expectedRules[index])) {
+      throw new Error(`Candidate fragment ${module.id} has a case/RULE association outside its frozen relation.`);
+    }
   }
 }
 
@@ -135,7 +256,7 @@ export function assembleCandidateFragments(input: {
     return fragment.trim();
   });
   const content = projectTestcaseV6DerivedView([
-    "> 结构版本：testcase-v6-layered。",
+    "> 结构版本：testcase-v1-layered。",
     "",
     "# 用例集：候选测试设计",
     "",
@@ -146,7 +267,7 @@ export function assembleCandidateFragments(input: {
   ].join("\n"));
   const issues = validateTestcaseV6Layered(content);
   if (issues.length) {
-    throw new Error(`Candidate assembly produced invalid testcase-v6-layered content: ${issues.join(" ")}`);
+    throw new Error(`Candidate assembly produced invalid testcase-v1-layered content: ${issues.join(" ")}`);
   }
   return `${content.trimEnd()}\n`;
 }
@@ -163,7 +284,7 @@ export function assembleCandidateDelta(input: {
 }): string {
   const baselineDocument = parseTestcaseDocument(input.baseline);
   if (!isCurrentTestcaseDocumentVersion(baselineDocument.version)) {
-    throw new Error("Delta assembly requires a testcase-v6-layered stable baseline.");
+    throw new Error("Delta assembly requires a testcase-v1-layered stable baseline.");
   }
   const affected = new Set(input.affectedRuleIds);
   const baselineRules = new Set(baselineDocument.cases.flatMap((testcase) => testcase.ruleIds));
@@ -184,7 +305,7 @@ export function assembleCandidateDelta(input: {
     .trimEnd();
   const candidate = projectTestcaseV6DerivedView(`${withoutAffected}\n\n${fragmentSections.join("\n\n")}\n`);
   const issues = validateTestcaseV6Layered(candidate);
-  if (issues.length) throw new Error(`Delta assembly produced invalid testcase-v6-layered content: ${issues.join(" ")}`);
+  if (issues.length) throw new Error(`Delta assembly produced invalid testcase-v1-layered content: ${issues.join(" ")}`);
   const actual = parseTestcaseDocument(candidate);
   const before = new Map(baselineDocument.cases.map((testcase) => [testcase.caseId, testcase.rawBody]));
   for (const caseId of input.unaffectedCaseIds) {

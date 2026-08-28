@@ -30,18 +30,6 @@ interface HostContinuationDirective {
   recursiveGuard?: boolean;
 }
 
-function legacyStopAdapterEnvelope(
-  directive: HostContinuationDirective
-): Record<string, unknown> {
-  if (directive.action === "continue") {
-    return { decision: "block", reason: directive.reason };
-  }
-  if (directive.recursiveGuard === true) {
-    return { continue: false, stopReason: directive.reason };
-  }
-  return {};
-}
-
 function hostContinuationDirective(
   gate: WorkflowGateView,
   adapterActive: boolean
@@ -96,20 +84,14 @@ async function main(): Promise<void> {
     );
   }
   const gate = await manager.gate();
-  const legacyStopAdapter = args.includes("--hook");
-  if (args.includes("--host-continuation") || legacyStopAdapter) {
+  if (args.includes("--host-continuation")) {
     const adapterActive = parseBoolean(
-      option(
-        args,
-        legacyStopAdapter ? "--stop-hook-active" : "--host-continuation-active"
-      ),
-      legacyStopAdapter ? "--stop-hook-active" : "--host-continuation-active",
+      option(args, "--host-continuation-active"),
+      "--host-continuation-active",
       false
     );
     const directive = hostContinuationDirective(gate, adapterActive);
-    process.stdout.write(`${JSON.stringify(
-      legacyStopAdapter ? legacyStopAdapterEnvelope(directive) : directive
-    )}\n`);
+    process.stdout.write(`${JSON.stringify(directive)}\n`);
   } else {
     process.stdout.write(
       `${args.includes("--json") ? JSON.stringify(gate) : workflowStatusText(gate)}\n`

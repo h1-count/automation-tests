@@ -49,14 +49,14 @@ export function resolveReviewSpeed(input: {
 /**
  * Cap a risk-derived review mode by speed. `fast` keeps one combined reviewer
  * only when the suite effectively writes data; `balanced` keeps at most one
- * combined reviewer; `strict` (and legacy undefined) keeps the derivation.
+ * combined reviewer; `strict` keeps the derivation.
  */
 export function capReviewMode(
-  speed: ReviewSpeed | undefined,
+  speed: ReviewSpeed,
   derived: "combined_with_impact" | "combined" | "deterministic_only",
   effectiveWritesData: boolean
 ): "combined_with_impact" | "combined" | "deterministic_only" {
-  if (speed === undefined || speed === "strict") return derived;
+  if (speed === "strict") return derived;
   if (speed === "fast") {
     return effectiveWritesData ? "combined" : "deterministic_only";
   }

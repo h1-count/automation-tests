@@ -9,10 +9,12 @@ import { parseFormalWorkerCount } from "./src/support/formal-execution/runnerPol
 
 const testEnvironment = resolveTestEnvironment();
 const formalLifecycleEnabled = Boolean(process.env.AUTOMATION_REQUEST_ID?.trim());
-const formalRequestMatch = process.env.PLAYWRIGHT_FORMAL_SCRIPT_SCOPE?.trim()
-  || process.env.AUTOMATION_REQUEST_ID?.trim();
-if (formalRequestMatch && !/^(?:web|h5)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)+$/u.test(formalRequestMatch)) {
-  throw new Error("PLAYWRIGHT_FORMAL_SCRIPT_SCOPE must be a safe tests-relative Web/H5 directory.");
+const formalScriptScope = process.env.PLAYWRIGHT_FORMAL_SCRIPT_SCOPE?.trim()
+  || (formalLifecycleEnabled
+    ? `.local/test-runs/${process.env.AUTOMATION_REQUEST_ID!.trim()}/candidate-scripts`
+    : undefined);
+if (formalScriptScope && !/^(?:tests\/(?:web|h5)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*|\.local\/test-runs\/(?:web|h5)\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/candidate-scripts)$/u.test(formalScriptScope)) {
+  throw new Error("PLAYWRIGHT_FORMAL_SCRIPT_SCOPE must name a stable Web/H5 suite or this request's candidate-scripts directory.");
 }
 const formalWorkers = formalLifecycleEnabled
   ? parseFormalWorkerCount(process.env.PLAYWRIGHT_FORMAL_WORKERS)
@@ -62,7 +64,9 @@ if (formalLifecycleEnabled) {
 export default defineConfig({
   metadata: { automationMode: "execute" },
   // Web/H5 正式 Runner 只发现 Playwright 用例；App 用例由 WebdriverIO 单独执行。
-  testDir: formalLifecycleEnabled ? "./tests" : "./tests/web",
+  // Formal requests can discover either a stable suite script or the current
+  // request's local candidate script. The scope is validated above.
+  testDir: formalLifecycleEnabled ? "." : "./tests/web",
   testMatch: "**/*.spec.ts",
   outputDir: `artifacts/test-results/playwright${waveSuffix}`,
   fullyParallel: false,
@@ -82,7 +86,7 @@ export default defineConfig({
   projects: formalLifecycleEnabled ? [
     {
       name: "chromium",
-      testMatch: formalRequestMatch ? `${formalRequestMatch}/*.formal.spec.ts` : "**/*.formal.spec.ts",
+      testMatch: formalScriptScope ? `${formalScriptScope}/*.formal.spec.ts` : "**/*.formal.spec.ts",
       ...(authorizedCasePattern ? { grep: authorizedCasePattern } : {}),
       use: { ...devices["Desktop Chrome"] }
     }

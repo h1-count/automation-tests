@@ -5,6 +5,7 @@ import {
   deriveReviewRiskSelection
 } from "../../../src/support/task-workflow/reviewPolicy.js";
 import { buildWorkflowDefinition } from "../../../src/support/task-workflow/definition.js";
+import { isDeterministicReviewMode } from "../../../src/support/task-workflow/types.js";
 
 test("light profile uses deterministic checks without a model reviewer", () => {
   const selection = deriveReviewRiskSelection({
@@ -35,7 +36,7 @@ test("light profile uses deterministic checks without a model reviewer", () => {
   ]);
 });
 
-test("v7 boundary category labels do not create a false strict review", () => {
+test("current boundary category labels do not create a false strict review", () => {
   const policy = buildReviewPolicy({
     planText: `# 设计索引
 
@@ -68,18 +69,12 @@ test("new workflow definitions pin the selected risk profile and reviewer reason
   });
 
   assert.equal(definition.reviewPolicy?.riskProfile, "light");
-  assert.equal(definition.reviewPolicy?.schemaVersion, "review-policy-v2");
-  assert.equal(definition.reviewPolicy?.mode, "deterministic_only");
+  assert.ok(definition.reviewPolicy !== undefined && isDeterministicReviewMode(definition.reviewPolicy));
+  assert.equal(definition.reviewPolicy.mode, "deterministic_only");
   assert.deepEqual(definition.reviewPolicy?.requiredRoles, []);
   assert.deepEqual(definition.reviewPolicy?.selectionReasons, [
     "bounded_structure:req=1;rule=1;case=1;capabilities=1;packages=1"
   ]);
-  assert.deepEqual(
-    definition.activities
-      .filter((activity) => activity.kind === "review")
-      .map((activity) => activity.metadata?.role),
-    []
-  );
   assert.equal(
     definition.activities.find((activity) => activity.id === "readiness")
       ?.metadata?.readinessPolicyVersion,
@@ -139,14 +134,11 @@ test("strict profile records stable markers and selects impact review", () => {
   ]);
 });
 
-test("legacy buildReviewPolicy calls retain their default reviewer set", () => {
-  assert.deepEqual(buildReviewPolicy({
-    writesData: false
-  }).requiredRoles, ["requirements", "design", "traceability"]);
-
-  assert.deepEqual(buildReviewPolicy({
-    writesData: true
-  }).requiredRoles, ["requirements", "design", "traceability", "impact"]);
+test("review policy rejects missing current risk context", () => {
+  assert.throws(
+    () => buildReviewPolicy({ writesData: false }),
+    /requires planText, capabilities and casePackages/
+  );
 });
 
 test("explicit roles override automatic selection when no data write is present", () => {

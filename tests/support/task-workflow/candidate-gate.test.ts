@@ -13,7 +13,9 @@ import {
   isPolicyAutoNoWriteSubject
 } from "../../../src/support/task-workflow/workflowManager.js";
 import { DurableWorkflowManager } from "../../../src/support/task-workflow/workflowManager.js";
-import { parseReviewBatchScope } from "../../../src/support/task-workflow/reviewBatchScope.js";
+import { parseReviewBatchScope,
+  hasCompleteReviewBatchScope
+} from "../../../src/support/task-workflow/reviewBatchScope.js";
 import { recordFormalDecision } from "./formalDecisionFixture.js";
 
 const sourceDigest = "a".repeat(64);
@@ -21,8 +23,8 @@ const sourceDigest = "a".repeat(64);
 function plan(dataStrategy = "no_write", environment = "test"): string {
   return `# Demo
 
-> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
-> 用例格式：testcase-v6-layered。
+> 结构版本：test-design-index-v1 / rule-design-ledger-v1 / case-relation-projection-v1。
+> 用例格式：testcase-v1-layered。
 
 ## 请求默认值
 
@@ -70,9 +72,9 @@ function plan(dataStrategy = "no_write", environment = "test"): string {
 `;
 }
 
-function cases(_legacyRows = "", dataStrategy = "no_write", environment = "test"): string {
+function cases(_ignoredRows = "", dataStrategy = "no_write", environment = "test"): string {
   const risk = environment === "production" ? "高" : "低";
-  return `> 结构版本：testcase-v6-layered。
+  return `> 结构版本：testcase-v1-layered。
 
 # 用例集：Demo
 
@@ -140,6 +142,21 @@ test("no_write cases with business write verbs are blocked at the candidate gate
   assert.equal(cleanReport.issues.some((issue) => issue.includes("写动词")), false);
 });
 
+test("no_write permits document inspection but blocks executable create and API calls", () => {
+  const inspection = cases().replace("打开页面", "核对创建产品 API 路径与请求方式");
+  assert.equal(evaluateCandidateGate({ plan: plan(), cases: inspection }).issues.some((issue) => issue.includes("写动词")), false);
+  for (const action of ["打开创建产品入口", "查看未上传图片产品的列表记录", "查看提交前状态"]) {
+    const candidate = cases().replace("打开页面", action);
+    assert.equal(evaluateCandidateGate({ plan: plan(), cases: candidate }).issues.some((issue) => issue.includes("写动词")), false, action);
+  }
+  const fieldValidation = cases().replace("打开页面", "输入手机号并失焦校验，不提交表单");
+  assert.equal(evaluateCandidateGate({ plan: plan(), cases: fieldValidation }).reviewMode, "deterministic_only");
+  for (const action of ["发送 POST 创建请求", "调用创建产品接口", "点击创建并提交", "编辑产品信息并保存", "删除记录"]) {
+    const candidate = cases().replace("打开页面", action);
+    assert.ok(evaluateCandidateGate({ plan: plan(), cases: candidate }).issues.some((issue) => issue.includes("写动词")), action);
+  }
+});
+
 test("required-field rules without an empty-input data row raise a coverage warning", () => {
   const requiredPlan = plan().replace(
     "| RULE-DEMO-001 | REQ-DEMO-001 | SRC-DEMO-001；第 1 页 | 用户打开页面 |",
@@ -171,51 +188,11 @@ test("candidate gate keeps a lean design deterministic", () => {
   assert.deepEqual(candidateReviewRoles(report), []);
 });
 
-test("v7 candidate-generation rejects an archived testcase marker", async (context) => {
-  const root = await mkdtemp(resolve(tmpdir(), "candidate-gate-v4-version-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
-  const requestId = "web/demo/v4-version";
-  const requestRoot = resolve(root, "testcases", ...requestId.split("/"));
-  const sourcePath = resolve(root, "demo-spec.pdf");
-  const source = Buffer.from("demo requirement", "utf8");
-  const sourceSha = createHash("sha256").update(source).digest("hex");
-  const planText = plan()
-    .replace("web/demo/request", requestId)
-    .replace("/tmp/demo-spec.pdf", sourcePath)
-    .replace(sourceDigest, sourceSha);
-  const casesText = cases().replace("testcase-v6-layered", "testcase-v4");
-  await mkdir(requestRoot, { recursive: true });
-  await writeFile(sourcePath, source);
-  await writeFile(resolve(requestRoot, "plan.md"), planText, "utf8");
-  await writeFile(resolve(requestRoot, "cases.md"), casesText, "utf8");
-
-  const manager = new DurableWorkflowManager(requestId, root);
-  await manager.initialize({
-    capabilities: ["web"],
-    casePackages: ["cases.md"],
-    deliveryTarget: "testcase_only"
-  });
-  const sourceSelection = await manager.startActivity("source-selection", "test");
-  await manager.succeedActivity("source-selection", {
-    claimToken: sourceSelection.claimToken,
-    verification: "source selected"
-  });
-  const generation = await manager.startActivity("candidate-generation", "test");
-  await assert.rejects(
-    manager.publishArtifactsAndSucceed("candidate-generation", {
-      claimToken: generation.claimToken,
-      publishId: "candidate-generation-v4-version-test",
-      verification: "v4 candidate generated",
-      artifacts: [{
-        targetPath: `testcases/${requestId}/plan.md`,
-        content: planText
-      }, {
-        targetPath: `testcases/${requestId}/cases.md`,
-        content: casesText
-      }]
-    }),
-    /must use testcase-v6-layered/u
-  );
+test("candidate gate rejects an unsupported testcase marker", () => {
+  const planText = plan();
+  const casesText = cases().replace("testcase-v1-layered", "testcase-v1");
+  const report = evaluateCandidateGate({ plan: planText, cases: casesText });
+  assert.ok(report.issues.some((issue) => issue.includes("testcase-v1-layered")));
 });
 
 test("lean reviewer failure is waived once with a durable warning", async (context) => {
@@ -298,7 +275,7 @@ test("ordinary cleanup writes keep lean cases but require impact review", () => 
   assert.deepEqual(candidateReviewRoles(report), ["combined", "impact"]);
 });
 
-test("resume activates a frozen targeted review batch after v7 evolution", async (context) => {
+test("resume activates a frozen targeted review batch after current evolution", async (context) => {
   const root = await mkdtemp(resolve(tmpdir(), "candidate-gate-review-activation-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const requestId = "web/demo/review-activation";
@@ -513,9 +490,10 @@ test("strict reviewer retries once and then blocks execution", async (context) =
   }
 });
 
-test("policy_auto_no_write_v2 accepts only fully proven test/pre read-only scope", () => {
+test("policy_auto_no_write_v1 accepts only fully proven test/pre read-only scope", () => {
   const safe = {
-    schemaVersion: "execution-authorization-v4",
+    schemaVersion: "execution-authorization-v1",
+    mode: "request",
     environment: "pre",
     dataWritePolicy: "no_write",
     allowedOperations: ["authenticate_test_account", "query_postcondition"],
@@ -573,7 +551,7 @@ test("request source digest drift invalidates only linked rules and cases", () =
   assert.equal(impact.fullReplanRequired, false);
 });
 
-test("single-reviewer v7 evolution auto-activates the review activity without manual invalidate", async (context) => {
+test("single-reviewer current evolution auto-activates the review activity without manual invalidate", async (context) => {
   const root = await mkdtemp(resolve(tmpdir(), "candidate-gate-single-reviewer-activation-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const requestId = "web/demo/single-reviewer-activation";
@@ -692,7 +670,7 @@ test("single-reviewer v7 evolution auto-activates the review activity without ma
   );
 });
 
-test("v7 formal decision refreshes the review epoch so later batches are not permanently blocked", async (context) => {
+test("current formal decision refreshes the review epoch so later batches are not permanently blocked", async (context) => {
   const root = await mkdtemp(resolve(tmpdir(), "candidate-gate-epoch-refresh-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const requestId = "web/demo/epoch-refresh";
@@ -748,7 +726,7 @@ test("v7 formal decision refreshes the review epoch so later batches are not per
       event.type === "ReviewBatchStarted" && event.payload.batchId === batchBeforeDecision
     )!.payload.scope
   );
-  assert.equal(beforeScope.schemaVersion, "review-batch-scope-v3");
+  assert.equal(beforeScope.schemaVersion, "review-batch-scope-v1");
 
   await manager.dispatchReviewer({
     activityId: "case-review-combined",
@@ -809,8 +787,8 @@ test("v7 formal decision refreshes the review epoch so later batches are not per
       event.type === "ReviewBatchStarted" && event.payload.batchId === batchAfterDecision
     )!.payload.scope
   );
-  assert.equal(afterScope.schemaVersion, "review-batch-scope-v3");
-  if (afterScope.schemaVersion === "review-batch-scope-v3") {
+  assert.equal(afterScope.schemaVersion, "review-batch-scope-v1");
+  if (hasCompleteReviewBatchScope(afterScope) && hasCompleteReviewBatchScope(beforeScope)) {
     assert.notEqual(afterScope.reviewEpochDigest, beforeScope.reviewEpochDigest);
   }
 });

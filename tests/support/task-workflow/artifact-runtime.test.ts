@@ -36,7 +36,7 @@ test("runtime uses one disposable request snapshot with CAS and fencing", async 
   const store = new RuntimeLeaseStore("web/demo/request-1", runtimeRoot);
 
   const initialized = await store.initialize();
-  assert.equal(initialized.schemaVersion, "test-workflow-runtime-v2");
+  assert.equal(initialized.schemaVersion, "test-workflow-runtime-v1");
   assert.equal(store.runtimePath, resolve(runtimeRoot, "web/demo/request-1/runtime.json"));
   const bound = await store.bindSession("session-local", "thread-local");
   assert.equal(bound.sessionBinding?.sessionId, "session-local");
@@ -60,8 +60,8 @@ test("runtime uses one disposable request snapshot with CAS and fencing", async 
   await assert.rejects(() => store.assertCanCommit(lease1), WorkflowRuntimeLeaseError);
 });
 
-test("legacy v1 runtime is ignored and recreated as disposable v2 coordination state", async (context) => {
-  const workspace = await mkdtemp(resolve(tmpdir(), "workflow-runtime-v1-rebuild-"));
+test("unsupported runtime schema is rejected without migration", async (context) => {
+  const workspace = await mkdtemp(resolve(tmpdir(), "workflow-runtime-reject-"));
   context.after(() => rm(workspace, { recursive: true, force: true }));
   const store = new RuntimeLeaseStore(
     "web/demo/runtime-rebuild",
@@ -69,7 +69,7 @@ test("legacy v1 runtime is ignored and recreated as disposable v2 coordination s
   );
   await mkdir(store.requestRoot, { recursive: true });
   await writeFile(store.runtimePath, JSON.stringify({
-    schemaVersion: "test-workflow-runtime-v1",
+    schemaVersion: "unsupported-version",
     requestId: "web/demo/runtime-rebuild",
     revision: 99,
     reviewerBindings: {},
@@ -78,11 +78,8 @@ test("legacy v1 runtime is ignored and recreated as disposable v2 coordination s
     stagingRefs: {}
   }), "utf8");
 
-  assert.equal(await store.read(), null);
-  const rebuilt = await store.initialize();
-  assert.equal(rebuilt.schemaVersion, "test-workflow-runtime-v2");
-  assert.equal(rebuilt.revision, 0);
-  assert.equal(JSON.parse(await readFile(store.runtimePath, "utf8")).schemaVersion, "test-workflow-runtime-v2");
+  await assert.rejects(() => store.read(), /invalid identity or revision/);
+  await assert.rejects(() => store.initialize(), /invalid identity or revision/);
 });
 
 test("rebuilding a deleted v1 runtime does not alter durable workflow history", async (context) => {
@@ -97,7 +94,7 @@ test("rebuilding a deleted v1 runtime does not alter durable workflow history", 
     runId: "runtime-history-run",
     requestId,
     definitionId: "durable-test-workflow",
-    definitionVersion: "v5",
+    definitionVersion: "v1",
     type: "WorkflowStarted",
     actorType: "system",
     idempotencyKey: "start",
@@ -477,7 +474,7 @@ test("package completeness requires unique caseIds and every required section", 
 });
 
 function validCase(caseId: string): string {
-  return `> 结构版本：testcase-v6-layered。
+  return `> 结构版本：testcase-v1-layered。
 
 # 用例集：${caseId}
 

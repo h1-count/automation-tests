@@ -7,8 +7,8 @@ import {
   parseTestcaseDocument
 } from "../testcase/testcaseDocument.js";
 
-export const LEGACY_CASE_REVIEW_RISK_SCHEMA_VERSION = "case-review-risk-v1" as const;
-export const CASE_REVIEW_RISK_SCHEMA_VERSION = "case-review-risk-v2" as const;
+export const CURRENT_CASE_REVIEW_RISK_SCHEMA_VERSION = "case-review-risk-v1" as const;
+export const CASE_REVIEW_RISK_SCHEMA_VERSION = "case-review-risk-v1" as const;
 
 export type CaseReviewRiskLevel = "light" | "standard" | "strict";
 
@@ -107,7 +107,7 @@ function parseCases(markdownSources: string[], plan?: string): ParsedCase[] {
   return markdownSources.flatMap((source) => {
     const document = parseTestcaseDocument(source);
     if (!isStructuredTestcaseDocumentVersion(document.version)) {
-      throw new Error("Case review risk only accepts testcase-v6-layered.");
+      throw new Error("Case review risk only accepts testcase-v1-layered.");
     }
     return document.cases.map((testcase) => {
         const metadata = new Map<string, string>([

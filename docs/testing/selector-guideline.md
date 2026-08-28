@@ -149,7 +149,7 @@ const submitButton = page.locator(
 
 ### 8.1 正式执行中的定位漂移识别
 
-v7 `full_replan` 或 `affected_rebuild` 生成的 Web/H5 正式脚本，对可恢复点击定位使用 `guardedRoleLocator()`。包装器先验证已冻结的精确 `role/name`；失败时只在同一业务容器、同一页面状态和同一 role 内执行零写入观察。候选观察只允许读取受限 accessible name、检查唯一可见性，并以 `click({ trial: true })` 验证可操作性；不得自动点击候选元素。
+v1 `full_replan` 或 `affected_rebuild` 生成的 Web/H5 正式脚本，对可恢复点击定位使用 `guardedRoleLocator()`。包装器先验证已冻结的精确 `role/name`；失败时只在同一业务容器、同一页面状态和同一 role 内执行零写入观察。候选观察只允许读取受限 accessible name、检查唯一可见性，并以 `click({ trial: true })` 验证可操作性；不得自动点击候选元素。
 
 自动修复资格必须同时满足：定位策略、role、业务容器、页面状态和预期动作均未变化；候选唯一、可见且可操作；新旧 accessible name 存在确定性的包含关系；该文案只用于定位，不属于用例预期或业务 Oracle；当前 attempt 尚未完成阶段、外部转换、数据 intent、操作 reservation、资源生产或其他副作用。修复只允许替换受控包装器内唯一的字符串字面量。
 

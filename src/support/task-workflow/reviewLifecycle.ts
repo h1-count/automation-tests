@@ -50,9 +50,10 @@ export async function verifyOrRepairReviewSnapshot(
     if (!batch || !inputPaths.length || typeof batch.payload.inputDigest !== "string") {
       throw new Error(`Review batch ${batchId} has no repairable frozen input snapshot.`);
     }
-    const scope = batch.payload.scope === undefined
-      ? undefined
-      : parseReviewBatchScope(batch.payload.scope);
+    if (batch.payload.scope === undefined) {
+      throw new Error(`Review batch ${batchId} has no repairable v1 scope.`);
+    }
+    const scope = parseReviewBatchScope(batch.payload.scope);
     const repaired = await store.repair(batchId, inputPaths, scope);
     if (repaired.combinedDigest !== batch.payload.inputDigest) {
       throw new ReviewInputDriftError(batchId, "The recovered source digest differs from durable batch input.");
@@ -245,8 +246,8 @@ export interface ReviewLifecycleEventInput {
   readinessDigest?: string;
   readinessWarnings?: string[];
   roleInputDigests?: Record<string, string>;
-  /** New v8 batches persist the exact replay algorithm used for input refs. */
-  inputDigestAlgorithm?: "review-input-digest-v4";
+  /** Current batches persist the exact replay algorithm used for input refs. */
+  inputDigestAlgorithm?: "review-input-digest-v1";
   /** Frozen per-attempt reviewer LLM call and wall-clock budget. */
   reviewerExecutionPolicy?: "reviewer-execution-policy-v1";
   /** Safe runtime references and aggregate sizes only; never packet content. */
@@ -301,7 +302,7 @@ export function prepareReviewLifecycleEvent(
   ) {
     if (!input.role || !expectedJoinRoles.includes(input.role)) {
       throw new Error(
-        `Compatibility reviewer join ${input.activityId} requires role ${expectedJoinRoles.join(" or ")}.`
+        `Reviewer join ${input.activityId} requires role ${expectedJoinRoles.join(" or ")}.`
       );
     }
     if (
@@ -313,7 +314,7 @@ export function prepareReviewLifecycleEvent(
     if (input.type === "ReviewerSubmitted") {
       if (!reviewerActivity.reviewerDispatchedRoles?.includes(input.role)) {
         throw new Error(
-          `Compatibility reviewer role ${input.role} must be dispatched before submission.`
+          `Reviewer role ${input.role} must be dispatched before submission.`
         );
       }
       if (reviewerActivity.reviewerSubmittedRoles?.includes(input.role)) {

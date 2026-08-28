@@ -34,6 +34,11 @@ export interface CandidateGateReport {
   effectiveDataStrategies: string[];
   issues: string[];
   repairCategories: string[];
+  /** Failures that are mechanically diagnosable and safe to retry after the
+   * deterministic control plane is repaired. They never authorize text edits. */
+  autoFixable: string[];
+  /** Business semantics that require reviewer or user input. */
+  manualReview: string[];
   warnings: string[];
   digest: string;
 }
@@ -60,16 +65,25 @@ const dataStrategies = [
 ] as const;
 
 const strictRisk = /(?:\bprod(?:uction)?\b|生产环境|真实数据|归属未知|批量|不可逆|权限提升|安全挑战|滑块|图形验证码|人机验证|\bOTP\b|设备动作|控制硬件|刷固件|断网|结果未知|无法判定|来源冲突|未定义验收)/iu;
-const impactRisk = /(?:ephemeral_cleanup|reusable_fixture|tracked_residual|写入|新增|创建|修改|更新|删除|上传|提交|权限|安全挑战|验证码|\bOTP\b|设备|\bMQTT\b|结果未知|无法判定)/iu;
+/** Impact review is about actual side effects or independent safety boundaries,
+ * never a negated verb in a precondition such as "不提交表单". */
+const impactContextRisk = /(?:权限|安全挑战|验证码|\bOTP\b|设备|\bMQTT\b|结果未知|无法判定)/iu;
 const combinedRisk = /(?:来源冲突|未定义验收|待确认|决策表|状态迁移|状态流转|角色差异|多条件)/iu;
 const secretLiteral = /(?:password|passwd|token|secret|cookie|authorization|验证码|口令)\s*(?:=|:|\|)\s*(?!<|\$\{|\*{3,}|\[?REDACTED\]?)["'`]?[^\s|"'`]{6,}/iu;
-/** 业务写动词：no_write 用例的操作列不得包含（触发校验类清空/输入不属于业务写入）。 */
-const businessWriteVerb = /创建|新增|提交|修改|编辑|更新|删除|上传|写入/u;
+/** Only executable side-effect phrases count. Names, paths and document
+ * inspection may mention a create/delete API without performing it. */
+const businessWriteAction = /(?:发送.*请求|调用.*接口|点击.*(?:创建|新增|提交|保存|删除)|(?:^|[；，]|并|然后|随后)\s*(?:创建|新增|提交|保存|删除)(?:产品|记录|申请|数据)|(?:^|[；，]|并|然后|随后)\s*(?:编辑|修改|更新)(?:产品|记录|配置|信息)|(?:^|[；，]|并|然后|随后)\s*上传(?:文件|图片|附件)|(?:^|[；，]|并|然后|随后)\s*写入(?:数据|记录))/u;
+const readOnlyInspectionAction = /^(?:查阅|阅读|核对|验证|确认|检查).*(?:文档|接口定义|接口路径|请求方式|API(?:\s*契约)?)/u;
 /** 必填字段空值覆盖的数据行特征（warning 级，交 reviewer 裁决）。 */
 const emptyInputRow = /留空|为空|不填|空值|清空/u;
 
 function unique(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort();
+}
+
+function isBusinessWriteAction(action: string): boolean {
+  const normalized = action.trim();
+  return !readOnlyInspectionAction.test(normalized) && businessWriteAction.test(normalized);
 }
 
 function metadata(body: string): Map<string, string> {
@@ -240,7 +254,7 @@ export function evaluateCandidateGate(input: CandidateGateInput): CandidateGateR
       const strategy = testcase.overrides.dataStrategy?.replace(/`/gu, "").trim() || defaultStrategy;
       if (strategy !== "no_write") continue;
       for (const row of testcase.executionRows) {
-        if (businessWriteVerb.test(row.action)) {
+        if (isBusinessWriteAction(row.action)) {
           issues.push(
             `${testcase.caseId} 步骤 ${row.stepIndex} 操作「${row.action.trim()}」含业务写动词，但有效数据策略为 no_write；须拆分为 ephemeral_cleanup 用例（执行需授权）或改为纯读操作。`
           );
@@ -273,7 +287,14 @@ export function evaluateCandidateGate(input: CandidateGateInput): CandidateGateR
   const profile: CandidateGenerationProfile = strictRisk.test(fullText) ? "strict" : "lean";
   if (profile === "strict") issues.push(...strictCaseIssues(input.plan, input.cases));
   const effectiveWritesData = strategies.some((strategy) => strategy !== "no_write");
-  const hasImpactRisk = profile === "strict" || effectiveWritesData || impactRisk.test(fullText);
+  const hasExecutableWriteAction = isCurrentTestcaseDocumentVersion(document.version)
+    && document.cases.some((testcase) =>
+      testcase.executionRows.some((row) => isBusinessWriteAction(row.action))
+    );
+  const hasImpactRisk = profile === "strict"
+    || effectiveWritesData
+    || hasExecutableWriteAction
+    || impactContextRisk.test(fullText);
   const hasCombinedRisk = combinedRisk.test(fullText);
   const reviewSpeed: ReviewSpeed = input.speed ?? "strict";
   const derivedMode: CandidateReviewMode = hasImpactRisk
@@ -303,6 +324,8 @@ export function evaluateCandidateGate(input: CandidateGateInput): CandidateGateR
     effectiveDataStrategies: strategies,
     issues: unique(issues),
     repairCategories: candidateRepairChecklist(issues).map((item) => item.category),
+    autoFixable: unique(issues.filter((issue) => /派生|索引|统计|关系投影|格式/u.test(issue))),
+    manualReview: unique(issues.filter((issue) => !/派生|索引|统计|关系投影|格式/u.test(issue))),
     warnings
   };
   return {

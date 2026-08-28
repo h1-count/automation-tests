@@ -1,5 +1,5 @@
-export const CURRENT_RULE_LEDGER_MARKER = "rule-design-ledger-v3" as const;
-export const CURRENT_RELATION_PROJECTION_MARKER = "case-relation-projection-v3" as const;
+export const CURRENT_RULE_LEDGER_MARKER = "rule-design-ledger-v1" as const;
+export const CURRENT_RELATION_PROJECTION_MARKER = "case-relation-projection-v1" as const;
 
 const ruleLedgerPattern = /\b(?:rule-coverage|rule-design-ledger)-v\d+(?:-[a-z0-9]+)*\b/gu;
 const relationProjectionPattern = /\bcase-relation-projection-v\d+(?:-[a-z0-9]+)*\b/gu;

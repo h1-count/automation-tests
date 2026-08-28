@@ -3,7 +3,6 @@ import { canonicalJson } from "../task-workflow/canonicalJson.js";
 import type { SafeJsonValue } from "../task-workflow/types.js";
 import {
   parseTestcaseDocument,
-  testcaseV6LayeredSemanticProjection,
   TESTCASE_V6_LAYERED_MARKER,
   type ParsedTestcase,
   type ParsedTestcaseExecutionRow
@@ -13,6 +12,7 @@ export const TESTCASE_REVIEW_MODEL_SCHEMA = "testcase-review-model-v1" as const;
 export const TESTCASE_REVIEW_EXPORT_SCHEMA = "testcase-review-export-v1" as const;
 export const TESTCASE_REVIEW_WORKBOOK_RECEIPT_SCHEMA =
   "testcase-review-workbook-receipt-v1" as const;
+export const TESTCASE_REVIEW_RENDERER_VERSION = "testcase-review-renderer-v1" as const;
 export const TESTCASE_REVIEW_WORKBOOK_SHEETS = ["说明", "用例索引", "用例详情"] as const;
 
 export interface TestcaseReviewModelCase {
@@ -36,7 +36,10 @@ export interface TestcaseReviewModel {
   title: string;
   formatVersion: typeof TESTCASE_V6_LAYERED_MARKER;
   callbackSubjectDigest: string;
+  selectedCaseIds: string[];
   semanticDigest: string;
+  contentDigest: string;
+  bindingDigest: string;
   defaults: {
     testType: string;
     environment: string;
@@ -66,6 +69,8 @@ export interface TestcaseReviewExport {
   modelDigest: string;
   callbackSubjectDigest: string;
   semanticDigest: string;
+  contentDigest: string;
+  bindingDigest: string;
   model: TestcaseReviewModel;
 }
 
@@ -74,6 +79,8 @@ export interface TestcaseReviewWorkbookReceipt {
   modelDigest: string;
   callbackSubjectDigest: string;
   semanticDigest: string;
+  contentDigest: string;
+  bindingDigest: string;
   workbookSha256: string;
   sheets: string[];
   statistics: {
@@ -154,13 +161,14 @@ export function buildTestcaseReviewModel(input: {
   plan: string;
   cases: string;
   callbackSubjectDigest: string;
+  selectedCaseIds?: string[];
 }): TestcaseReviewModel {
   if (!/^[a-f0-9]{64}$/u.test(input.callbackSubjectDigest)) {
     throw new Error("callbackSubjectDigest must be a lowercase SHA-256 digest.");
   }
   const document = parseTestcaseDocument(input.cases);
   if (document.version !== TESTCASE_V6_LAYERED_MARKER) {
-    throw new Error("Review model requires testcase-v6-layered Markdown.");
+    throw new Error("Review model requires testcase-v1-layered Markdown.");
   }
   const defaults = {
     testType: document.defaults.testType ?? "",
@@ -168,42 +176,69 @@ export function buildTestcaseReviewModel(input: {
     dataStrategy: document.defaults.dataStrategy ?? ""
   };
   const sourcesByRule = ruleSources(input.plan);
-  const cases = document.cases.map((testcase) => effectiveCase(testcase, defaults, sourcesByRule));
+  const allCases = document.cases.map((testcase) => effectiveCase(testcase, defaults, sourcesByRule));
+  const selectedCaseIds = [...new Set(input.selectedCaseIds ?? allCases.map((testcase) => testcase.caseId))].sort();
+  if (!selectedCaseIds.length) throw new Error("Review model requires a non-empty selected case scope.");
+  const cases = allCases.filter((testcase) => selectedCaseIds.includes(testcase.caseId));
+  const missingCaseIds = selectedCaseIds.filter((caseId) => !cases.some((testcase) => testcase.caseId === caseId));
+  if (missingCaseIds.length) throw new Error(`Review model selected cases are missing: ${missingCaseIds.join(", ")}`);
   const moduleNames = [...new Set(cases.map((testcase) => testcase.module))];
   const title = /^#\s+(?:用例集|完整用例表)[：:]\s*(.+?)\s*$/mu.exec(input.cases)?.[1]?.trim() ?? input.requestId;
+  const semanticDigest = createHash("sha256")
+    .update(canonicalJson(JSON.parse(JSON.stringify({ selectedCaseIds, cases })) as SafeJsonValue), "utf8")
+    .digest("hex");
+  const statistics = {
+    caseCount: cases.length,
+    p0Count: cases.filter((testcase) => testcase.priority === "P0").length,
+    highRiskCount: cases.filter((testcase) => testcase.risk === "高").length,
+    parameterizedCount: document.cases.filter((testcase) => testcase.dataInstances.length > 0).length
+  };
+  const indexRows = cases.map(({ module, caseId, title: caseTitle, priority, risk }) => ({
+    module, caseId, title: caseTitle, priority, risk
+  }));
+  const modules = moduleNames.map((name) => ({ name, cases: cases.filter((testcase) => testcase.module === name) }));
+  const contentDigest = createHash("sha256").update(canonicalJson(JSON.parse(JSON.stringify({
+    rendererVersion: TESTCASE_REVIEW_RENDERER_VERSION, selectedCaseIds,
+    title, formatVersion: TESTCASE_V6_LAYERED_MARKER, semanticDigest, defaults, statistics, indexRows, modules
+  })) as SafeJsonValue), "utf8").digest("hex");
+  const bindingDigest = createHash("sha256").update(canonicalJson({
+    schema: TESTCASE_REVIEW_MODEL_SCHEMA,
+    requestId: input.requestId,
+    callbackSubjectDigest: input.callbackSubjectDigest,
+    contentDigest
+  }), "utf8").digest("hex");
   return {
     schema: TESTCASE_REVIEW_MODEL_SCHEMA,
     requestId: input.requestId,
     title,
     formatVersion: TESTCASE_V6_LAYERED_MARKER,
     callbackSubjectDigest: input.callbackSubjectDigest,
-    semanticDigest: createHash("sha256")
-      .update(testcaseV6LayeredSemanticProjection(input.cases), "utf8")
-      .digest("hex"),
+    selectedCaseIds,
+    semanticDigest,
+    contentDigest,
+    bindingDigest,
     defaults,
-    statistics: {
-      caseCount: cases.length,
-      p0Count: cases.filter((testcase) => testcase.priority === "P0").length,
-      highRiskCount: cases.filter((testcase) => testcase.risk === "高").length,
-      parameterizedCount: document.cases.filter((testcase) => testcase.dataInstances.length > 0).length
-    },
-    indexRows: cases.map(({ module, caseId, title: caseTitle, priority, risk }) => ({
-      module,
-      caseId,
-      title: caseTitle,
-      priority,
-      risk
-    })),
-    modules: moduleNames.map((name) => ({
-      name,
-      cases: cases.filter((testcase) => testcase.module === name)
-    }))
+    statistics,
+    indexRows,
+    modules
   };
 }
 
 export function testcaseReviewModelDigest(model: TestcaseReviewModel): string {
   const json = JSON.parse(JSON.stringify(model)) as SafeJsonValue;
   return createHash("sha256").update(canonicalJson(json), "utf8").digest("hex");
+}
+
+/** Request-independent index/detail body and the layout inputs derived from it. */
+export function testcaseReviewWorkbookBodyProjectionDigest(model: TestcaseReviewModel): string {
+  const projection = JSON.parse(JSON.stringify({
+    rendererVersion: TESTCASE_REVIEW_RENDERER_VERSION,
+    selectedCaseIds: model.selectedCaseIds,
+    statistics: model.statistics,
+    indexRows: model.indexRows,
+    modules: model.modules
+  })) as SafeJsonValue;
+  return createHash("sha256").update(canonicalJson(projection), "utf8").digest("hex");
 }
 
 function requireDigest(value: unknown, label: string): asserts value is string {
@@ -219,10 +254,16 @@ function requireReviewModel(value: unknown): asserts value is TestcaseReviewMode
     throw new Error(`Review model schema must be ${TESTCASE_REVIEW_MODEL_SCHEMA}.`);
   }
   if (model.formatVersion !== TESTCASE_V6_LAYERED_MARKER) {
-    throw new Error("Review model must use testcase-v6-layered.");
+    throw new Error("Review model must use testcase-v1-layered.");
   }
   requireDigest(model.callbackSubjectDigest, "model.callbackSubjectDigest");
   requireDigest(model.semanticDigest, "model.semanticDigest");
+  requireDigest(model.contentDigest, "model.contentDigest");
+  requireDigest(model.bindingDigest, "model.bindingDigest");
+  if (!Array.isArray(model.selectedCaseIds) || !model.selectedCaseIds.length
+    || model.selectedCaseIds.some((caseId) => typeof caseId !== "string" || !caseId.trim())) {
+    throw new Error("Review model selectedCaseIds must be a non-empty string array.");
+  }
   if (!Array.isArray(model.indexRows) || !model.indexRows.length) {
     throw new Error("Review model must contain at least one testcase index row.");
   }
@@ -232,6 +273,10 @@ function requireReviewModel(value: unknown): asserts value is TestcaseReviewMode
   const cases = model.modules.flatMap((module) => module.cases ?? []);
   if (cases.length !== model.indexRows.length) {
     throw new Error("Review model module cases do not match index rows.");
+  }
+  if (canonicalJson([...model.selectedCaseIds].sort() as unknown as SafeJsonValue)
+    !== canonicalJson(model.indexRows.map((row) => row.caseId).sort() as unknown as SafeJsonValue)) {
+    throw new Error("Review model selectedCaseIds do not match index rows.");
   }
   if (cases.some((testcase) => !Array.isArray(testcase.executionRows) || !testcase.executionRows.length)) {
     throw new Error("Every review model testcase must contain execution rows.");
@@ -248,6 +293,8 @@ export function buildTestcaseReviewExport(model: TestcaseReviewModel): TestcaseR
     modelDigest: testcaseReviewModelDigest(model),
     callbackSubjectDigest: model.callbackSubjectDigest,
     semanticDigest: model.semanticDigest,
+    contentDigest: model.contentDigest,
+    bindingDigest: model.bindingDigest,
     model
   };
 }
@@ -261,6 +308,8 @@ export function parseTestcaseReviewExport(value: unknown): TestcaseReviewExport 
   requireDigest(exported.modelDigest, "modelDigest");
   requireDigest(exported.callbackSubjectDigest, "callbackSubjectDigest");
   requireDigest(exported.semanticDigest, "semanticDigest");
+  requireDigest(exported.contentDigest, "contentDigest");
+  requireDigest(exported.bindingDigest, "bindingDigest");
   requireReviewModel(exported.model);
   const actualModelDigest = testcaseReviewModelDigest(exported.model);
   if (exported.modelDigest !== actualModelDigest) {
@@ -271,6 +320,9 @@ export function parseTestcaseReviewExport(value: unknown): TestcaseReviewExport 
   }
   if (exported.semanticDigest !== exported.model.semanticDigest) {
     throw new Error("Review export semanticDigest does not match its model.");
+  }
+  if (exported.contentDigest !== exported.model.contentDigest || exported.bindingDigest !== exported.model.bindingDigest) {
+    throw new Error("Review export content or binding digest does not match its model.");
   }
   return exported as TestcaseReviewExport;
 }
@@ -283,6 +335,8 @@ export function assertTestcaseReviewExportCurrent(
     exported.modelDigest !== current.modelDigest
     || exported.callbackSubjectDigest !== current.callbackSubjectDigest
     || exported.semanticDigest !== current.semanticDigest
+    || exported.contentDigest !== current.contentDigest
+    || exported.bindingDigest !== current.bindingDigest
   ) {
     throw new Error("The testcase review model is stale and must be regenerated.");
   }
@@ -323,6 +377,8 @@ export function validateTestcaseReviewWorkbookReceipt(input: {
     receipt.modelDigest !== input.exported.modelDigest
     || receipt.callbackSubjectDigest !== input.exported.callbackSubjectDigest
     || receipt.semanticDigest !== input.exported.semanticDigest
+    || receipt.contentDigest !== input.exported.contentDigest
+    || receipt.bindingDigest !== input.exported.bindingDigest
   ) {
     throw new Error("Workbook receipt digests do not match the review export.");
   }

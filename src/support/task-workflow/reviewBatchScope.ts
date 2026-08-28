@@ -8,8 +8,6 @@ import {
 import type { SafeJsonValue } from "./types.js";
 
 export const REVIEW_BATCH_SCOPE_SCHEMA_VERSION = "review-batch-scope-v1" as const;
-export const REVIEW_BATCH_SCOPE_V2_SCHEMA_VERSION = "review-batch-scope-v2" as const;
-export const REVIEW_BATCH_SCOPE_V3_SCHEMA_VERSION = "review-batch-scope-v3" as const;
 
 export interface ReusedReviewerEvidence {
   activityId: string;
@@ -29,10 +27,6 @@ interface ReviewBatchScopeBase {
   reusedReviewerEvidence: ReusedReviewerEvidence[];
 }
 
-export interface ReviewBatchScopeV1 extends ReviewBatchScopeBase {
-  schemaVersion: typeof REVIEW_BATCH_SCOPE_SCHEMA_VERSION;
-}
-
 export interface ReviewRoleCaseScope {
   activityId: string;
   role: string;
@@ -42,29 +36,28 @@ export interface ReviewRoleCaseScope {
 }
 
 export interface ReviewBatchRiskSummary {
-  schemaVersion: "case-review-risk-v1" | "case-review-risk-v2";
+  schemaVersion: "case-review-risk-v1";
   distribution: "uniform" | "mixed";
   maxLevel: CaseReviewRiskLevel;
   counts: Record<CaseReviewRiskLevel, number>;
   assessmentDigest: string;
 }
 
-export interface ReviewBatchScopeV2 extends ReviewBatchScopeBase {
-  schemaVersion: typeof REVIEW_BATCH_SCOPE_V2_SCHEMA_VERSION;
-  riskSummary: ReviewBatchRiskSummary;
-  roleScopes: ReviewRoleCaseScope[];
-}
-
-export interface ReviewBatchScopeV3 extends ReviewBatchScopeBase {
-  schemaVersion: typeof REVIEW_BATCH_SCOPE_V3_SCHEMA_VERSION;
-  riskSummary: ReviewBatchRiskSummary & { schemaVersion: "case-review-risk-v2" };
+export interface CompleteReviewBatchScope extends ReviewBatchScopeBase {
+  schemaVersion: typeof REVIEW_BATCH_SCOPE_SCHEMA_VERSION;
+  riskSummary: ReviewBatchRiskSummary & { schemaVersion: "case-review-risk-v1" };
   roleScopes: ReviewRoleCaseScope[];
   reviewEpochDigest: string;
   semanticEvolutionCycle: number;
   adaptiveSemanticReview?: true;
 }
 
-export type ReviewBatchScope = ReviewBatchScopeV1 | ReviewBatchScopeV2 | ReviewBatchScopeV3;
+/** The active contract only accepts the complete, risk-scoped v1 batch shape. */
+export type ReviewBatchScope = CompleteReviewBatchScope;
+
+export function hasCompleteReviewBatchScope(scope: ReviewBatchScope): scope is CompleteReviewBatchScope {
+  return true;
+}
 
 export interface BuildReviewBatchScopeInput {
   allActivityIds: string[];
@@ -76,12 +69,11 @@ export interface BuildReviewBatchScopeInput {
   reusableEvidence?: ReusedReviewerEvidence[];
 }
 
-export interface BuildReviewBatchScopeV2Input extends BuildReviewBatchScopeInput {
+export interface BuildCompleteReviewBatchScopeInput extends BuildReviewBatchScopeInput {
   caseRiskAssessment: CaseReviewRiskAssessment;
   activityRoles: Array<{ activityId: string; role: string }>;
-}
-
-export interface BuildReviewBatchScopeV3Input extends BuildReviewBatchScopeV2Input {
+  /** Script-review assessment freezes the exact risk-routed case list per role. */
+  roleCaseIdsByActivity?: Record<string, string[]>;
   reviewEpochDigest: string;
   semanticEvolutionCycle: number;
   adaptiveSemanticReview?: boolean;
@@ -124,9 +116,9 @@ function normalizeEvidence(value: ReusedReviewerEvidence): ReusedReviewerEvidenc
   };
 }
 
-export function buildReviewBatchScope(
+function buildReviewBatchScope(
   input: BuildReviewBatchScopeInput
-): ReviewBatchScopeV1 {
+): ReviewBatchScopeBase {
   const allActivityIds = uniqueSorted(input.allActivityIds);
   if (!allActivityIds.length) throw new Error("Review scope requires review activities.");
   allActivityIds.forEach(assertActivityId);
@@ -188,7 +180,6 @@ export function buildReviewBatchScope(
   }
 
   return {
-    schemaVersion: REVIEW_BATCH_SCOPE_SCHEMA_VERSION,
     mode,
     requiredActivityIds,
     affectedRefs,
@@ -200,7 +191,7 @@ export function buildReviewBatchScope(
 }
 
 function assessmentSummary(assessment: CaseReviewRiskAssessment): ReviewBatchRiskSummary {
-  if (!['case-review-risk-v1', 'case-review-risk-v2'].includes(assessment.schemaVersion)) {
+  if (assessment.schemaVersion !== "case-review-risk-v1") {
     throw new Error("Review batch scope requires a supported case review risk assessment.");
   }
   const digest = caseReviewRiskDigest(assessment);
@@ -233,14 +224,15 @@ function roleCaseScope(
   role: string,
   assessment: CaseReviewRiskAssessment,
   adaptiveSemanticReview = false,
-  affectedRefs: readonly string[] = []
+  affectedRefs: readonly string[] = [],
+  frozenCaseIds?: readonly string[]
 ): ReviewRoleCaseScope {
   assertActivityId(activityId);
   const normalizedRole = role.trim();
   if (!normalizedRole) throw new Error("Review role scope requires a role.");
-  const baseline = normalizedRole === "impact"
+  const baseline = normalizedRole === "impact" || normalizedRole === "execution_safety"
     ? assessment.cases.filter((item) => item.level === "strict")
-    : normalizedRole === "combined"
+    : normalizedRole === "combined" || normalizedRole === "script_quality"
       ? assessment.cases.filter((item) => adaptiveSemanticReview || item.level !== "light")
       : assessment.cases;
   // A scoped revision receives only its REQ -> RULE -> case closure. Empty,
@@ -255,10 +247,19 @@ function roleCaseScope(
       || item.ruleRefs.some((ref) => refs.has(ref))
     )
     : [];
-  const selected = closure.length > 0 && closure.length <= 8
-    ? baseline.filter((item) => closure.some((target) => target.caseId === item.caseId))
-    : baseline;
-  if (!selected.length && normalizedRole !== "impact") {
+  const selected = frozenCaseIds
+    ? (() => {
+        const requested = uniqueSorted([...frozenCaseIds]);
+        const resolved = assessment.cases.filter((item) => requested.includes(item.caseId));
+        if (requested.length !== resolved.length) {
+          throw new Error(`Review role ${normalizedRole} frozen case scope contains a case outside its assessment.`);
+        }
+        return resolved;
+      })()
+    : closure.length > 0 && closure.length <= 8
+      ? baseline.filter((item) => closure.some((target) => target.caseId === item.caseId))
+      : baseline;
+  if (!selected.length && !["impact", "execution_safety"].includes(normalizedRole)) {
     throw new Error(`Review role ${normalizedRole} has no applicable case scope.`);
   }
   return {
@@ -270,44 +271,9 @@ function roleCaseScope(
   };
 }
 
-/**
- * Builds an explicit per-role case scope while retaining the v1 lifecycle
- * fields. Requirements/design reviewers receive the full case set; impact is
- * limited to strict cases and their direct REQ/RULE neighbourhood.
- */
-export function buildReviewBatchScopeV2(
-  input: BuildReviewBatchScopeV2Input
-): ReviewBatchScopeV2 {
-  const base = buildReviewBatchScope(input);
-  const allActivityIds = uniqueSorted(input.allActivityIds);
-  const activityRoles = input.activityRoles.map(({ activityId, role }) => ({
-    activityId: activityId.trim(),
-    role: role.trim()
-  })).sort((left, right) => left.activityId.localeCompare(right.activityId));
-  const activityRoleIds = activityRoles.map((item) => item.activityId);
-  if (
-    activityRoleIds.length !== allActivityIds.length
-    || activityRoleIds.some((activityId, index) => activityId !== allActivityIds[index])
-  ) {
-    throw new Error("Review batch v2 activity roles must cover every review activity exactly once.");
-  }
-  if (new Set(activityRoleIds).size !== activityRoleIds.length) {
-    throw new Error("Review batch v2 activity roles must be unique by activityId.");
-  }
-  const roleScopes = activityRoles.map(({ activityId, role }) =>
-    roleCaseScope(activityId, role, input.caseRiskAssessment)
-  );
-  return {
-    ...base,
-    schemaVersion: REVIEW_BATCH_SCOPE_V2_SCHEMA_VERSION,
-    riskSummary: assessmentSummary(input.caseRiskAssessment),
-    roleScopes
-  };
-}
-
-export function buildReviewBatchScopeV3(
-  input: BuildReviewBatchScopeV3Input
-): ReviewBatchScopeV3 {
+export function buildCompleteReviewBatchScope(
+  input: BuildCompleteReviewBatchScopeInput
+): CompleteReviewBatchScope {
   assertDigest(input.reviewEpochDigest, "reviewEpochDigest");
   if (
     !Number.isInteger(input.semanticEvolutionCycle)
@@ -328,23 +294,24 @@ export function buildReviewBatchScopeV3(
     || activityRoleIds.some((activityId, index) => activityId !== allActivityIds[index])
     || new Set(activityRoleIds).size !== activityRoleIds.length
   ) {
-    throw new Error("Review batch v3 activity roles must cover every review activity exactly once.");
+    throw new Error("Review batch activity roles must cover every review activity exactly once.");
   }
   const riskSummary = assessmentSummary(input.caseRiskAssessment);
-  if (riskSummary.schemaVersion !== "case-review-risk-v2") {
-    throw new Error("Review batch v3 requires case-review-risk-v2.");
+  if (riskSummary.schemaVersion !== "case-review-risk-v1") {
+    throw new Error("Review batch requires case-review-risk-v1.");
   }
   return {
     ...base,
-    schemaVersion: REVIEW_BATCH_SCOPE_V3_SCHEMA_VERSION,
-    riskSummary: riskSummary as ReviewBatchScopeV3["riskSummary"],
+    schemaVersion: REVIEW_BATCH_SCOPE_SCHEMA_VERSION,
+    riskSummary: riskSummary as CompleteReviewBatchScope["riskSummary"],
     roleScopes: activityRoles.map(({ activityId, role }) =>
       roleCaseScope(
         activityId,
         role,
         input.caseRiskAssessment,
         input.adaptiveSemanticReview,
-        input.affectedRefs
+        input.affectedRefs,
+        input.roleCaseIdsByActivity?.[activityId]
       )
     ),
     reviewEpochDigest: input.reviewEpochDigest,
@@ -354,30 +321,7 @@ export function buildReviewBatchScopeV3(
 }
 
 export function reviewBatchScopeDigest(scope: ReviewBatchScope): string {
-  if (scope.schemaVersion === REVIEW_BATCH_SCOPE_V3_SCHEMA_VERSION) {
-    const normalized = normalizeV3Scope(scope);
-    return createHash("sha256")
-      .update(canonicalJson(normalized as unknown as SafeJsonValue), "utf8")
-      .digest("hex");
-  }
-  if (scope.schemaVersion === REVIEW_BATCH_SCOPE_V2_SCHEMA_VERSION) {
-    const normalized = normalizeV2Scope(scope);
-    return createHash("sha256")
-      .update(canonicalJson(normalized as unknown as SafeJsonValue), "utf8")
-      .digest("hex");
-  }
-  const normalized = buildReviewBatchScope({
-    allActivityIds: [
-      ...scope.requiredActivityIds,
-      ...scope.reusedReviewerEvidence.map((evidence) => evidence.activityId)
-    ],
-    requiredActivityIds: scope.requiredActivityIds,
-    affectedRefs: scope.affectedRefs,
-    excludedRefs: scope.excludedRefs,
-    reason: scope.reason,
-    baseBatchId: scope.baseBatchId,
-    reusableEvidence: scope.reusedReviewerEvidence
-  });
+  const normalized = normalizeCompleteScope(scope);
   return createHash("sha256")
     .update(canonicalJson(normalized as unknown as SafeJsonValue), "utf8")
     .digest("hex");
@@ -388,11 +332,7 @@ export function parseReviewBatchScope(value: unknown): ReviewBatchScope {
     throw new Error("Review batch scope must be an object.");
   }
   const record = value as Record<string, unknown>;
-  if (
-    record.schemaVersion !== REVIEW_BATCH_SCOPE_SCHEMA_VERSION
-    && record.schemaVersion !== REVIEW_BATCH_SCOPE_V2_SCHEMA_VERSION
-    && record.schemaVersion !== REVIEW_BATCH_SCOPE_V3_SCHEMA_VERSION
-  ) {
+  if (record.schemaVersion !== REVIEW_BATCH_SCOPE_SCHEMA_VERSION) {
     throw new Error("Unsupported review batch scope schema.");
   }
   const requiredActivityIds = stringArray(record.requiredActivityIds, "requiredActivityIds");
@@ -433,28 +373,21 @@ export function parseReviewBatchScope(value: unknown): ReviewBatchScope {
   if (record.mode !== scope.mode) {
     throw new Error("Review batch scope mode does not match its activity set.");
   }
-  if (record.schemaVersion === REVIEW_BATCH_SCOPE_SCHEMA_VERSION) return scope;
   const richScope = {
     ...scope,
     riskSummary: parseRiskSummary(record.riskSummary),
     roleScopes: parseRoleScopes(record.roleScopes)
   };
-  if (record.schemaVersion === REVIEW_BATCH_SCOPE_V2_SCHEMA_VERSION) {
-    return normalizeV2Scope({
-      ...richScope,
-      schemaVersion: REVIEW_BATCH_SCOPE_V2_SCHEMA_VERSION
-    });
+  if (richScope.riskSummary.schemaVersion !== "case-review-risk-v1") {
+    throw new Error("Review batch scope requires case-review-risk-v1.");
   }
-  if (richScope.riskSummary.schemaVersion !== "case-review-risk-v2") {
-    throw new Error("Review batch scope v3 requires case-review-risk-v2.");
-  }
-  return normalizeV3Scope({
+  return normalizeCompleteScope({
     ...richScope,
     riskSummary: {
       ...richScope.riskSummary,
-      schemaVersion: "case-review-risk-v2"
+      schemaVersion: "case-review-risk-v1"
     },
-    schemaVersion: REVIEW_BATCH_SCOPE_V3_SCHEMA_VERSION,
+    schemaVersion: REVIEW_BATCH_SCOPE_SCHEMA_VERSION,
     reviewEpochDigest: stringValue(record.reviewEpochDigest, "reviewEpochDigest"),
     semanticEvolutionCycle: nonNegativeInteger(
       record.semanticEvolutionCycle,
@@ -466,29 +399,29 @@ export function parseReviewBatchScope(value: unknown): ReviewBatchScope {
   });
 }
 
-function normalizeV3Scope(scope: ReviewBatchScopeV3): ReviewBatchScopeV3 {
+function normalizeCompleteScope(scope: CompleteReviewBatchScope): CompleteReviewBatchScope {
   assertDigest(scope.reviewEpochDigest, "reviewEpochDigest");
   if (scope.semanticEvolutionCycle > 2) {
-    throw new Error("Review batch v3 semantic evolution cycle exceeds policy.");
+    throw new Error("Review batch semantic evolution cycle exceeds policy.");
   }
-  const normalized = normalizeV2Scope({
-    ...scope,
-    schemaVersion: REVIEW_BATCH_SCOPE_V2_SCHEMA_VERSION
-  });
-  if (normalized.riskSummary.schemaVersion !== "case-review-risk-v2") {
-    throw new Error("Review batch v3 requires case-review-risk-v2.");
+  const normalized = normalizeRiskScopedScope(scope);
+  if (normalized.riskSummary.schemaVersion !== "case-review-risk-v1") {
+    throw new Error("Review batch requires case-review-risk-v1.");
   }
   return {
     ...normalized,
-    schemaVersion: REVIEW_BATCH_SCOPE_V3_SCHEMA_VERSION,
-    riskSummary: normalized.riskSummary as ReviewBatchScopeV3["riskSummary"],
+    schemaVersion: REVIEW_BATCH_SCOPE_SCHEMA_VERSION,
+    riskSummary: normalized.riskSummary as CompleteReviewBatchScope["riskSummary"],
     reviewEpochDigest: scope.reviewEpochDigest,
     semanticEvolutionCycle: scope.semanticEvolutionCycle,
     ...(scope.adaptiveSemanticReview ? { adaptiveSemanticReview: true as const } : {})
   };
 }
 
-function normalizeV2Scope(scope: ReviewBatchScopeV2): ReviewBatchScopeV2 {
+function normalizeRiskScopedScope(scope: Pick<CompleteReviewBatchScope,
+  keyof ReviewBatchScopeBase | "riskSummary" | "roleScopes" | "adaptiveSemanticReview">
+): Pick<CompleteReviewBatchScope,
+  keyof ReviewBatchScopeBase | "riskSummary" | "roleScopes" | "adaptiveSemanticReview"> {
   const base = buildReviewBatchScope({
     allActivityIds: [
       ...scope.requiredActivityIds,
@@ -513,24 +446,28 @@ function normalizeV2Scope(scope: ReviewBatchScopeV2): ReviewBatchScopeV2 {
     || scopedActivityIds.some((activityId, index) => activityId !== allActivityIds[index])
     || new Set(scopedActivityIds).size !== scopedActivityIds.length
   ) {
-    throw new Error("Review batch v2 role scopes must cover every review activity exactly once.");
+    throw new Error("Review batch role scopes must cover every review activity exactly once.");
   }
   const riskSummary = parseRiskSummary(scope.riskSummary);
   const caseIds = uniqueSorted(roleScopes.flatMap((item) => item.caseIds));
   const adaptiveSemanticReview = (scope as unknown as { adaptiveSemanticReview?: true })
     .adaptiveSemanticReview === true;
-  const excludesLight = riskSummary.schemaVersion === "case-review-risk-v2"
+  const hasScriptReviewRole = roleScopes.some((item) =>
+    ["script_quality", "execution_safety"].includes(item.role)
+  );
+  const excludesLight = !hasScriptReviewRole && riskSummary.schemaVersion === "case-review-risk-v1"
     && roleScopes.some((item) => item.role === "combined")
     && !adaptiveSemanticReview;
-  const expectedCount = (excludesLight ? 0 : riskSummary.counts.light)
+  const expectedCount = hasScriptReviewRole
+    ? caseIds.length
+    : (excludesLight ? 0 : riskSummary.counts.light)
     + riskSummary.counts.standard
     + riskSummary.counts.strict;
   if (caseIds.length !== expectedCount) {
-    throw new Error("Review batch v2 risk counts do not match its role case scope.");
+    throw new Error("Review batch risk counts do not match its role case scope.");
   }
   return {
     ...base,
-    schemaVersion: REVIEW_BATCH_SCOPE_V2_SCHEMA_VERSION,
     riskSummary,
     roleScopes
   };
@@ -540,7 +477,7 @@ function normalizeRoleScope(value: ReviewRoleCaseScope): ReviewRoleCaseScope {
   assertActivityId(value.activityId);
   if (!value.role.trim()) throw new Error("Review role scope requires a role.");
   const caseIds = uniqueSorted(value.caseIds);
-  if (!caseIds.length && value.role.trim() !== "impact") {
+  if (!caseIds.length && !["impact", "execution_safety"].includes(value.role.trim())) {
     throw new Error(`Review role ${value.role} has no applicable case scope.`);
   }
   return {
@@ -553,7 +490,7 @@ function normalizeRoleScope(value: ReviewRoleCaseScope): ReviewRoleCaseScope {
 }
 
 function parseRoleScopes(value: unknown): ReviewRoleCaseScope[] {
-  if (!Array.isArray(value)) throw new Error("Review batch v2 requires roleScopes.");
+  if (!Array.isArray(value)) throw new Error("Review batch requires roleScopes.");
   return value.map((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       throw new Error("Review batch role scope must be an object.");
@@ -571,12 +508,12 @@ function parseRoleScopes(value: unknown): ReviewRoleCaseScope[] {
 
 function parseRiskSummary(value: unknown): ReviewBatchRiskSummary {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Review batch v2 requires riskSummary.");
+    throw new Error("Review batch requires riskSummary.");
   }
   const record = value as Record<string, unknown>;
   const countsValue = record.counts;
   if (!countsValue || typeof countsValue !== "object" || Array.isArray(countsValue)) {
-    throw new Error("Review batch v2 riskSummary requires counts.");
+    throw new Error("Review batch riskSummary requires counts.");
   }
   const counts = countsValue as Record<string, unknown>;
   const light = nonNegativeInteger(counts.light, "light");
@@ -585,16 +522,16 @@ function parseRiskSummary(value: unknown): ReviewBatchRiskSummary {
   const maxLevel = stringValue(record.maxLevel, "maxLevel");
   const distribution = stringValue(record.distribution, "distribution");
   if (!["light", "standard", "strict"].includes(maxLevel)) {
-    throw new Error("Review batch v2 riskSummary has an invalid maxLevel.");
+    throw new Error("Review batch riskSummary has an invalid maxLevel.");
   }
   if (!["uniform", "mixed"].includes(distribution)) {
-    throw new Error("Review batch v2 riskSummary has an invalid distribution.");
+    throw new Error("Review batch riskSummary has an invalid distribution.");
   }
-  if (!['case-review-risk-v1', 'case-review-risk-v2'].includes(String(record.schemaVersion))) {
-    throw new Error("Review batch v2 riskSummary has an unsupported schemaVersion.");
+  if (record.schemaVersion !== "case-review-risk-v1") {
+    throw new Error("Review batch riskSummary has an unsupported schemaVersion.");
   }
   const assessmentDigest = stringValue(record.assessmentDigest, "assessmentDigest");
-  assertDigest(assessmentDigest, "Review batch v2 assessmentDigest");
+  assertDigest(assessmentDigest, "Review batch assessmentDigest");
   return {
     schemaVersion: record.schemaVersion as ReviewBatchRiskSummary["schemaVersion"],
     distribution: distribution as "uniform" | "mixed",

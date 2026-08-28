@@ -1,14 +1,14 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import {
-  CASE_RELATION_PROJECTION_MARKER_V3,
+  CASE_RELATION_PROJECTION_MARKER_V1,
   projectRelationProjection,
   validateRelationProjection,
   type RelationIssue
 } from "../src/support/testcase/relationProjection.ts";
 
 export {
-  CASE_RELATION_PROJECTION_MARKER_V3
+  CASE_RELATION_PROJECTION_MARKER_V1
 };
 export type ProjectionIssue = RelationIssue;
 export type SyncResult = { changedFiles: string[]; issues: ProjectionIssue[]; strict: boolean };
@@ -21,8 +21,8 @@ export function synchronizeRequest(requestDirectory: string, options: { check?: 
   // Suite layout keeps the rule ledger in design.md; request layout uses plan.md.
   const ledgerPath = existsSync(planPath) ? planPath : designPath;
   const originalPlan = readFileSync(ledgerPath, "utf8");
-  const strict = originalPlan.includes(CASE_RELATION_PROJECTION_MARKER_V3);
-  if (!strict) return { changedFiles: [], strict: false, issues: [{ name: "关系投影契约", detail: `${directory} 不是当前 case-relation-projection-v3 资产，拒绝同步。` }] };
+  const strict = originalPlan.includes(CASE_RELATION_PROJECTION_MARKER_V1);
+  if (!strict) return { changedFiles: [], strict: false, issues: [{ name: "关系投影契约", detail: `${directory} 不是当前 case-relation-projection-v1 资产，拒绝同步。` }] };
   const packagePaths = readdirSync(directory, { withFileTypes: true })
     .filter((entry) =>
       entry.isFile()

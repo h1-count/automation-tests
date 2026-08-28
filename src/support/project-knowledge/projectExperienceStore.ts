@@ -28,10 +28,6 @@ function assertSafe(value: string, field: string): void {
   if (sensitive.test(value)) throw new Error(`${field} 不得包含敏感信息。`);
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function experienceId(project: string, scope: string): string {
   return createHash("sha256").update(`${project}\0${scope}`, "utf8").digest("hex").slice(0, 12).toUpperCase();
 }
@@ -96,10 +92,7 @@ export async function upsertProjectExperience(root: string, input: ProjectExperi
   if (marked.test(content)) {
     content = content.replace(marked, entry);
   } else {
-    const legacyHeading = new RegExp(`^## \\d{4}-\\d{2}-\\d{2}：${escapeRegExp(normalized.scope)}\\n[\\s\\S]*?(?=^## |(?![\\s\\S]))`, "mu");
-    content = legacyHeading.test(content)
-      ? content.replace(legacyHeading, `${entry}\n\n`)
-      : `${content.trimEnd()}\n\n${entry}\n`;
+    content = `${content.trimEnd()}\n\n${entry}\n`;
   }
 
   const temporary = `${path}.${process.pid}.tmp`;

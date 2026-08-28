@@ -4,8 +4,7 @@ import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { processLockCanBeRecovered, type ProcessLockRecord } from "./processLock.js";
 
-export const WORKFLOW_RUNTIME_SCHEMA_VERSION = "test-workflow-runtime-v2" as const;
-const LEGACY_RUNTIME_SCHEMA_VERSION = "test-workflow-runtime-v1";
+export const WORKFLOW_RUNTIME_SCHEMA_VERSION = "test-workflow-runtime-v1" as const;
 
 export interface RuntimeSessionBinding {
   sessionId: string;
@@ -109,14 +108,9 @@ export class RuntimeLeaseStore {
     const parsed = JSON.parse(await readFile(this.runtimePath, "utf8")) as
       | WorkflowRuntimeState
       | { schemaVersion: string };
-    // Runtime is disposable coordination state. A v1 snapshot cannot fence
-    // v4 workflow work and is deliberately ignored so the next mutation
-    // recreates a clean v2 snapshot from durable history.
-    if (parsed.schemaVersion === LEGACY_RUNTIME_SCHEMA_VERSION) return null;
-    // Runtime data is disposable. Missing reviewer host bindings are upgraded
-    // only in memory; business state remains exclusively event-derived.
+    // Runtime data is disposable coordination state. It is never migrated:
+    // any unsupported schema is rejected and durable history remains authoritative.
     const runtime = parsed as WorkflowRuntimeState;
-    runtime.reviewerBindings ??= {};
     validateRuntime(runtime, this.requestId);
     return runtime;
   }
@@ -625,6 +619,17 @@ export class RuntimeLeaseStore {
       }
       delete runtime.inFlightOperations[operationId];
     });
+  }
+
+  /**
+   * Removes all disposable coordination files after the workflow reached a
+   * durable terminal event. Callers must append WorkflowCompleted or
+   * WorkflowCancelled before invoking this method: runtime state is never a
+   * source of workflow truth and cannot be used to recover a non-terminal
+   * request.
+   */
+  async discardTerminalRuntime(): Promise<void> {
+    await rm(this.requestRoot, { recursive: true, force: true });
   }
 
   private async mutate(

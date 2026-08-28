@@ -1,12 +1,13 @@
 import "dotenv/config";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { execFile as execFileCallback } from "node:child_process";
+import { existsSync } from "node:fs";
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
+import { promisify } from "node:util";
 import {
   buildExecutionAuthorizationManifest,
   EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
-  STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
-  READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
   executionOperationKinds,
   loadConfirmedExecutionAuthorization,
   loadExecutionAuthorizationManifest,
@@ -31,6 +32,7 @@ import {
 import { resolveSelectorBuildIdentity } from "../../formal-execution/selectorBuildIdentity.js";
 import { resolveFormalRunnerAdapter } from "../../formal-execution/runnerAdapters.js";
 import { assessExecutionReadiness } from "../../formal-execution/readiness.js";
+import { assessReadinessPreflight } from "../../formal-execution/readinessPreflight.js";
 import { TestDataManager } from "../../test-data/testDataManager.js";
 import type { FormalExecutionManifest } from "../../formal-execution/types.js";
 import {
@@ -49,12 +51,12 @@ import {
   stableSuiteManifestPath,
   validateStableTestSuite
 } from "../../test-suite/stableSuite.js";
+import { promoteReviewedDesignScripts } from "../../test-suite/designSuite.js";
 import { ReviewInputSnapshotStore } from "../reviewInputSnapshot.js";
 import {
   SCRIPT_REVIEW_POLICY_VERSION,
   assessScriptReview,
   scriptReviewVerification,
-  validateScriptReviewEvidenceFiles,
   type ScriptReviewAssessment,
   type ScriptReviewCaseRisk,
   type ScriptReviewDataWritePolicy
@@ -67,6 +69,24 @@ import {
 import { assertTestcaseReviewExportReady } from "../testcaseReviewGate.js";
 import { candidateRepairChecklist } from "../candidatePreflight.js";
 import { runIntentDigest } from "../runIntent.js";
+import { candidateScriptManifestPath } from "../runRoots.js";
+import {
+  applyFormalWebScriptRepairProposal,
+  assertFormalWebSpecMatchesFrozenScope,
+  parseFormalWebScriptSpec,
+  renderFormalWebScriptBundle,
+  type FormalWebScriptRepairProposal,
+  type FormalWebScriptSpec
+} from "../../formal-execution/webScriptCompiler.js";
+import {
+  assertExactFormalWebCoverage,
+  assertFormalWebCoveragePlan,
+  deriveFormalWebCoveragePlan
+} from "../../formal-execution/webScriptCoverage.js";
+import {
+  assessWebScriptCoverageGate,
+  assertWebScriptCoverageGate
+} from "../../formal-execution/webScriptCoverageGate.js";
 import type {
   StableTestSuiteManifest,
   StableTestSuiteProfile
@@ -84,6 +104,7 @@ import {
   buildTestcaseReviewExport,
   buildTestcaseReviewModel,
   parseTestcaseReviewExport,
+  testcaseReviewWorkbookBodyProjectionDigest,
   validateTestcaseReviewWorkbookReceipt,
   type TestcaseReviewExport
 } from "../../testcase/testcaseReviewModel.js";
@@ -192,9 +213,9 @@ function parseExecutionOperations(values: string[]): ExecutionOperationKind[] {
 }
 
 function parseDataWritePolicy(value: string): ScriptReviewDataWritePolicy {
-  if (!["no_write", "managed_cleanup", "ephemeral_cleanup", "reusable_fixture", "tracked_residual"].includes(value)) {
+  if (!["no_write", "ephemeral_cleanup", "reusable_fixture", "tracked_residual"].includes(value)) {
     throw new Error(
-      "--data-write-policy must be no_write, ephemeral_cleanup, reusable_fixture, tracked_residual, or legacy managed_cleanup."
+      "--data-write-policy must be no_write, ephemeral_cleanup, reusable_fixture, or tracked_residual."
     );
   }
   return value as ScriptReviewDataWritePolicy;
@@ -281,25 +302,23 @@ function caseScopesFromManifest(
   const selected = new Set(caseIds);
   return manifest.cases.filter((definition) => selected.has(definition.caseId)).map((definition) => {
     if (
-      !["formal-execution-manifest-v3", "formal-execution-manifest-v4"].includes(manifest.schemaVersion)
+      manifest.schemaVersion !== "formal-execution-manifest-v1"
       || !definition.permissionProfile
       || !definition.requiredOperations
       || !definition.dataWritePolicy
     ) {
-      throw new Error(`${definition.caseId} must use formal-execution-manifest-v3 before publishing v4 authorization.`);
+      throw new Error(`${definition.caseId} must use formal-execution-manifest-v1 before publishing v1 authorization.`);
     }
     return {
       caseId: definition.caseId,
       permissionProfile: definition.permissionProfile,
       requiredOperations: definition.requiredOperations,
       operationBudgets: definition.operationBudgets ?? [],
-      dataWritePolicy: definition.dataWritePolicy === "managed_cleanup"
-        ? "ephemeral_cleanup"
-        : definition.dataWritePolicy,
+      dataWritePolicy: definition.dataWritePolicy,
       consumesResources: definition.consumesResources ?? [],
       producesResources: definition.producesResources.map((resource) => {
         if (typeof resource === "string") {
-          throw new Error(`${definition.caseId} v4 authorization requires produced resource contracts.`);
+          throw new Error(`${definition.caseId} v1 authorization requires produced resource contracts.`);
         }
         return resource;
       })
@@ -388,6 +407,8 @@ function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+const execFile = promisify(execFileCallback);
+
 function pathInside(root: string, path: string): boolean {
   const rel = relative(resolve(root), resolve(path));
   return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== "..");
@@ -405,13 +426,20 @@ async function currentTestcaseReviewExport(
   manager: DurableWorkflowManager
 ): Promise<TestcaseReviewExport> {
   const view = await manager.gate();
+  if (view.definitionVersion === "v1") return manager.currentTestcaseReviewExport();
   const callbackSubjectDigest = await manager.callbackSubjectDigest("case-confirmation");
   assertTestcaseReviewExportReady(view, callbackSubjectDigest);
+  const reviewDesignPath = existsSync(manager.planPath)
+    ? manager.planPath
+    : view.definitionVersion === "v1" && manager.suiteRoot
+      ? resolve(manager.suiteRoot, "design.md")
+      : manager.planPath;
   const model = buildTestcaseReviewModel({
     requestId: manager.requestId,
-    plan: await readFile(manager.planPath, "utf8"),
+    plan: await readFile(reviewDesignPath, "utf8"),
     cases: await readFile(manager.designAssetPath("cases.md"), "utf8"),
-    callbackSubjectDigest
+    callbackSubjectDigest,
+    selectedCaseIds: (await manager.caseConfirmationReviewScope()).caseIds
   });
   return buildTestcaseReviewExport(model);
 }
@@ -422,6 +450,8 @@ async function publishTestcaseReviewWorkbook(input: {
   workbookPath: string;
   receiptPath: string;
   outputPath: string;
+  cacheStatus?: "hit" | "miss" | "rebuild";
+  renderMilliseconds?: number;
 }): Promise<{
   outputPath: string;
   workbookSha256: string;
@@ -448,19 +478,114 @@ async function publishTestcaseReviewWorkbook(input: {
   if (basename(outputPath) !== "cases-review.xlsx") {
     throw new Error("Published testcase review workbook must be named cases-review.xlsx.");
   }
-  if (pathInside(input.manager.workspaceRoot, outputPath)) {
-    throw new Error("Testcase review workbooks must be published outside the repository.");
+  if (outputPath !== resolve(input.manager.requestRoot, "cases-review.xlsx")) {
+    throw new Error("Review workbook must be published to this request's .local run archive.");
   }
   await mkdir(dirname(outputPath), { recursive: true });
   const temporary = `${outputPath}.${process.pid}.tmp`;
   await copyFile(input.workbookPath, temporary);
   await rename(temporary, outputPath);
+  if ((await input.manager.gate()).definitionVersion === "v1") {
+    await input.manager.recordTestcaseReviewWorkbookPublication({
+      subjectDigest: exported.callbackSubjectDigest,
+      contentDigest: exported.contentDigest,
+      bindingDigest: exported.bindingDigest,
+      workbookDigest: workbookSha256,
+      receiptDigest: sha256(await readFile(input.receiptPath)),
+      cacheStatus: input.cacheStatus ?? "miss",
+      renderMilliseconds: input.renderMilliseconds ?? 0
+    });
+  }
   return {
     outputPath,
     workbookSha256,
     modelDigest: exported.modelDigest,
     callbackSubjectDigest: exported.callbackSubjectDigest
   };
+}
+
+async function renderAndPublishTestcaseReviewWorkbook(manager: DurableWorkflowManager): Promise<{
+  outputPath: string;
+  cacheStatus: "hit" | "miss" | "rebuild";
+  renderMilliseconds: number;
+  contentDigest: string;
+  bindingDigest: string;
+}> {
+  const exported = await currentTestcaseReviewExport(manager);
+  const cacheRoot = resolve(manager.workspaceRoot, ".local/test-review-cache", exported.contentDigest);
+  const cachedWorkbook = resolve(cacheRoot, "body.xlsx");
+  const cacheMetadataPath = resolve(cacheRoot, "cache.json");
+  let cacheStatus: "hit" | "miss" | "rebuild" = "miss";
+  if (existsSync(cachedWorkbook) && existsSync(cacheMetadataPath)) {
+    try {
+      const metadata = JSON.parse(await readFile(cacheMetadataPath, "utf8")) as Record<string, unknown>;
+      if (metadata.schema === "testcase-review-cache-v1"
+        && metadata.rendererVersion === "testcase-review-renderer-v1"
+        && metadata.contentDigest === exported.contentDigest
+        && metadata.bodyProjectionDigest === testcaseReviewWorkbookBodyProjectionDigest(exported.model)
+        && metadata.workbookSha256 === sha256(await readFile(cachedWorkbook))) {
+        cacheStatus = "hit";
+      }
+    } catch {
+      cacheStatus = "rebuild";
+    }
+  }
+  const stageRoot = resolve(manager.requestRoot, `.review-workbook-stage-${process.pid}`);
+  const modelPath = resolve(stageRoot, "model.json");
+  const workbookPath = resolve(stageRoot, "cases-review.xlsx");
+  const receiptPath = resolve(stageRoot, "receipt.json");
+  const previewDir = resolve(stageRoot, "previews");
+  const startedAt = Date.now();
+  try {
+    await writeJsonAtomic(modelPath, exported);
+    const args = [
+      resolve(manager.workspaceRoot, "scripts/build-testcase-review-workbook.mjs"),
+      "--model", modelPath,
+      "--output", workbookPath,
+      "--preview-dir", previewDir,
+      "--receipt", receiptPath,
+      ...(cacheStatus === "hit" ? ["--reuse-workbook", cachedWorkbook] : [])
+    ];
+    try {
+      await execFile(process.execPath, args, { cwd: manager.workspaceRoot });
+    } catch (error) {
+      if (cacheStatus !== "hit") throw error;
+      cacheStatus = "miss";
+      const freshArgs = args.filter((value, index, values) =>
+        value !== "--reuse-workbook" && values[index - 1] !== "--reuse-workbook"
+      );
+      await execFile(process.execPath, freshArgs, { cwd: manager.workspaceRoot });
+    }
+    if (cacheStatus !== "hit") {
+      await mkdir(cacheRoot, { recursive: true });
+      const temporary = `${cachedWorkbook}.${process.pid}.tmp`;
+      await copyFile(workbookPath, temporary);
+      await rename(temporary, cachedWorkbook);
+      await writeJsonAtomic(cacheMetadataPath, {
+        schema: "testcase-review-cache-v1",
+        rendererVersion: "testcase-review-renderer-v1",
+        contentDigest: exported.contentDigest,
+        bodyProjectionDigest: testcaseReviewWorkbookBodyProjectionDigest(exported.model),
+        workbookSha256: sha256(await readFile(cachedWorkbook)),
+        lastUsedAt: new Date().toISOString()
+      });
+    } else {
+      const metadata = JSON.parse(await readFile(cacheMetadataPath, "utf8")) as Record<string, unknown>;
+      await writeJsonAtomic(cacheMetadataPath, { ...metadata, lastUsedAt: new Date().toISOString() });
+    }
+    const result = await publishTestcaseReviewWorkbook({
+      manager,
+      modelPath,
+      workbookPath,
+      receiptPath,
+      outputPath: resolve(manager.requestRoot, "cases-review.xlsx"),
+      cacheStatus,
+      renderMilliseconds: Date.now() - startedAt
+    });
+    return { ...result, cacheStatus, renderMilliseconds: Date.now() - startedAt, contentDigest: exported.contentDigest, bindingDigest: exported.bindingDigest };
+  } finally {
+    await rm(stageRoot, { recursive: true, force: true });
+  }
 }
 
 function resolveActivityId(view: WorkflowGateView, value: string): string {
@@ -505,6 +630,116 @@ function output(args: string[], value: unknown, text: string): void {
   process.stdout.write(`${args.includes("--json") ? JSON.stringify(value, null, 2) : text}\n`);
 }
 
+function candidateManifestPath(manager: DurableWorkflowManager): string {
+  return relative(
+    manager.workspaceRoot,
+    candidateScriptManifestPath(manager.workspaceRoot, manager.requestId)
+  ).split(sep).join("/");
+}
+
+interface FrozenWebBuildInput {
+  spec: FormalWebScriptSpec;
+  scripts: string[];
+  caseIds: string[];
+  operations: ExecutionOperationKind[];
+  resourceBudgets: Array<{ resourceType: string; maxCreates: number }>;
+  dataWritePolicy: ScriptReviewDataWritePolicy;
+}
+
+/** Web execution scope is a build fact, not a caller-selected CLI subset. */
+async function frozenWebBuildInput(
+  manager: DurableWorkflowManager,
+  view: WorkflowGateView
+): Promise<FrozenWebBuildInput | undefined> {
+  if (manager.requestId.split("/")[0] !== "web") return undefined;
+  const specPath = resolve(
+    manager.workspaceRoot,
+    ".local/test-runs",
+    ...manager.requestId.split("/"),
+    "candidate-scripts/formal-web-script-spec.json"
+  );
+  if (!existsSync(specPath)) return undefined;
+  const spec = parseFormalWebScriptSpec(JSON.parse(await readFile(specPath, "utf8")));
+  const intent = await manager.recoverRunIntent();
+  assertFormalWebSpecMatchesFrozenScope(spec, {
+    requestId: manager.requestId,
+    suiteId: intent.suiteId,
+    environment: intent.environment,
+    selectedCaseIds: (await manager.caseConfirmationReviewScope()).caseIds
+  });
+  const coveragePath = resolve(dirname(specPath), "web-script-coverage-plan.json");
+  if (!existsSync(coveragePath)) {
+    throw new Error("coverage_gap: frozen Web build is missing web-script-coverage-plan.json.");
+  }
+  const coveragePlan = JSON.parse(await readFile(coveragePath, "utf8")) as unknown;
+  assertFormalWebCoveragePlan(coveragePlan);
+  assertExactFormalWebCoverage({
+    plan: coveragePlan,
+    coveragePlanDigest: spec.coveragePlanDigest,
+    steps: spec.cases.flatMap((entry) => entry.steps.map((step) => ({
+      caseId: entry.caseId,
+      coverageId: step.coverageId
+    })))
+  });
+  const coverageReportPath = resolve(dirname(specPath), "web-script-coverage-gate.json");
+  if (!existsSync(coverageReportPath)) {
+    throw new Error("coverage_gap: frozen Web build is missing web-script-coverage-gate.json.");
+  }
+  const coverageReport = assessWebScriptCoverageGate({ spec, coveragePlan });
+  assertWebScriptCoverageGate(coverageReport);
+  const manifest = await loadFormalExecutionManifestFromPath(candidateManifestPath(manager), {
+    workspaceRoot: manager.workspaceRoot,
+    expectedRequestId: manager.requestId
+  });
+  const caseIds = [...spec.selectedCaseIds];
+  if (JSON.stringify(manifest.cases.map((item) => item.caseId)) !== JSON.stringify(caseIds)) {
+    throw new Error("scope_mismatch: frozen Web spec and formal manifest case order differ.");
+  }
+  const operations = [...new Set(manifest.cases.flatMap((item) => item.requiredOperations ?? []))];
+  const policies = new Set(manifest.cases.map((item) => item.dataWritePolicy));
+  const dataWritePolicy: ScriptReviewDataWritePolicy = policies.has("tracked_residual")
+    ? "tracked_residual"
+    : policies.has("reusable_fixture")
+      ? "reusable_fixture"
+      : policies.has("ephemeral_cleanup")
+        ? "ephemeral_cleanup"
+        : "no_write";
+  const candidateRoot = `.local/test-runs/${manager.requestId}/candidate-scripts`;
+  return {
+    spec,
+    scripts: [`${candidateRoot}/web.formal.spec.ts`, `${candidateRoot}/execution.manifest.ts`],
+    caseIds,
+    operations,
+    resourceBudgets: spec.resourceBudgets,
+    dataWritePolicy
+  };
+}
+
+function assertExactFrozenWebOption(
+  name: string,
+  supplied: string[],
+  expected: string[]
+): void {
+  if (!supplied.length) return;
+  if (JSON.stringify([...new Set(supplied)].sort()) !== JSON.stringify([...new Set(expected)].sort())) {
+    throw new Error(`scope_mismatch: ${name} must exactly match the frozen Web build scope.`);
+  }
+}
+
+function assertExactFrozenWebBudgets(
+  supplied: Array<{ resourceType: string; maxCreates: number }>,
+  expected: Array<{ resourceType: string; maxCreates: number }>
+): void {
+  if (!supplied.length) return;
+  const normalize = (budgets: Array<{ resourceType: string; maxCreates: number }>) =>
+    [...budgets]
+      .map((budget) => `${budget.resourceType}:${budget.maxCreates}`)
+      .sort();
+  if (JSON.stringify(normalize(supplied)) !== JSON.stringify(normalize(expected))) {
+    throw new Error("scope_mismatch: --budget must exactly match the frozen Web build scope.");
+  }
+}
+
 async function currentSelectorRepairAssessment(
   manager: DurableWorkflowManager,
   incidentPaths?: string[]
@@ -516,7 +751,7 @@ async function currentSelectorRepairAssessment(
     manager.workspaceRoot
   );
   const manifest = await loadFormalExecutionManifestFromPath(
-    `tests/${manager.requestId}/execution.manifest.ts`,
+    candidateManifestPath(manager),
     {
       workspaceRoot: manager.workspaceRoot,
       expectedRequestId: manager.requestId
@@ -604,7 +839,11 @@ async function scriptReviewAssessment(
   return assessScriptReview({
     requestId: manager.requestId,
     workspaceRoot: manager.workspaceRoot,
-    planPath: manager.planPath,
+    planPath: existsSync(manager.planPath)
+      ? manager.planPath
+      : manager.suiteRoot
+        ? resolve(manager.suiteRoot, "design.md")
+        : manager.planPath,
     scriptPaths: input.scripts,
     caseIds: input.caseIds,
     environment: input.environment,
@@ -614,7 +853,6 @@ async function scriptReviewAssessment(
     residualTtlHours: input.residualTtlHours,
     capabilities,
     caseRiskAssessments: input.caseRiskAssessments,
-    caseReviewPolicy: view.reviewPolicy,
     formalCases: formalManifest.cases.filter((item) => requestedCaseIds.has(item.caseId)),
     formalManifestSchemaVersion: formalManifest.schemaVersion,
     executionHasCleanupActivity: Boolean(
@@ -626,29 +864,42 @@ async function scriptReviewAssessment(
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const command = args[0];
+  let command = args[0];
+  const staticPreflightOnly = command === "script-static-preflight";
+  if (staticPreflightOnly) command = "script-review-assess";
   if (!command || command === "--help" || args.includes("--help")) {
     process.stdout.write([
       "Usage: task:manage <command> --request <type/project/request> ...",
-      "Reuse: init --delivery-target <testcase_only|script_only|full_run> --suite <type/project/feature> --reuse auto --environment <test|pre> [--profile <profile>], suite-promote --suite <type/project/feature>",
-      "Core: init, resume, activity-start, activity-renew, run-intent-derive, run-intent-recover, impact-closure-build, delta-preflight, candidate-generation-start, candidate-preflight, candidate-graph-expand, candidate-assemble, candidate-gate, activity-succeed, artifact-publish-succeed, activity-invalidate, activity-fail",
-      "  candidate-generation-start --activity <candidate-skeleton|candidate-fragment-*> [--owner <name>] [--lease-ms <ms>]  # atomically starts the model timer",
-      "  candidate-preflight --claim <lease> --source <staged-plan.md> --publish <id> --verified <evidence>  # strict plan/source/quote validation",
+      "Reuse: init --delivery-target <testcase_only|script_only|full_run> --suite <type/project/feature> --reuse auto --environment <test|pre> [--profile <profile>] [--source <sources/...> --plan <candidate-plan.md>], suite-promote --suite <type/project/feature> [--level <reviewed|verified>]",
+      "Core: init, resume, activity-start, activity-renew, activity-retry, run-intent-derive, run-intent-recover, impact-closure-build, delta-preflight, readiness-preflight, readiness-diagnose, candidate-generation-start, candidate-compiler-publish, candidate-fragment-compile, candidate-fragment-publish, candidate-fragment-merge, candidate-preflight, candidate-graph-expand, candidate-assemble, candidate-gate, review-resolution-complete, web-script-build-publish, activity-succeed, artifact-publish-succeed, activity-invalidate, activity-fail",
+      "  candidate-generation-start --activity <candidate-compiler|candidate-fragment-*> [--owner <name>] [--lease-ms <ms>]  # atomically starts the model timer",
+      "  candidate-compiler-publish --claim <lease> --source <staged-spec.json> --publish <id> --verified <evidence>",
+      "  candidate-fragment-compile --activity <candidate-fragment-*> --publish <id> --verified <evidence> [--owner <name>]",
+      "  candidate-fragment-merge --activity <candidate-fragment-*> --claim <lease> --source <model-detail.md> --publish <id> --verified <evidence>",
+      "  candidate-fragment-publish --activity <candidate-fragment-*> --claim <lease> --source <model-fragment.md> --publish <id> --verified <evidence>",
+      "  candidate-preflight --claim <lease> --source <staged-plan.md> --publish <id> --verified <evidence>  # strict plan/source/quote/explicit-fact coverage validation",
+      "  web-script-build-publish --claim <lease> --source <formal-web-script-spec-v1.json> [--repair-source <formal-web-script-repair-proposal-v1.json>] --publish <id> --verified <evidence>  # Web only: freezes row coverage, validates/repairs the structured spec, then renders static formalCase declarations and the manifest",
+      "  review-resolution-complete --claim <lease> --publish <id> --verified <evidence>  # current deterministic_only candidate gate only",
       "Waits: callback-request, callback-resolve, callback-reopen, block, resolve, reconcile, suspend",
-      "  callback-resolve --callback <id> --resolution <accepted|rejected|revision_requested|cancelled> --plan-source <updated-plan.md>  # required for formal callbacks",
-      "Review: review-batch-start, reviewer-dispatch, reviewer-model-call-start/complete, reviewer-submit/fail, review-batch-invalidate",
-      "  review-batch-start --batch <id> [--activity <review-id> --affected-ref <REQ|RULE|case|section> --excluded-ref <ref> --base-batch <id> --reason <text>]",
+      "  callback-resolve --callback <id> --resolution <accepted|rejected|revision_requested|cancelled> [--plan-source <updated-plan.md>]  # design_reconfirm case-confirmation omits plan-source",
+      "Review: review-batch-start, review-rereview-start, reviewer-dispatch, reviewer-model-call-start/complete, reviewer-submit/fail, review-batch-invalidate",
+      "  review-batch-start --batch <id> [--subflow <case-review|script-review> --activity <review-id> --affected-ref <REQ|RULE|case|section> --excluded-ref <ref> --base-batch <id> --reason <text>]",
+      "  review-rereview-start --from-batch <id>（v1；确定性派生下一批次与角色范围）",
       "  reviewer-dispatch --batch <id> --activity <review-id> --agent-task <host-task-id>",
       "  reviewer-model-call-start --batch <id> --activity <review-id> --agent-task <host-task-id> [--supplemental --invalid-response-digest <sha256>]",
       "  reviewer-model-call-complete --batch <id> --activity <review-id> --agent-task <host-task-id> --result-digest <sha256>",
       "  reviewer-submit --batch <id> --activity <review-id> --agent-task <host-task-id> [--plan-evidence <plan.md>]",
       "  review-batch-invalidate --batch <id> --reason <text> [--activity <review-id> --revision-digest <sha256> --findings-digest <sha256>]",
-      "Testcase review: testcase-review-prepare --output <model.json>, testcase-review-publish --model <model.json> --workbook <staged.xlsx> --receipt <receipt.json> --output <cases-review.xlsx>",
-      "Execution: script-review-assess, execution-readiness-publish, suite-readiness-publish, execution-authorization-publish/request/verify, execution-scope-reopen, execution-run-finalize, execution-report-finalize, execution-transition-park/resolve, external-operation-start/reconcile",
-      "  script-review-assess --environment <name> --script <path> --case-id <id> [--case-risk <id:level>] --operation <kind> [--budget <type:max>] --data-write-policy <no_write|ephemeral_cleanup|reusable_fixture|tracked_residual>",
-      "  execution-readiness-publish --claim <lease> --environment <name> [--target-build-digest <sha256>] --script <path> --case-id <id> [--case-risk <id:level>] --operation <kind> [--selector-evidence-digest <sha256>] [--review-evidence <runtime-json>] --verified <evidence>",
-      "  suite-readiness-publish --claim <lease> --environment <test|pre>  # all suite identities and scopes are derived",
-      "  execution-authorization-publish --claim <lease> --environment <name> --script <path> --case-id <id> --operation <kind> [--budget <type:max>] --data-write-policy <no_write|ephemeral_cleanup|reusable_fixture|tracked_residual> [--review-evidence <runtime-json>] --verified <evidence>",
+      "Testcase review: testcase-review-render-publish  # v1 renders or reuses a local workbook body, then publishes this request's cases-review.xlsx",
+      "  testcase-review-prepare --output <model.json>, testcase-review-publish --model <model.json> --workbook <staged.xlsx> --receipt <receipt.json> --output <cases-review.xlsx>",
+      "Execution: script-static-preflight, script-review-assess/finalize, execution-readiness-publish, execution-authorization-request/verify, execution-scope-reopen, execution-run-finalize, execution-report-finalize, execution-transition-park/resolve, external-operation-start/reconcile",
+      "  suite-promote --level reviewed --suite <suite> --case-script <caseId>:.local/test-runs/<request>/candidate-scripts/<spec>.formal.spec.ts  # writes reviewed scripts to the stable suite without auto-commit",
+      "  readiness-preflight [--owner <name>]  # v1 immutable execution input validation before readiness",
+      "  readiness-diagnose  # v1 immutable execution input diagnosis",
+      "  script-static-preflight --environment <name> --script <path> --case-id <id> --operation <kind> [--budget <type:max>] --data-write-policy <policy>  # concurrent, read-only static gate aggregation; never publishes or starts reviewers",
+      "  script-review-assess --claim <lease> --environment <name> --script <path> --case-id <id> [--case-risk <id:level>] --operation <kind> [--budget <type:max>] --data-write-policy <no_write|ephemeral_cleanup|reusable_fixture|tracked_residual>",
+      "  script-review-finalize --claim <lease> --verified <evidence>  # aggregates only converged isolated reviewer receipts",
+      "  execution-readiness-publish --claim <lease> --environment <name> [--target-build-digest <sha256>] --script <path> --case-id <id> [--case-risk <id:level>] --operation <kind> [--selector-evidence-digest <sha256>] --verified <evidence>",
       "  execution-scope-reopen --selector-repair <incident-path> [--selector-repair <incident-path> ...] [--reason <text>]",
       "  execution-run-finalize --claim <lease>",
       "  execution-report-finalize --claim <lease>",
@@ -661,8 +912,7 @@ async function main(): Promise<void> {
   const requestId = required(args, "--request");
   const manager = new DurableWorkflowManager(requestId);
   const sessionId = option(args, "--session")
-    ?? process.env.TEST_WORKFLOW_HOST_SESSION_ID
-    ?? process.env.CODEX_THREAD_ID;
+    ?? process.env.TEST_WORKFLOW_HOST_SESSION_ID;
   const targetThreadId = option(args, "--thread")
     ?? process.env.TEST_WORKFLOW_HOST_CONTEXT_ID
     ?? sessionId;
@@ -677,6 +927,7 @@ async function main(): Promise<void> {
       "--shared-account"
     ].some((name) => option(args, name) !== undefined);
     const reuse = option(args, "--reuse");
+    const additionalSourcePaths = options(args, "--source");
     if (reuse !== undefined && reuse !== "auto") {
       throw new Error("--reuse only accepts auto; the CLI derives the reuse decision.");
     }
@@ -686,8 +937,10 @@ async function main(): Promise<void> {
       if (environment !== "test" && environment !== "pre") {
         throw new Error("--reuse auto requires --environment test or --environment pre.");
       }
+      if (additionalSourcePaths.length && !option(args, "--plan")) {
+        throw new Error("--source with --reuse auto requires --plan <candidate-plan.md>; new sources always use full_replan.");
+      }
       const forbidden = [
-        "--plan",
         "--case-package",
         "--reviewer-role",
         "--writes-data",
@@ -699,6 +952,8 @@ async function main(): Promise<void> {
       if (forbidden.length) {
         throw new Error(`--reuse auto derives stable design inputs and does not accept ${forbidden.join(", ")}.`);
       }
+    } else if (additionalSourcePaths.length) {
+      throw new Error("--source is only valid with --reuse auto.");
     }
     const profile = option(args, "--profile");
     if (profile !== undefined
@@ -735,6 +990,7 @@ async function main(): Promise<void> {
           : false
       }),
       profile: profile as StableTestSuiteProfile | undefined,
+      additionalSourcePaths: additionalSourcePaths.length ? additionalSourcePaths : undefined,
       fragmented: true
     });
     output(args, view, workflowStatusText(view));
@@ -752,7 +1008,7 @@ async function main(): Promise<void> {
     await applyPendingSelectorRepair(manager);
     let view = await manager.resume(option(args, "--reason") ?? "explicit_cli_resume");
     if (
-      view.definitionVersion === "v7"
+      view.definitionVersion === "v1"
       && view.activities.run?.state === "BLOCKED"
       && view.activities.run.blockerIds.some((id) => id.startsWith("deterministic-outcome-"))
     ) {
@@ -801,6 +1057,12 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "testcase-review-render-publish") {
+    const result = await renderAndPublishTestcaseReviewWorkbook(manager);
+    output(args, result, `用例评审工作簿已发布（${result.cacheStatus === "hit" ? "复用主体" : result.cacheStatus === "rebuild" ? "缓存损坏回退重渲染" : "完整渲染"}）：${result.outputPath}`);
+    return;
+  }
+
   if (command === "activity-start") {
     const activityId = resolveActivityId(await manager.gate(), required(args, "--activity"));
     const result = await manager.startActivity(
@@ -820,6 +1082,110 @@ async function main(): Promise<void> {
       parsePositiveInteger(option(args, "--lease-ms"), "--lease-ms", 120_000)
     );
     output(args, result, `候选生成 ${activityId} 已开始并登记模型计时；claim=${result.claimToken}`);
+    return;
+  }
+
+  if (command === "readiness-preflight") {
+    const before = await manager.gate();
+    const activity = before.activities["readiness-preflight"];
+    if (!activity || activity.state !== "READY") {
+      throw new Error("readiness-preflight must be READY before validation.");
+    }
+    const started = await manager.startActivity("readiness-preflight", option(args, "--owner") ?? "task-cli");
+    const report = await assessReadinessPreflight({
+      workspaceRoot: manager.workspaceRoot,
+      requestId: manager.requestId,
+      requestRoot: manager.requestRoot,
+      runRootMode: manager.runRootMode,
+      suiteRoot: manager.suiteRoot,
+      definitionVersion: before.definitionVersion
+    });
+    if (!report.complete) {
+      const workflow = await manager.failActivity("readiness-preflight", {
+        claimToken: started.claimToken,
+        summary: `${report.category}: ${report.issues.join("；")}`
+      });
+      output(args, { report, workflow }, `readiness 预检阻断：${report.issues.join("；")}`);
+      process.exitCode = 2;
+      return;
+    }
+    await manager.completeReadinessPreflight(started.claimToken, report);
+    output(args, report, "readiness 预检通过，可以领取 readiness。");
+    return;
+  }
+
+  if (command === "readiness-diagnose") {
+    const view = await manager.gate();
+    if (view.definitionVersion !== "v1") {
+      output(args, {
+        requestId,
+        definitionVersion: view.definitionVersion,
+        category: "immutable_input_incompatible",
+        issues: ["该 request 不属于当前 v1 调试基线。"],
+        checklist: ["新建 v1 request 后重新 build/readiness。"]
+      }, "非 v1 request 不提供兼容诊断。");
+      return;
+    }
+    const report = await assessReadinessPreflight({
+      workspaceRoot: manager.workspaceRoot,
+      requestId: manager.requestId,
+      requestRoot: manager.requestRoot,
+      runRootMode: manager.runRootMode,
+      suiteRoot: manager.suiteRoot,
+      definitionVersion: view.definitionVersion
+    });
+    output(args, report, report.complete ? "readiness 输入兼容。" : `readiness 输入不兼容：${report.issues.join("；")}`);
+    if (!report.complete) process.exitCode = 2;
+    return;
+  }
+
+  if (command === "candidate-compiler-publish") {
+    const view = await manager.publishCandidateCompiler({
+      claimToken: required(args, "--claim"),
+      publishId: required(args, "--publish"),
+      verification: required(args, "--verified"),
+      spec: await readFile(required(args, "--source"), "utf8")
+    });
+    output(args, view, "候选规则编译提议已校验并发布冻结 spec 与分片清单。");
+    return;
+  }
+
+  if (command === "candidate-fragment-compile") {
+    const activityId = resolveActivityId(await manager.gate(), required(args, "--activity"));
+    const view = await manager.compileCandidateFragment({
+      activityId,
+      owner: option(args, "--owner") ?? "task-cli",
+      leaseMs: parsePositiveInteger(option(args, "--lease-ms"), "--lease-ms", 120_000),
+      publishId: required(args, "--publish"),
+      verification: required(args, "--verified")
+    });
+    output(args, view, "确定性候选分片已编译并发布，未调用模型。");
+    return;
+  }
+
+  if (command === "candidate-fragment-merge") {
+    const activityId = resolveActivityId(await manager.gate(), required(args, "--activity"));
+    const view = await manager.publishMixedCandidateFragment({
+      activityId,
+      claimToken: required(args, "--claim"),
+      publishId: required(args, "--publish"),
+      verification: required(args, "--verified"),
+      modelContent: await readFile(required(args, "--source"), "utf8")
+    });
+    output(args, view, "模型未知规则片段已与确定性区合并并发布。");
+    return;
+  }
+
+  if (command === "candidate-fragment-publish") {
+    const activityId = resolveActivityId(await manager.gate(), required(args, "--activity"));
+    const view = await manager.publishModelCandidateFragment({
+      activityId,
+      claimToken: required(args, "--claim"),
+      publishId: required(args, "--publish"),
+      verification: required(args, "--verified"),
+      content: await readFile(required(args, "--source"), "utf8")
+    });
+    output(args, view, "模型候选分片已按冻结关系校验并发布。");
     return;
   }
 
@@ -902,6 +1268,16 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "review-resolution-complete") {
+    const view = await manager.completeDeterministicReviewResolution({
+      claimToken: required(args, "--claim"),
+      publishId: required(args, "--publish"),
+      verification: required(args, "--verified")
+    });
+    output(args, view, "确定性候选已完成零模型复审收口，等待一次性用例确认。");
+    return;
+  }
+
   if (command === "candidate-graph-expand") {
     const view = await manager.expandCandidateGraph();
     output(args, view, `候选分片子图已冻结；就绪活动：${view.readyActivities.join("、") || "无"}。`);
@@ -920,6 +1296,11 @@ async function main(): Promise<void> {
 
   if (command === "artifact-publish-succeed") {
     const activityId = resolveActivityId(await manager.gate(), required(args, "--activity"));
+    if (activityId === "build" && requestId.split("/")[0] === "web") {
+      throw new Error(
+        "Web build must use web-script-build-publish; raw TypeScript and hand-written manifests are not accepted."
+      );
+    }
     const sources = options(args, "--source");
     const targets = options(args, "--target");
     if (!sources.length || sources.length !== targets.length) {
@@ -943,6 +1324,85 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "web-script-build-publish") {
+    const before = await manager.gate();
+    const build = before.activities.build;
+    if (requestId.split("/")[0] !== "web" || !build || build.state !== "RUNNING") {
+      throw new Error("web-script-build-publish requires a running Web build activity.");
+    }
+    let spec = parseFormalWebScriptSpec(JSON.parse(await readFile(required(args, "--source"), "utf8")));
+    const intent = await manager.recoverRunIntent();
+    const reviewScope = await manager.caseConfirmationReviewScope();
+    assertFormalWebSpecMatchesFrozenScope(spec, {
+      requestId,
+      suiteId: intent.suiteId,
+      environment: intent.environment,
+      selectedCaseIds: reviewScope.caseIds
+    });
+    const coveragePlan = deriveFormalWebCoveragePlan({
+      cases: await readFile(manager.designAssetPath("cases.md"), "utf8"),
+      selectedCaseIds: reviewScope.caseIds
+    });
+    if (spec.coveragePlanDigest !== coveragePlan.digest) {
+      throw new Error("scope_mismatch: Web spec coveragePlanDigest differs from the frozen confirmed execution rows.");
+    }
+    const repairSource = option(args, "--repair-source");
+    let repairReport;
+    if (repairSource) {
+      const repaired = applyFormalWebScriptRepairProposal({
+        spec,
+        coveragePlan,
+        proposal: JSON.parse(await readFile(repairSource, "utf8")) as FormalWebScriptRepairProposal
+      });
+      spec = repaired.spec;
+      repairReport = repaired.report;
+      if (repairReport.unresolved.length) {
+        throw new Error(`web_script_repair_unresolved: ${repairReport.unresolved.map((item) => item.coverageId).join(",")}`);
+      }
+    }
+    const coverageGate = assessWebScriptCoverageGate({ spec, coveragePlan });
+    assertWebScriptCoverageGate(coverageGate);
+    const bundle = renderFormalWebScriptBundle({
+      workspaceRoot: manager.workspaceRoot,
+      requestId,
+      spec,
+      coveragePlan
+    });
+    const artifacts = [
+      ...bundle.artifacts,
+      {
+        targetPath: ".local/test-runs/" + requestId + "/candidate-scripts/web-script-coverage-gate.json",
+        content: `${JSON.stringify(coverageGate, null, 2)}\n`
+      },
+      ...(repairReport ? [{
+        targetPath: ".local/test-runs/" + requestId + "/candidate-scripts/web-script-repair-report.json",
+        content: `${JSON.stringify(repairReport, null, 2)}\n`
+      }] : [])
+    ];
+    const view = await manager.publishArtifactsAndSucceed("build", {
+      claimToken: required(args, "--claim"),
+      publishId: required(args, "--publish"),
+      verification: `formal-web-static-compile:${sha256(bundle.formalSpecSource)}:${required(args, "--verified")}`,
+      outcome: "static_compiled",
+      artifacts
+    });
+    output(
+      args,
+      {
+        workflow: view,
+        staticCompilation: "passed",
+        frozenCaseCount: spec.selectedCaseIds.length,
+        staticDiscoveryCount: bundle.staticCaseIds.length,
+        manifestCaseCount: spec.selectedCaseIds.length,
+        coverageCount: coveragePlan.entries.length,
+        coverageGate: "passed",
+        ...(repairReport ? { repairedCoverageIds: repairReport.repairedCoverageIds } : {})
+      },
+      `Web 候选脚本已静态编译并发布：冻结 ${spec.selectedCaseIds.length} 条、静态发现 ${bundle.staticCaseIds.length} 条。`
+    );
+    return;
+  }
+
   if (command === "activity-invalidate") {
     const activityIds = options(args, "--activity");
     if (!activityIds.length) {
@@ -960,12 +1420,16 @@ async function main(): Promise<void> {
     const activityId = resolveActivityId(await manager.gate(), required(args, "--activity"));
     const view = await manager.failActivity(activityId, {
       claimToken: required(args, "--claim"),
-      summary: required(args, "--reason"),
-      retryable: parseBoolean(option(args, "--retryable") ?? "false", "--retryable"),
-      retryAt: option(args, "--retry-at"),
-      maxAttempts: parsePositiveInteger(option(args, "--max-attempts"), "--max-attempts", 3)
+      summary: required(args, "--reason")
     });
-    output(args, view, `Activity ${activityId} 已记录失败；工作流状态：${view.workflowState}`);
+    output(args, view, `Activity ${activityId} 已记录失败，等待修复后使用 activity-retry 继续；工作流状态：${view.workflowState}`);
+    return;
+  }
+
+  if (command === "activity-retry") {
+    const activityId = resolveActivityId(await manager.gate(), required(args, "--activity"));
+    const view = await manager.retryActivity(activityId, required(args, "--reason"));
+    output(args, view, `Activity ${activityId} 已登记新的重试 attempt；工作流状态：${view.workflowState}`);
     return;
   }
 
@@ -1013,9 +1477,13 @@ async function main(): Promise<void> {
       "case-review-conflict-decision",
       "execution-authorization"
     ]);
-    const historyOnlyExecutionAuthorization = before.definitionVersion === "v6"
-      && activityId === "execution-authorization";
-    const view = formalCallbacks.has(activityId) && !historyOnlyExecutionAuthorization
+    const historyOnlyExecutionAuthorization = false;
+    const runIntentCaseConfirmation = before.definitionVersion === "v1"
+      && activityId === "case-confirmation"
+      && !existsSync(manager.planPath);
+    const view = formalCallbacks.has(activityId)
+      && !historyOnlyExecutionAuthorization
+      && !runIntentCaseConfirmation
       ? await manager.publishPlanAndResolveCallback({
           callbackId,
           activityId,
@@ -1164,21 +1632,37 @@ async function main(): Promise<void> {
   if (command === "script-review-assess") {
     const suppliedScripts = options(args, "--script");
     const currentView = await manager.gate();
-    const scripts = currentView.activities.readiness
-      ? [...new Set([
-          ...suppliedScripts,
-          `tests/${requestId}/execution.manifest.ts`
-        ])]
-      : suppliedScripts;
-    const caseIds = options(args, "--case-id");
-    const operations = parseExecutionOperations(options(args, "--operation"));
-    if (!suppliedScripts.length || !caseIds.length || !operations.length) {
+    const frozenWeb = await frozenWebBuildInput(manager, currentView);
+    const suppliedCaseIds = options(args, "--case-id");
+    const suppliedOperations = parseExecutionOperations(options(args, "--operation"));
+    const suppliedBudgets = parseResourceBudgets(options(args, "--budget"));
+    const scripts = frozenWeb?.scripts ?? (() => {
+      const requestManifest = candidateManifestPath(manager);
+      return currentView.activities.readiness && existsSync(resolve(manager.workspaceRoot, requestManifest))
+        ? [...new Set([...suppliedScripts, requestManifest])]
+        : suppliedScripts;
+    })();
+    const caseIds = frozenWeb?.caseIds ?? suppliedCaseIds;
+    const operations = frozenWeb?.operations ?? suppliedOperations;
+    if (frozenWeb) {
+      assertExactFrozenWebOption("--script", suppliedScripts, frozenWeb.scripts);
+      assertExactFrozenWebOption("--case-id", suppliedCaseIds, frozenWeb.caseIds);
+      assertExactFrozenWebOption("--operation", suppliedOperations, frozenWeb.operations);
+      assertExactFrozenWebBudgets(suppliedBudgets, frozenWeb.resourceBudgets);
+      const suppliedPolicy = option(args, "--data-write-policy");
+      if (suppliedPolicy && suppliedPolicy !== frozenWeb.dataWritePolicy) {
+        throw new Error("scope_mismatch: --data-write-policy must match the frozen Web manifest.");
+      }
+    }
+    if ((!frozenWeb && (!suppliedScripts.length || !caseIds.length || !operations.length))) {
       throw new Error(
         "script-review-assess requires --script, --case-id, and --operation."
       );
     }
     const view = currentView;
-    const scriptReview = view.activities["script-review"] ?? view.activities.readiness;
+    const scriptReview = view.activities["script-review-assessment"]
+      ?? view.activities["script-review"]
+      ?? view.activities.readiness;
     if (!scriptReview) {
       throw new Error("Workflow definition is missing script-review/readiness.");
     }
@@ -1187,8 +1671,9 @@ async function main(): Promise<void> {
       caseIds,
       operations,
       environment: required(args, "--environment"),
-      resourceBudgets: parseResourceBudgets(options(args, "--budget")),
-      dataWritePolicy: parseDataWritePolicy(required(args, "--data-write-policy")),
+      resourceBudgets: frozenWeb?.resourceBudgets ?? suppliedBudgets,
+      dataWritePolicy: frozenWeb?.dataWritePolicy
+        ?? parseDataWritePolicy(required(args, "--data-write-policy")),
       caseRiskAssessments: parseScriptCaseRisks(options(args, "--case-risk")),
       residualTtlHours: parsePositiveInteger(
         option(args, "--residual-ttl-hours"),
@@ -1200,6 +1685,51 @@ async function main(): Promise<void> {
       === SCRIPT_REVIEW_POLICY_VERSION
       || scriptReview.definition.metadata?.readinessPolicyVersion
         === "execution-readiness-v1";
+    if (staticPreflightOnly) {
+      const coverageScope = frozenWeb?.spec.cases.flatMap((entry) => entry.steps.map((step) => ({
+        coverageId: step.coverageId,
+        caseId: entry.caseId
+      })));
+      output(
+        args,
+        {
+          assessment,
+          staticCheckResults: assessment.staticCheckResults,
+          ...(coverageScope ? { coverageScope } : {}),
+          enforced
+        },
+        `脚本静态预检已并行完成：${assessment.staticCheckResults.length} 项检查，${assessment.blockingIssues.length} 项阻断${coverageScope ? `，覆盖 ${coverageScope.length} 条冻结 coverageId` : ""}；未发布产物、未启动 reviewer。`
+      );
+      if (!assessment.publishable) process.exitCode = 2;
+      return;
+    }
+    if (scriptReview.id === "script-review-assessment") {
+      if (!assessment.publishable) {
+        throw new Error(`Script review static gate failed: ${assessment.blockingIssues.join(" ")}`);
+      }
+      if (scriptReview.state !== "RUNNING") {
+        output(
+          args,
+          { ...assessment, enforced },
+          `脚本评审等级：${assessment.level}；所需 reviewer：${assessment.requiredReviewerRoles.join(", ") || "无"}。`
+        );
+        return;
+      }
+      const claimToken = required(args, "--claim");
+      const published = await manager.publishArtifactsAndSucceed("script-review-assessment", {
+        claimToken,
+        publishId: option(args, "--publish")
+          ?? `script-review-assessment-${assessment.inputDigest.slice(0, 16)}`,
+        verification: `script-review-static:${assessment.inputDigest}`,
+        outcome: assessment.level,
+        artifacts: [{
+          targetPath: `${manager.requestRoot}/script-review-assessment.json`,
+          content: `${JSON.stringify(assessment, null, 2)}\n`
+        }]
+      });
+      output(args, { assessment, workflow: published }, `脚本评审输入已冻结为 ${assessment.level}；可派发 ${assessment.requiredReviewerRoles.join("、") || "无需"} reviewer。`);
+      return;
+    }
     output(
       args,
       { ...assessment, enforced },
@@ -1217,27 +1747,38 @@ async function main(): Promise<void> {
     await applyPendingSelectorRepair(manager);
     const activeSelectorRepair = await latestActiveSelectorRepair(manager);
     const suppliedScripts = options(args, "--script");
-    const formalManifestScript = `tests/${requestId}/execution.manifest.ts`;
-    const scripts = [...new Set([
-      ...suppliedScripts,
-      formalManifestScript
-    ])];
-    const caseIds = options(args, "--case-id");
-    const operations = parseExecutionOperations(options(args, "--operation"));
-    if (!suppliedScripts.length || !caseIds.length || !operations.length) {
+    const before = await manager.gate();
+    const frozenWeb = await frozenWebBuildInput(manager, before);
+    const suppliedCaseIds = options(args, "--case-id");
+    const suppliedOperations = parseExecutionOperations(options(args, "--operation"));
+    const suppliedBudgets = parseResourceBudgets(options(args, "--budget"));
+    const formalManifestScript = candidateManifestPath(manager);
+    const scripts = frozenWeb?.scripts ?? [...new Set([...suppliedScripts, formalManifestScript])];
+    const caseIds = frozenWeb?.caseIds ?? suppliedCaseIds;
+    const operations = frozenWeb?.operations ?? suppliedOperations;
+    if (frozenWeb) {
+      assertExactFrozenWebOption("--script", suppliedScripts, frozenWeb.scripts);
+      assertExactFrozenWebOption("--case-id", suppliedCaseIds, frozenWeb.caseIds);
+      assertExactFrozenWebOption("--operation", suppliedOperations, frozenWeb.operations);
+      assertExactFrozenWebBudgets(suppliedBudgets, frozenWeb.resourceBudgets);
+      const suppliedPolicy = option(args, "--data-write-policy");
+      if (suppliedPolicy && suppliedPolicy !== frozenWeb.dataWritePolicy) {
+        throw new Error("scope_mismatch: --data-write-policy must match the frozen Web manifest.");
+      }
+    }
+    if (!frozenWeb && (!suppliedScripts.length || !caseIds.length || !operations.length)) {
       throw new Error(
         "execution-readiness-publish requires --script, --case-id, and --operation."
       );
     }
-    const before = await manager.gate();
     const readinessActivity = before.activities.readiness;
     if (readinessActivity?.state !== "RUNNING") {
       throw new Error(
-        "Start readiness before publishing execution-authorization-v4."
+        "Start readiness before publishing execution-authorization-v1."
       );
     }
     const reuseMetadata = before.activities["reuse-assessment"]?.definition.metadata;
-    if (["v6", "v7"].includes(before.definitionVersion)
+    if (before.definitionVersion === "v1"
       && reuseMetadata?.decision === "affected_rebuild") {
       const expectedCaseIds = Array.isArray(reuseMetadata.selectedCaseIds)
         ? reuseMetadata.selectedCaseIds.filter((item): item is string => typeof item === "string").sort()
@@ -1257,16 +1798,13 @@ async function main(): Promise<void> {
       throw new Error("readiness has no durable ActivityAttemptStarted timestamp.");
     }
     const claimToken = required(args, "--claim");
-    const authorizationSchemaVersion = readinessActivity.definition.metadata?.outputSchemaVersion
-      === READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-      ? READINESS_EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-      : EXECUTION_AUTHORIZATION_SCHEMA_VERSION;
     const environment = required(args, "--environment");
     const suppliedTargetBuildDigest = option(args, "--target-build-digest");
     const suppliedSelectorEvidenceDigests = options(args, "--selector-evidence-digest");
-    const resourceBudgets = parseResourceBudgets(options(args, "--budget"));
+    const resourceBudgets = frozenWeb?.resourceBudgets ?? suppliedBudgets;
     const resourcePoolBudgets = parseResourcePoolBudgets(options(args, "--pool-budget"));
-    const dataWritePolicy = parseDataWritePolicy(required(args, "--data-write-policy"));
+    const dataWritePolicy = frozenWeb?.dataWritePolicy
+      ?? parseDataWritePolicy(required(args, "--data-write-policy"));
     const residualTtlHours = parsePositiveInteger(
       option(args, "--residual-ttl-hours"),
       "--residual-ttl-hours",
@@ -1349,7 +1887,7 @@ async function main(): Promise<void> {
       const summary = `No runnable cases; ${readiness.deferredCount} case(s) are deferred by checked capabilities.`;
       await manager.failActivity("readiness", {
         claimToken,
-        retryable: true,
+        scheduleRetry: true,
         summary,
         maxAttempts: 99,
         retryAt: new Date(Date.now() + 86_400_000).toISOString()
@@ -1376,14 +1914,32 @@ async function main(): Promise<void> {
         );
       }
     }
-    const reviewEvidence = await validateScriptReviewEvidenceFiles({
-      assessment: scriptAssessment,
-      evidencePaths: options(args, "--review-evidence"),
-      workspaceRoot: manager.workspaceRoot,
-      runtimeRequestRoot: manager.runtime.requestRoot
+    if (before.definitionVersion !== "v1") {
+      throw new Error("Only a v1 request may publish execution readiness.");
+    }
+    const reviewReceipt = JSON.parse(await readFile(
+      resolve(manager.requestRoot, "script-review-receipt.json"),
+      "utf8"
+    )) as { schemaVersion?: unknown; assessmentInputDigest?: unknown; reviewerReceipts?: unknown };
+    if (reviewReceipt.schemaVersion !== "script-review-receipt-v1"
+      || reviewReceipt.assessmentInputDigest !== scriptAssessment.inputDigest
+      || !Array.isArray(reviewReceipt.reviewerReceipts)) {
+      throw new Error("Readiness requires the completed script-review receipt for this frozen script input.");
+    }
+    const reviewerReceipts = reviewReceipt.reviewerReceipts as unknown[];
+    const reviewEvidence = scriptAssessment.requiredReviewerRoles.map((role) => {
+      const receipt = reviewerReceipts.find((item) =>
+        item && typeof item === "object"
+        && (item as { role?: unknown }).role === role
+        && typeof (item as { findingsDigest?: unknown }).findingsDigest === "string"
+      ) as { findingsDigest: string } | undefined;
+      if (!receipt || !/^[a-f0-9]{64}$/.test(receipt.findingsDigest)) {
+        throw new Error(`Readiness requires an approved ${role} script-review receipt.`);
+      }
+      return { role, digest: receipt.findingsDigest };
     });
     const manifest = buildExecutionAuthorizationManifest({
-      schemaVersion: authorizationSchemaVersion,
+      mode: "request",
       requestId,
       environment,
       scriptPaths: scripts,
@@ -1400,17 +1956,13 @@ async function main(): Promise<void> {
         level: scriptAssessment.level,
         evidenceDigests: reviewEvidence.map((item) => item.digest)
       },
-      ...(authorizationSchemaVersion === EXECUTION_AUTHORIZATION_SCHEMA_VERSION
-        ? {
-            caseScopes: caseScopesFromManifest(formalManifest, readiness.runnableCaseIds),
-            resourcePoolBudgets,
-            resourcePoolEvidence,
-            externalTransitions: externalTransitionsFromManifest(
-              formalManifest,
-              readiness.runnableCaseIds
-            )
-          }
-        : {}),
+      caseScopes: caseScopesFromManifest(formalManifest, readiness.runnableCaseIds),
+      resourcePoolBudgets,
+      resourcePoolEvidence,
+      externalTransitions: externalTransitionsFromManifest(
+        formalManifest,
+        readiness.runnableCaseIds
+      ),
       allowedOperations: operations,
       resourceBudgets,
       dataWritePolicy,
@@ -1419,14 +1971,14 @@ async function main(): Promise<void> {
       callbackId: option(args, "--callback"),
       createdAt: attemptStarted.occurredAt
     });
-    if (manifest.schemaVersion !== authorizationSchemaVersion) {
-      throw new Error(`Readiness must publish ${authorizationSchemaVersion}.`);
+    if (manifest.schemaVersion !== EXECUTION_AUTHORIZATION_SCHEMA_VERSION || manifest.mode !== "request") {
+      throw new Error("Readiness must publish request execution-authorization-v1.");
     }
-    const targetPath = `testcases/${requestId}/execution-authorization.json`;
+    const targetPath = `${manager.requestRoot}/execution-authorization.json`;
     const readinessView = await manager.publishArtifactsAndSucceed("readiness", {
       claimToken,
       publishId: option(args, "--publish")
-        ?? `execution-readiness-${manifest.readinessDigest.slice(0, 12)}-${sha256(claimToken).slice(0, 12)}`,
+        ?? `execution-readiness-${(manifest.readinessDigest ?? manifest.digest).slice(0, 12)}-${sha256(claimToken).slice(0, 12)}`,
       verification: scriptReviewVerification({
         assessment: scriptAssessment,
         evidence: reviewEvidence,
@@ -1445,12 +1997,12 @@ async function main(): Promise<void> {
         readiness,
         manifest,
         authorizationMode: authorization.authorized
-          ? "policy_auto_no_write_v2"
+          ? "policy_auto_no_write_v1"
           : "user_confirmed",
         targetBuildDigestSource: selectorBuildIdentity.sources,
         workflow: view
       },
-      `readiness 已从 ${selectorBuildIdentity.sources.join(", ")} 读取 targetBuildDigest=${targetBuildDigest}，发布 ${readiness.runnableCount} 个执行链用例（首波 ${readiness.initialRunnableCaseIds.length}，后续 ${readiness.scheduledCaseIds.length}，共 ${readiness.executionWaves.length} 波，graph=${readiness.dependencyPlan.graphDigest.slice(0, 12)}），${readiness.deferredCount} 个真实延期用例；${authorization.authorized ? "已按 policy_auto_no_write_v2 自动授权" : "执行清单等待用户确认"}。`
+      `readiness 已从 ${selectorBuildIdentity.sources.join(", ")} 读取 targetBuildDigest=${targetBuildDigest}，发布 ${readiness.runnableCount} 个执行链用例（首波 ${readiness.initialRunnableCaseIds.length}，后续 ${readiness.scheduledCaseIds.length}，共 ${readiness.executionWaves.length} 波，graph=${readiness.dependencyPlan.graphDigest.slice(0, 12)}），${readiness.deferredCount} 个真实延期用例；${authorization.authorized ? "已按 policy_auto_no_write_v1 自动授权" : "执行清单等待用户确认"}。`
     );
     return;
   }
@@ -1469,8 +2021,8 @@ async function main(): Promise<void> {
       "--suite-version"
     ], command);
     const before = await manager.gate();
-    if (before.definitionVersion !== "v6") {
-      throw new Error("suite-readiness-publish requires a v6 stable-suite workflow.");
+    if (before.definitionVersion !== "v1") {
+      throw new Error("suite-readiness-publish requires a v1 stable-suite workflow.");
     }
     const readinessActivity = before.activities.readiness;
     if (readinessActivity?.state !== "RUNNING") {
@@ -1484,7 +2036,7 @@ async function main(): Promise<void> {
     if (suite.suiteVersion !== suiteVersion
       || validation.driftedPaths.length
       || validation.closureDrift) {
-      throw new Error("Stable suite changed after v6 initialization; run a new deterministic reuse assessment.");
+      throw new Error("Stable suite changed after initialization; run a new deterministic reuse assessment.");
     }
     const assessment = await assessStableTestSuite({
       suiteId,
@@ -1505,7 +2057,7 @@ async function main(): Promise<void> {
     if (formalManifest.environment !== environment) {
       throw new Error("Stable suite formal manifest environment differs from this run.");
     }
-    if (formalManifest.schemaVersion === "formal-execution-manifest-v4"
+    if (formalManifest.scope === "stable_suite"
       && formalManifest.suiteId !== suiteId) {
       throw new Error("Stable suite formal manifest identity drifted.");
     }
@@ -1566,7 +2118,7 @@ async function main(): Promise<void> {
       const summary = `No runnable suite cases; ${readiness.deferredCount} case(s) await runtime capabilities.`;
       await manager.failActivity("readiness", {
         claimToken: required(args, "--claim"),
-        retryable: true,
+        scheduleRetry: true,
         summary,
         maxAttempts: 99,
         retryAt: new Date(Date.now() + 86_400_000).toISOString()
@@ -1593,7 +2145,7 @@ async function main(): Promise<void> {
       .update(await readFile(suiteManifestPath))
       .digest("hex");
     const manifest = buildExecutionAuthorizationManifest({
-      schemaVersion: STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION,
+      mode: "stable_suite",
       requestId,
       environment,
       scriptPaths: selectedEntryScriptPaths,
@@ -1614,6 +2166,7 @@ async function main(): Promise<void> {
       workspaceRoot: manager.workspaceRoot,
       createdAt: attemptStarted.occurredAt,
       suiteRef: {
+        sourceRequestId: suite.sourceRequestId,
         suiteId,
         suiteVersion,
         suiteManifestPath,
@@ -1626,12 +2179,12 @@ async function main(): Promise<void> {
           : "user_confirmed"
       }
     });
-    if (manifest.schemaVersion !== STABLE_SUITE_EXECUTION_AUTHORIZATION_SCHEMA_VERSION) {
-      throw new Error("Stable suite readiness must publish execution-authorization-v5.");
+    if (manifest.schemaVersion !== EXECUTION_AUTHORIZATION_SCHEMA_VERSION || manifest.mode !== "stable_suite") {
+      throw new Error("Stable suite readiness must publish execution-authorization-v1.");
     }
     const view = await manager.publishArtifactsAndSucceed("readiness", {
       claimToken: required(args, "--claim"),
-      publishId: `suite-readiness-${manifest.readinessDigest.slice(0, 12)}-${sha256(required(args, "--claim")).slice(0, 12)}`,
+      publishId: `suite-readiness-${(manifest.readinessDigest ?? manifest.digest).slice(0, 12)}-${sha256(required(args, "--claim")).slice(0, 12)}`,
       verification: `stable-suite:${assessment.assessmentDigest}`,
       artifacts: [{
         targetPath: `testcases/${requestId}/execution-authorization.json`,
@@ -1652,100 +2205,67 @@ async function main(): Promise<void> {
   }
 
   if (command === "execution-authorization-publish") {
-    const scripts = options(args, "--script");
-    const caseIds = options(args, "--case-id");
-    const operations = parseExecutionOperations(options(args, "--operation"));
-    if (!scripts.length || !caseIds.length || !operations.length) {
-      throw new Error(
-        "execution-authorization-publish requires --script, --case-id, and --operation."
-      );
-    }
+    throw new Error(
+      "execution-authorization-publish is retired; complete script-review-assess, isolated reviewer dispatch/submission, script-review-finalize, readiness-preflight, and execution-readiness-publish."
+    );
+  }
+
+  if (command === "script-review-finalize") {
     const before = await manager.gate();
-    const scriptReview = before.activities["script-review"];
-    if (scriptReview?.state !== "RUNNING") {
-      throw new Error(
-        "Start script-review before publishing its immutable execution authorization."
-      );
+    const activity = before.activities["script-review"];
+    if (activity?.state !== "RUNNING") {
+      throw new Error("Start script-review after all required isolated reviewers have completed.");
     }
-    const attemptStarted = [...await manager.events()].reverse().find((event) =>
-      event.type === "ActivityAttemptStarted"
-      && event.payload.activityId === "script-review"
-      && event.payload.attempt === scriptReview.attempt
+    const assessmentPath = resolve(manager.requestRoot, "script-review-assessment.json");
+    const assessment = JSON.parse(await readFile(assessmentPath, "utf8")) as {
+      inputDigest?: unknown;
+      requiredReviewerRoles?: unknown;
+    };
+    if (typeof assessment.inputDigest !== "string" || !Array.isArray(assessment.requiredReviewerRoles)) {
+      throw new Error("Frozen script-review assessment is malformed.");
+    }
+    const roles = assessment.requiredReviewerRoles.filter((role): role is string =>
+      role === "script_quality" || role === "execution_safety"
     );
-    if (!attemptStarted) {
-      throw new Error("script-review has no durable ActivityAttemptStarted timestamp.");
-    }
-    const claimToken = required(args, "--claim");
-    const environment = required(args, "--environment");
-    const resourceBudgets = parseResourceBudgets(options(args, "--budget"));
-    const dataWritePolicy = parseDataWritePolicy(required(args, "--data-write-policy"));
-    const residualTtlHours = parsePositiveInteger(
-      option(args, "--residual-ttl-hours"),
-      "--residual-ttl-hours",
-      72
-    );
-    const policyEnforced = scriptReview.definition.metadata?.scriptReviewPolicyVersion
-      === SCRIPT_REVIEW_POLICY_VERSION;
-    const assessment = policyEnforced
-      ? await scriptReviewAssessment(manager, before, {
-          scripts,
-          caseIds,
-          operations,
-          environment,
-          resourceBudgets,
-          dataWritePolicy,
-          caseRiskAssessments: parseScriptCaseRisks(options(args, "--case-risk")),
-          residualTtlHours
-        })
-      : undefined;
-    if (assessment && !assessment.publishable) {
-      throw new Error(
-        `Script review static gate failed: ${assessment.blockingIssues.join(" ")}`
+    const events = await manager.events();
+    const receipts = roles.map((role) => {
+      const reviewer = Object.values(before.activities).find((candidate) =>
+        candidate.definition.metadata?.subflow === "script-review"
+        && candidate.definition.metadata?.role === role
       );
-    }
-    const evidence = assessment
-      ? await validateScriptReviewEvidenceFiles({
-          assessment,
-          evidencePaths: options(args, "--review-evidence"),
-          workspaceRoot: manager.workspaceRoot,
-          runtimeRequestRoot: manager.runtime.requestRoot
-        })
-      : [];
-    const manifest = buildExecutionAuthorizationManifest({
-      requestId,
-      environment,
-      scriptPaths: scripts,
-      caseIds,
-      allowedOperations: operations,
-      resourceBudgets,
-      dataWritePolicy,
-      residualTtlHours,
-      workspaceRoot: manager.workspaceRoot,
-      callbackId: option(args, "--callback"),
-      createdAt: attemptStarted.occurredAt
+      const submission = reviewer
+        ? [...events].reverse().find((event) => event.type === "ReviewerSubmitted"
+          && event.payload.activityId === reviewer.id)
+        : undefined;
+      if (!reviewer || reviewer.state !== "SUCCEEDED" || !submission
+        || submission.payload.conclusion !== "converged"
+        || typeof submission.payload.inputDigest !== "string"
+        || typeof submission.payload.findingsDigest !== "string") {
+        throw new Error(`Script reviewer ${role} is not approved with a closed findings receipt.`);
+      }
+      return {
+        role,
+        activityId: reviewer.id,
+        inputDigest: submission.payload.inputDigest,
+        findingsDigest: submission.payload.findingsDigest
+      };
     });
-    const targetPath = `testcases/${requestId}/execution-authorization.json`;
+    const receipt = {
+      schemaVersion: "script-review-receipt-v1",
+      assessmentInputDigest: assessment.inputDigest,
+      reviewerReceipts: receipts
+    };
     const view = await manager.publishArtifactsAndSucceed("script-review", {
-      claimToken,
+      claimToken: required(args, "--claim"),
       publishId: option(args, "--publish")
-        ?? `execution-authorization-${manifest.digest.slice(0, 12)}-${sha256(claimToken).slice(0, 12)}`,
-      verification: assessment
-        ? scriptReviewVerification({
-            assessment,
-            evidence,
-            verification: required(args, "--verified")
-          })
-        : required(args, "--verified"),
+        ?? `script-review-receipt-${assessment.inputDigest.slice(0, 16)}`,
+      verification: required(args, "--verified"),
       artifacts: [{
-        targetPath,
-        content: `${JSON.stringify(manifest, null, 2)}\n`
+        targetPath: `${manager.requestRoot}/script-review-receipt.json`,
+        content: `${JSON.stringify(receipt, null, 2)}\n`
       }]
     });
-    output(
-      args,
-      view,
-      `执行清单 ${manifest.digest.slice(0, 12)} 已由 script-review 原子发布。`
-    );
+    output(args, { receipt, workflow: view }, "隔离脚本 reviewer 回执已聚合；readiness-preflight 现在可继续。");
     return;
   }
 
@@ -1948,6 +2468,10 @@ async function main(): Promise<void> {
 
   if (command === "review-batch-start") {
     const batchId = required(args, "--batch");
+    const subflow = option(args, "--subflow");
+    if (subflow !== undefined && subflow !== "case-review" && subflow !== "script-review") {
+      throw new Error("--subflow must be case-review or script-review.");
+    }
     const inputPaths = options(args, "--input");
     const activityIds = options(args, "--activity");
     const affectedRefs = options(args, "--affected-ref");
@@ -1967,6 +2491,7 @@ async function main(): Promise<void> {
     }
     const view = await manager.startReviewBatch({
       batchId,
+      ...(subflow ? { subflow } : {}),
       inputPaths,
       activityIds,
       affectedRefs,
@@ -1975,6 +2500,13 @@ async function main(): Promise<void> {
       reason: option(args, "--reason")
     });
     output(args, view, `评审批次 ${batchId} 已开始。`);
+    return;
+  }
+
+  if (command === "review-rereview-start") {
+    const fromBatchId = required(args, "--from-batch");
+    const view = await manager.startReviewerRereview(fromBatchId);
+    output(args, view, `v1 复审批次已从 ${fromBatchId} 确定性派生。`);
     return;
   }
 
@@ -2015,7 +2547,7 @@ async function main(): Promise<void> {
     if (option(args, "--input-digest")) {
       throw new Error("reviewer-submit derives inputDigest from the frozen batch; do not pass --input-digest.");
     }
-    const evidencePath = option(args, "--plan-evidence") ?? manager.planPath;
+    const evidencePath = option(args, "--plan-evidence") ?? manager.reviewEvidencePath();
     if (option(args, "--plan-evidence-digest")) {
       throw new Error("reviewer-submit reads the evidence digest itself; do not pass --plan-evidence-digest.");
     }
@@ -2119,10 +2651,53 @@ async function main(): Promise<void> {
   }
 
   if (command === "suite-promote") {
+    const level = option(args, "--level") ?? "verified";
+    if (!['reviewed', 'verified'].includes(level)) {
+      throw new Error("suite-promote --level must be reviewed or verified.");
+    }
+    if (level === "reviewed") {
+      rejectOptions(args, [
+        "--digest",
+        "--suite-version",
+        "--script",
+        "--manifest",
+        "--result-digest",
+        "--authorization-digest"
+      ], command);
+      const suiteId = required(args, "--suite");
+      const view = await manager.gate();
+      if (view.activities["case-confirmation"]?.state !== "SUCCEEDED"
+        || view.activities["script-review"]?.state !== "SUCCEEDED") {
+        throw new Error("Reviewed script promotion requires accepted case-confirmation and completed script-review.");
+      }
+      const receiptPath = resolve(manager.requestRoot, "script-review-receipt.json");
+      if (!existsSync(receiptPath)) {
+        throw new Error("Reviewed script promotion requires the frozen script-review-receipt.json.");
+      }
+      const caseScripts = options(args, "--case-script").map((value) => {
+        const separator = value.indexOf(":");
+        const caseId = separator > 0 ? value.slice(0, separator) : "";
+        const sourcePath = separator > 0 ? value.slice(separator + 1) : "";
+        if (!caseId || !sourcePath) {
+          throw new Error("--case-script must use <caseId>:<candidate-script-path>.");
+        }
+        return { caseId, sourcePath };
+      });
+      const result = await promoteReviewedDesignScripts({
+        suiteId,
+        requestId,
+        reviewDigest: createHash("sha256").update(await readFile(receiptPath)).digest("hex"),
+        caseScripts,
+        workspaceRoot: manager.workspaceRoot
+      });
+      output(args, result, `稳定套件 ${result.suiteId}@${result.suiteVersion.slice(0, 12)} 已晋升 reviewed 脚本；请审查并提交 Git 变更。`);
+      return;
+    }
     rejectOptions(args, [
       "--digest",
       "--suite-version",
       "--case-id",
+      "--case-script",
       "--script",
       "--manifest",
       "--result-digest",

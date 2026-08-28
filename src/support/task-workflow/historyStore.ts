@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { canonicalJson } from "./canonicalJson.js";
+import { CURRENT_WORKFLOW_VERSION, isCurrentWorkflowVersion } from "./currentVersion.js";
 import { processLockCanBeRecovered, type ProcessLockRecord } from "./processLock.js";
 import {
   WorkflowHistoryConflictError,
@@ -16,7 +17,7 @@ import {
 } from "./types.js";
 
 export const GENESIS_DIGEST = "0".repeat(64);
-export const WRITABLE_WORKFLOW_DEFINITION_VERSIONS = ["v5", "v6", "v7", "v8", "v9"] as const;
+export const WRITABLE_WORKFLOW_DEFINITION_VERSIONS = [CURRENT_WORKFLOW_VERSION] as const;
 
 export type WorkflowHistoryCandidateValidator = (
   events: readonly WorkflowEvent[]
@@ -160,6 +161,11 @@ export function verifyWorkflowHistoryText(text: string): WorkflowEvent[] {
       throw new WorkflowHistoryIntegrityError(`Workflow history contains invalid JSON at seq ${index + 1}.`);
     }
     validateEventShape(event, index + 1, prevDigest);
+    if (!isCurrentWorkflowVersion(event.definitionVersion)) {
+      throw new WorkflowHistoryIntegrityError(
+        `Workflow history definitionVersion ${event.definitionVersion} is unavailable after the v1 debug baseline reset.`
+      );
+    }
     if (idempotencyKeys.has(event.idempotencyKey)) {
       throw new WorkflowHistoryIntegrityError(`Duplicate idempotency key at seq ${event.seq}.`);
     }
@@ -224,14 +230,9 @@ export class WorkflowHistoryStore {
   ): Promise<WorkflowEvent[]> {
     if (!inputs.length) throw new Error("Workflow history append batch must not be empty.");
     for (const input of inputs) {
-      if (!WRITABLE_WORKFLOW_DEFINITION_VERSIONS.includes(input.definitionVersion as "v5" | "v6" | "v7" | "v8" | "v9")) {
+      if (!WRITABLE_WORKFLOW_DEFINITION_VERSIONS.includes(input.definitionVersion as typeof CURRENT_WORKFLOW_VERSION)) {
         throw new WorkflowHistoryIntegrityError(
-          `Workflow history append requires definitionVersion v5, v6, v7, v8, or v9; ${input.definitionVersion} is replay-only.`
-        );
-      }
-      if (input.type === "LegacyStateImported") {
-        throw new WorkflowHistoryIntegrityError(
-          "LegacyStateImported is replay-only and can never be appended."
+          `Workflow history append requires definitionVersion ${CURRENT_WORKFLOW_VERSION}; ${input.definitionVersion} is unavailable after the debug baseline reset.`
         );
       }
       assertIdentifier(input.idempotencyKey, "idempotencyKey");
@@ -243,20 +244,6 @@ export class WorkflowHistoryStore {
     ]);
     return this.withExclusive(async () => {
       const events = await this.read();
-      const legacyEvent = events.find((event) => event.type === "LegacyStateImported");
-      if (legacyEvent) {
-        throw new WorkflowHistoryIntegrityError(
-          `Workflow history is replay-only because seq ${legacyEvent.seq} uses LegacyStateImported; create a new v7 run instead of appending.`
-        );
-      }
-      const legacyDefinitionEvent = events.find(
-        (event) => !WRITABLE_WORKFLOW_DEFINITION_VERSIONS.includes(event.definitionVersion as "v5" | "v6" | "v7" | "v8" | "v9")
-      );
-      if (legacyDefinitionEvent) {
-        throw new WorkflowHistoryIntegrityError(
-          `Workflow history is replay-only because seq ${legacyDefinitionEvent.seq} uses definitionVersion ${legacyDefinitionEvent.definitionVersion}; create a new v7 run instead of appending.`
-        );
-      }
       const last = events.at(-1);
       const currentHead = { seq: last?.seq ?? 0, digest: last?.digest ?? GENESIS_DIGEST };
       const eventsByIdempotencyKey = new Map(

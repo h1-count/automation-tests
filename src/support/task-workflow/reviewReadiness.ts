@@ -35,9 +35,8 @@ const requiredPlanMarkers: Array<{ label: string; alternatives: string[] }> = [
   { label: "## 请求内来源", alternatives: ["## 请求内来源"] },
   { label: "## 需求索引", alternatives: ["## 需求索引"] },
   { label: "## 规则设计台账", alternatives: ["## 规则设计台账"] },
-  { label: "rule-design-ledger-v3", alternatives: ["rule-design-ledger-v3"] },
-  { label: "## 缺口与风险", alternatives: ["## 缺口与风险"] },
-  { label: "## 评审与正式决定", alternatives: ["## 评审与正式决定"] }
+  { label: "rule-design-ledger-v1", alternatives: ["rule-design-ledger-v1"] },
+  { label: "## 缺口与风险", alternatives: ["## 缺口与风险"] }
 ];
 
 function uniqueMatches(value: string, pattern: RegExp): string[] {

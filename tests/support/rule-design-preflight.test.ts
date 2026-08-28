@@ -5,7 +5,7 @@ import {
   validateRuleDesignMatrix
 } from "../../scripts/rule-design-preflight.ts";
 
-const plan = `> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
+const plan = `> 结构版本：test-design-index-v1 / rule-design-ledger-v1 / case-relation-projection-v1。
 
 ## 规则设计台账
 | RULE | REQ | sourceRef | 条件 / 输入 | 可观察预期 | 设计方法 | caseIds | 风险 / 门禁 | 结论 |
@@ -15,7 +15,7 @@ const plan = `> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / ca
 | RULE-REG-003 | REQ-REG-002 | SRC-REG-001 | 唯一性提交路径：重复名称 | 显示资料定义重复名称提示 | 决策表 | OPEN-REG-003 | 写入授权 | 受控执行 |
 `;
 
-test("当前 v3 规则台账通过设计预检", () => {
+test("当前 v1 规则台账通过设计预检", () => {
   assert.deepEqual(validateRuleDesignMatrix(plan), []);
 });
 
@@ -26,9 +26,9 @@ test("预检拒绝泛化预期和缺失执行门禁", () => {
     .some((issue) => issue.includes("缺少风险或执行门禁")));
 });
 
-test("旧规则台账被当作不受支持契约拒绝", () => {
-  const issues = validateRuleDesignMatrix(plan.replace("rule-design-ledger-v3", "rule-design-ledger-v2"));
-  assert.ok(issues.some((issue) => issue.includes("rule-design-ledger-v2")));
+test("非当前规则台账被当作不受支持契约拒绝", () => {
+  const issues = validateRuleDesignMatrix(plan.replace("rule-design-ledger-v1", "unsupported-version"));
+  assert.ok(issues.some((issue) => issue.includes("rule-design-ledger-v1")));
 });
 
 test("规则邻域覆盖同一需求和条件对象且去重", () => {

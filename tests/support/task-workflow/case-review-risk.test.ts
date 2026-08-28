@@ -3,7 +3,7 @@ import test from "node:test";
 import { assessCaseReviewRisk } from "../../../src/support/task-workflow/caseReviewRisk.js";
 
 function plan(caseId = "DEMO-CASE-001", ruleId = "RULE-DEMO-001"): string {
-  return `> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
+  return `> 结构版本：test-design-index-v1 / rule-design-ledger-v1 / case-relation-projection-v1。
 
 ## 规则设计台账
 | RULE | REQ | sourceRef | 条件 / 输入 | 可观察预期 | 设计方法 | caseIds | 风险 / 门禁 | 结论 |
@@ -29,7 +29,7 @@ function testcase(options: {
     ? `| D01 | 1 | ${options.action ?? "检查页面"} | 普通输入 | ${options.expected ?? "结果可见"} |
 | D02 | 1 | ${options.action ?? "检查页面"} | OTP 安全挑战 | 不得自动处理 |`
     : `| — | 1 | ${options.action ?? "检查页面"} | ${options.data ?? "无"} | ${options.expected ?? "结果可见"} |`;
-  return `> 结构版本：testcase-v6-layered。
+  return `> 结构版本：testcase-v1-layered。
 
 # 用例集：Demo
 
@@ -59,7 +59,7 @@ ${rows}
 `;
 }
 
-test("current v6 risk reads only executable actions, data and expectations", () => {
+test("current risk reads only executable actions, data and expectations", () => {
   const assessment = assessCaseReviewRisk(testcase(), { plan: plan() });
   assert.equal(assessment.maxLevel, "light");
   assert.deepEqual(assessment.cases[0]?.ruleRefs, ["RULE-DEMO-001"]);
@@ -79,8 +79,8 @@ test("parameter data and expectations participate in risk classification", () =>
 
 test("archived testcase formats are refused instead of silently parsed", () => {
   assert.throws(
-    () => assessCaseReviewRisk(testcase().replace("testcase-v6-layered", "testcase-v4"), { plan: plan() }),
-    /only accepts testcase-v6-layered/u
+    () => assessCaseReviewRisk(testcase().replace("testcase-v1-layered", "testcase-v1"), { plan: plan() }),
+    /only accepts testcase-v1-layered/u
   );
 });
 

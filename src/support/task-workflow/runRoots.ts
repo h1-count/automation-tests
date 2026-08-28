@@ -10,20 +10,29 @@ import { resolve } from "node:path";
  *   the local run archive `.local/test-runs/<type>/<project>/<request>/` and
  *   is never committed; recovering on another machine means starting a fresh
  *   run from the suite.
- * - Legacy requests whose history still exists under `testcases/<requestId>/`
- *   keep resolving there (read-only replay compatibility).
  */
-export const RUN_ROOT_MODES = ["local-test-runs", "legacy-testcases"] as const;
+export const RUN_ROOT_MODES = ["local-test-runs"] as const;
 export type RunRootMode = (typeof RUN_ROOT_MODES)[number];
 
 export const SUITE_BINDING_FILENAME = "suite.json";
-
-export function legacyRequestRootPath(workspaceRoot: string, requestId: string): string {
-  return resolve(workspaceRoot, "testcases", ...requestId.split("/"));
-}
+export const CANDIDATE_SCRIPTS_DIRECTORY = "candidate-scripts";
 
 export function localRunRootPath(workspaceRoot: string, requestId: string): string {
   return resolve(workspaceRoot, ".local", "test-runs", ...requestId.split("/"));
+}
+
+/** Candidate build outputs are local to one request; tests/ is suite-owned Git code. */
+export function candidateScriptsDirectoryPath(workspaceRoot: string, requestId: string): string {
+  return resolve(localRunRootPath(workspaceRoot, requestId), CANDIDATE_SCRIPTS_DIRECTORY);
+}
+
+export function candidateScriptManifestPath(workspaceRoot: string, requestId: string): string {
+  return resolve(candidateScriptsDirectoryPath(workspaceRoot, requestId), "execution.manifest.ts");
+}
+
+/** The only accepted Web build input. It remains local to the current request. */
+export function formalWebScriptSpecPath(workspaceRoot: string, requestId: string): string {
+  return resolve(candidateScriptsDirectoryPath(workspaceRoot, requestId), "formal-web-script-spec.json");
 }
 
 export interface ResolvedRunRoot {
@@ -32,35 +41,15 @@ export interface ResolvedRunRoot {
 }
 
 /**
- * Explicit mode wins. Otherwise a request whose workflow history (or plan)
- * already exists under the legacy `testcases/<requestId>` directory and has no
- * local run archive keeps using the legacy root; everything else — including
- * every brand-new request — uses `.local/test-runs/<requestId>`.
+ * Every current request uses its local run archive. Stable design assets are
+ * resolved independently through the frozen suite binding.
  */
 export function resolveRunRoot(
   workspaceRoot: string,
   requestId: string,
-  mode?: RunRootMode
+  _mode?: RunRootMode
 ): ResolvedRunRoot {
-  if (mode === "legacy-testcases" || mode === "local-test-runs") {
-    return {
-      root: mode === "legacy-testcases"
-        ? legacyRequestRootPath(workspaceRoot, requestId)
-        : localRunRootPath(workspaceRoot, requestId),
-      mode
-    };
-  }
-  const legacy = legacyRequestRootPath(workspaceRoot, requestId);
-  const local = localRunRootPath(workspaceRoot, requestId);
-  const legacyActive = existsSync(resolve(legacy, "workflow-history.ndjson"))
-    || existsSync(resolve(legacy, "plan.md"));
-  const localActive = existsSync(resolve(local, "workflow-history.ndjson"))
-    || existsSync(resolve(local, "plan.md"))
-    || existsSync(resolve(local, SUITE_BINDING_FILENAME));
-  if (legacyActive && !localActive) {
-    return { root: legacy, mode: "legacy-testcases" };
-  }
-  return { root: local, mode: "local-test-runs" };
+  return { root: localRunRootPath(workspaceRoot, requestId), mode: "local-test-runs" };
 }
 
 /** `web/open-platform/login-register` → `testcases/web/open-platform/suites/login-register` */

@@ -5,8 +5,8 @@ import {
   assertFormalUserDecision,
   callbackDecisionIsCurrent,
   formalUserDecisionResolution,
-  planDecisionProjection,
-  planDecisionProjectionV2
+  planConfirmationSubjectProjection,
+  planDecisionProjection
 } from "../../../src/support/task-workflow/callbackDecision.js";
 import {
   prepareReviewLifecycleEvent,
@@ -50,7 +50,7 @@ test("callback decision projection excludes derived review state but preserves f
   const derivedOnly = base.replace("DEMO-REG-001", "DEMO-REG-002");
   const scopeChanged = base.replace("- 注册。", "- 注册与登录。");
   const environmentChanged = base.replace("| 目标环境 | test |", "| 目标环境 | staging |");
-  const writePolicyChanged = base.replace("| 写入策略 | no_write |", "| 写入策略 | managed_cleanup |");
+  const writePolicyChanged = base.replace("| 写入策略 | no_write |", "| 写入策略 | ephemeral_cleanup |");
 
   assert.equal(planDecisionProjection(derivedOnly), planDecisionProjection(base));
   assert.notEqual(planDecisionProjection(scopeChanged), planDecisionProjection(base));
@@ -122,7 +122,7 @@ test("callback decision projection excludes derived review state but preserves f
   assert.deepEqual(projection.nextActions, ["callback-reopen:plan-confirmation"]);
 });
 
-test("v2 plan confirmation subject ignores testcase evolution but detects material plan changes", () => {
+test("v1 plan confirmation subject ignores testcase evolution but detects material plan changes", () => {
   const base = [
     "# Plan",
     "",
@@ -182,51 +182,51 @@ test("v2 plan confirmation subject ignores testcase evolution but detects materi
     .replace("reviewer 尚未返回", "reviewer 已完成自动演进");
 
   assert.equal(
-    planDecisionProjectionV2(evolved),
-    planDecisionProjectionV2(base)
+    planConfirmationSubjectProjection(evolved),
+    planConfirmationSubjectProjection(base)
   );
   assert.match(
-    planDecisionProjectionV2(base),
-    /"schemaVersion":"plan-confirmation-subject-v2"/
+    planConfirmationSubjectProjection(base),
+    /"schemaVersion":"plan-confirmation-subject-v1"/
   );
 
   assert.notEqual(
-    planDecisionProjectionV2(
+    planConfirmationSubjectProjection(
       base.replace("- 账号登录：手机号密码登录及控制台断言。", "- 密码找回：重置后重新登录。")
     ),
-    planDecisionProjectionV2(base)
+    planConfirmationSubjectProjection(base)
   );
   assert.notEqual(
-    planDecisionProjectionV2(base.replace("| 测试类型 | Web |", "| 测试类型 | App |")),
-    planDecisionProjectionV2(base)
+    planConfirmationSubjectProjection(base.replace("| 测试类型 | Web |", "| 测试类型 | App |")),
+    planConfirmationSubjectProjection(base)
   );
   assert.notEqual(
-    planDecisionProjectionV2(
+    planConfirmationSubjectProjection(
       base.replace("`web/demo/account-access`", "`web/demo/password-reset`")
     ),
-    planDecisionProjectionV2(base)
+    planConfirmationSubjectProjection(base)
   );
   assert.notEqual(
-    planDecisionProjectionV2(base.replace("`test`（候选，尚未授权执行）", "`pre`（候选）")),
-    planDecisionProjectionV2(base)
+    planConfirmationSubjectProjection(base.replace("`test`（候选，尚未授权执行）", "`pre`（候选）")),
+    planConfirmationSubjectProjection(base)
   );
   assert.notEqual(
-    planDecisionProjectionV2(
+    planConfirmationSubjectProjection(
       base.replace(
         "| no_write | test | 无 | 0 | 注册字段 / DEMO-REG-001 | 计划确认 |",
-        "| managed_cleanup | test | 企业申请 | 1 | 注册提交 / DEMO-REG-001 | 计划确认 |"
+        "| ephemeral_cleanup | test | 企业申请 | 1 | 注册提交 / DEMO-REG-001 | 计划确认 |"
       )
     ),
-    planDecisionProjectionV2(base)
+    planConfirmationSubjectProjection(base)
   );
   assert.notEqual(
-    planDecisionProjectionV2(
+    planConfirmationSubjectProjection(
       base.replace(
         "## 多角色评审记录",
         "## 风险与审核事项\n\n- 允许执行设备控制。\n\n## 多角色评审记录"
       )
     ),
-    planDecisionProjectionV2(base)
+    planConfirmationSubjectProjection(base)
   );
 });
 
@@ -419,7 +419,7 @@ test("resume recovery suggests an idle rebind after a silent dispatch window", (
   }] as unknown as WorkflowEvent[];
   const bindingId = "REV-01:case-review-design:design";
   const runtime = {
-    schemaVersion: "test-workflow-runtime-v2",
+    schemaVersion: "test-workflow-runtime-v1",
     requestId: "web/demo/req",
     revision: 1,
     reviewerBindings: {
@@ -492,7 +492,7 @@ test("a recently refreshed reviewer binding does not trigger the idle rebind", (
   }] as unknown as WorkflowEvent[];
   const bindingId = "REV-01:case-review-design:design";
   const runtime = {
-    schemaVersion: "test-workflow-runtime-v2",
+    schemaVersion: "test-workflow-runtime-v1",
     requestId: "web/demo/req",
     revision: 1,
     reviewerBindings: {

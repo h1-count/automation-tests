@@ -4,11 +4,9 @@ export type DataWritePolicy =
   | "no_write"
   | "ephemeral_cleanup"
   | "reusable_fixture"
-  | "tracked_residual"
-  /** @deprecated Legacy ledger and workflow compatibility. */
-  | "managed_cleanup";
+  | "tracked_residual";
 
-export type CanonicalDataWritePolicy = Exclude<DataWritePolicy, "managed_cleanup">;
+export type CanonicalDataWritePolicy = DataWritePolicy;
 export type ResourceLeaseMode = "shared_read" | "exclusive";
 export type ResourceRetirementPolicy = "validate_quarantine_replace";
 
@@ -106,12 +104,7 @@ export interface TestResourceRecord {
     revision: number;
     promotedAt: string;
   };
-  lease?: {
-    runId: string;
-    caseId?: string;
-    acquiredAt: string;
-  };
-  leases?: Array<{
+  leases: Array<{
     runId: string;
     caseId?: string;
     mode: ResourceLeaseMode;

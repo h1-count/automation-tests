@@ -241,7 +241,7 @@ export class TestDataManager {
       const requestedMode = request.leaseMode ?? "exclusive";
       const candidates = (await this.store.listResources())
         .filter((resource) => {
-          const leases = resource.leases ?? legacyLeases(resource);
+          const leases = resource.leases;
           const leaseCompatible = requestedMode === "shared_read"
             ? leases.every((lease) => lease.mode === "shared_read")
             : leases.length === 0;
@@ -269,7 +269,6 @@ export class TestDataManager {
         resource.lastValidation = { ...validation, checkedAt: new Date().toISOString() };
         if (validation.status !== "passed") {
           resource.dirty = true;
-          resource.lease = undefined;
           resource.leases = [];
           await this.transition(
             resource,
@@ -283,12 +282,9 @@ export class TestDataManager {
         }
         const acquiredAt = new Date().toISOString();
         resource.leases = [
-          ...(resource.leases ?? legacyLeases(resource)),
+          ...resource.leases,
           { runId: request.runId, caseId: request.caseId, mode: requestedMode, acquiredAt }
         ];
-        resource.lease = requestedMode === "exclusive"
-          ? { runId: request.runId, caseId: request.caseId, acquiredAt }
-          : undefined;
         resource.reuseCount += 1;
         await this.store.writeResource(resource);
         await this.addResourceToRun(request.runId, resource.resourceId);
@@ -477,6 +473,7 @@ export class TestDataManager {
         metadata: input.metadata ?? {},
         sensitiveFields: input.sensitiveFields,
         evidence: [...(intent.evidence ?? []), ...(input.evidence ?? [])],
+        leases: [],
         reuseCount: 0,
         stateHistory: [{
           state: initialState,
@@ -558,6 +555,7 @@ export class TestDataManager {
       metadata: input.metadata ?? {},
       sensitiveFields: input.sensitiveFields,
       evidence: input.evidence,
+      leases: [],
       reuseCount: 0,
       stateHistory: [{
         state: initialState,
@@ -578,10 +576,6 @@ export class TestDataManager {
     }
     await this.addResourceToRun(input.runId, input.resourceId);
     return record;
-  }
-
-  assertUnattendedWriteAllowed(input: Pick<RegisterCreatedResourceInput, "projectId" | "envId" | "resourceType" | "cleanupActionId" | "caseId">): void {
-    this.assertManagedWriteAllowed({ ...input, dataWritePolicy: "managed_cleanup", authorizationDigest: "legacy-authorized" });
   }
 
   assertManagedWriteAllowed(input: Pick<RegisterCreatedResourceInput, "projectId" | "envId" | "resourceType" | "cleanupActionId" | "caseId"> & {
@@ -670,7 +664,6 @@ export class TestDataManager {
         revision: (resource.pool?.revision ?? 0) + 1,
         promotedAt
       };
-      resource.lease = undefined;
       resource.leases = [];
       await this.transition(resource, "available", "Reusable fixture validated and promoted into the local pool.");
       return resource;
@@ -690,7 +683,6 @@ export class TestDataManager {
     resource.dataWritePolicy = "tracked_residual";
     resource.reusable = false;
     resource.pool = undefined;
-    resource.lease = undefined;
     resource.leases = [];
     resource.expiresAt ??= new Date(
       Date.now() + run.residualTtlHours * 3_600_000
@@ -704,7 +696,6 @@ export class TestDataManager {
     const resource = await this.requireOwnedResource(resourceId);
     if (!resource.pool) throw new Error("Only a managed reusable fixture can be quarantined.");
     resource.dirty = true;
-    resource.lease = undefined;
     resource.leases = [];
     await this.transition(resource, "quarantined", reason);
   }
@@ -714,7 +705,6 @@ export class TestDataManager {
     const resource = await this.requireOwnedResource(resourceId);
     if (!resource.pool) throw new Error("Only a managed reusable fixture can be retired.");
     resource.reusable = false;
-    resource.lease = undefined;
     resource.leases = [];
     await this.transition(resource, "retired", reason);
   }
@@ -734,7 +724,6 @@ export class TestDataManager {
       throw new Error("Only an ephemeral cleanup resource can be recorded as restored.");
     }
     resource.dirty = false;
-    resource.lease = undefined;
     resource.leases = [];
     if (resource.state !== "cleanup_pending") {
       await this.transition(resource, "cleanup_pending", "External cleanup evidence was recorded.");
@@ -745,7 +734,7 @@ export class TestDataManager {
 
   async releaseResource(resourceId: string): Promise<void> {
     const resource = await this.requireOwnedResource(resourceId);
-    const runId = resource.lease?.runId ?? resource.leases?.[0]?.runId;
+    const runId = resource.leases[0]?.runId;
     if (!runId) return;
     await this.releaseReusableResource({
       resourceId,
@@ -756,11 +745,10 @@ export class TestDataManager {
 
   async releaseReusableResource(input: ReleaseReusableResourceInput): Promise<void> {
     const resource = await this.requireOwnedResource(input.resourceId);
-    const leases = (resource.leases ?? legacyLeases(resource))
+    const leases = resource.leases
       .filter((lease) => lease.runId !== input.runId);
     if (!input.baselineRestored) {
       resource.dirty = true;
-      resource.lease = undefined;
       resource.leases = [];
       await this.transition(
         resource,
@@ -769,7 +757,6 @@ export class TestDataManager {
       );
       return;
     }
-    resource.lease = undefined;
     resource.leases = leases;
     if (leases.length === 0 && ["leased", "used", "dirty", "quarantined"].includes(resource.state)) {
       resource.dirty = false;
@@ -784,8 +771,10 @@ export class TestDataManager {
     const run = await this.requireRun(runId);
     const records = await this.resourcesForRun(run);
     for (const resource of records) {
-      if (["retained", "retired"].includes(resource.state)) continue;
-      if ((resource.leases ?? legacyLeases(resource)).some((lease) => lease.runId === runId)
+      // cleaned 是用例内已验证并经 recordResourceRestored 登记的终态；
+      // 再次进入 cleanupResource 会触发非法状态迁移（cleaned 仅允许转 retired）。
+      if (["retained", "retired", "cleaned"].includes(resource.state)) continue;
+      if (resource.leases.some((lease) => lease.runId === runId)
         && resource.runId !== runId) {
         await this.releaseReusableResource({
           resourceId: resource.resourceId,
@@ -988,7 +977,7 @@ export class TestDataManager {
 }
 
 function isEphemeralCleanup(policy: DataWritePolicy): boolean {
-  return policy === "ephemeral_cleanup" || policy === "managed_cleanup";
+  return policy === "ephemeral_cleanup";
 }
 
 function normalizeCaseWritePolicies(
@@ -1021,11 +1010,6 @@ function normalizeAllowedCaseWritePolicies(
   return Object.fromEntries(entries);
 }
 
-function legacyLeases(resource: TestResourceRecord): NonNullable<TestResourceRecord["leases"]> {
-  return resource.lease
-    ? [{ ...resource.lease, mode: "exclusive" }]
-    : [];
-}
 
 function sameWriteBudget(
   left: TestRunRecord["writeBudget"],

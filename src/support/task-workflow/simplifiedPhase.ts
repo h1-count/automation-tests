@@ -32,10 +32,10 @@ export interface SimplifiedPhase {
   waiting?: SimplifiedWaiting;
 }
 
-export const v7UserPhaseIds = ["design", "engineering", "execution", "reporting"] as const;
-export type V7UserPhaseId = (typeof v7UserPhaseIds)[number];
-export interface V7UserPhase {
-  id: V7UserPhaseId;
+export const currentUserPhaseIds = ["design", "engineering", "execution", "reporting"] as const;
+export type CurrentUserPhaseId = (typeof currentUserPhaseIds)[number];
+export interface CurrentUserPhase {
+  id: CurrentUserPhaseId;
   status: SimplifiedPhaseStatus;
   waiting?: SimplifiedWaiting;
 }
@@ -59,7 +59,8 @@ const waitingStates = new Set([
   "WAITING_CALLBACK",
   "RETRY_WAIT",
   "RECONCILING",
-  "BLOCKED"
+  "BLOCKED",
+  "FAILED"
 ]);
 
 const activeStates = new Set(["READY", "RUNNING"]);
@@ -78,7 +79,6 @@ function failedActivity(
   gate: WorkflowProjection,
   activity: ActivityProjection
 ): boolean {
-  if (activity.state === "FAILED") return true;
   if (activity.state !== "CANCELLED") return false;
   return gate.workflowState === "CANCELLED"
     || activity.definition.activation === undefined;
@@ -163,7 +163,7 @@ export function projectSimplifiedPhases(
   });
 }
 
-const v7PhaseGroups: Record<V7UserPhaseId, readonly WorkflowPhase[]> = {
+const currentPhaseGroups: Record<CurrentUserPhaseId, readonly WorkflowPhase[]> = {
   design: [
     "planning",
     "case_generation",
@@ -179,9 +179,9 @@ const v7PhaseGroups: Record<V7UserPhaseId, readonly WorkflowPhase[]> = {
   reporting: ["reporting", "completion"]
 };
 
-export function projectV7UserPhases(gate: WorkflowProjection): V7UserPhase[] {
-  return v7UserPhaseIds.map((id) => {
-    const phases = new Set(v7PhaseGroups[id]);
+export function projectCurrentUserPhases(gate: WorkflowProjection): CurrentUserPhase[] {
+  return currentUserPhaseIds.map((id) => {
+    const phases = new Set(currentPhaseGroups[id]);
     const activities = Object.values(gate.activities).filter((activity) =>
       phases.has(activity.definition.phase)
     );

@@ -10,8 +10,8 @@ import {
   ruleLedgerContractIssues
 } from "./relationContract.js";
 
-export const CASE_RELATION_PROJECTION_MARKER_V3 = CURRENT_RELATION_PROJECTION_MARKER;
-export const RULE_DESIGN_LEDGER_MARKER_V3 = CURRENT_RULE_LEDGER_MARKER;
+export const CASE_RELATION_PROJECTION_MARKER_V1 = CURRENT_RELATION_PROJECTION_MARKER;
+export const RULE_DESIGN_LEDGER_MARKER_V1 = CURRENT_RULE_LEDGER_MARKER;
 
 export type RelationIssue = { name: string; detail: string };
 export type RuleCaseRecord = {
@@ -180,7 +180,7 @@ export function validateRelationProjection(plan: string, packages: Record<string
   for (const [name, content] of Object.entries(packages)) {
     const document = parseTestcaseDocument(content);
     if (!isCurrentTestcaseDocumentVersion(document.version)) {
-      issues.push({ name: "用例格式", detail: `${name} 不是当前 testcase-v6-layered。` });
+      issues.push({ name: "用例格式", detail: `${name} 不是当前 testcase-v1-layered。` });
       continue;
     }
     bodyRecords.push(...document.cases.map((testcase) => ({

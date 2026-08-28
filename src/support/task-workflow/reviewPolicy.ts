@@ -1,16 +1,9 @@
 import type {
-  LegacyReviewPolicy,
   ReviewPolicy,
   ReviewRole,
-  TieredReviewPolicy,
   WorkflowCapability
 } from "./types.js";
-
-export const defaultReviewRoles: readonly ReviewRole[] = [
-  "requirements",
-  "design",
-  "traceability"
-];
+import { isDeterministicReviewMode, isRiskAdaptiveReviewMode } from "./types.js";
 
 export type ReviewRiskProfile = "light" | "standard" | "strict";
 
@@ -78,7 +71,7 @@ const strictPlanMarkers = [
 const standardPlanMarkers = [
   {
     key: "data_write",
-    pattern: /\b(?:managed_cleanup|ephemeral_cleanup|reusable_fixture|tracked_residual)\b|(?<!无)(?<!不)(?<!禁止)写入|外部副作用|提交申请/iu
+    pattern: /\b(?:ephemeral_cleanup|reusable_fixture|tracked_residual)\b|(?<!无)(?<!不)(?<!禁止)写入|外部副作用|提交申请/iu
   },
   {
     key: "upload",
@@ -243,18 +236,16 @@ export function buildReviewPolicy(input: BuildReviewPolicyInput): ReviewPolicy {
   const hasRiskContext = input.planText !== undefined
     || input.capabilities !== undefined
     || input.casePackages !== undefined;
-  const riskSelection = hasRiskContext
-    ? deriveReviewRiskSelection({
-        planText: input.planText ?? "",
-        writesData: input.writesData,
-        capabilities: input.capabilities ?? [],
-        casePackages: input.casePackages ?? []
-      })
-    : undefined;
-  const automaticallySelected = riskSelection?.recommendedRoles ?? [
-        ...defaultReviewRoles,
-        ...(input.writesData ? ["impact" as const] : [])
-      ];
+  if (!hasRiskContext) {
+    throw new Error("review-policy-v1 requires planText, capabilities and casePackages.");
+  }
+  const riskSelection = deriveReviewRiskSelection({
+    planText: input.planText ?? "",
+    writesData: input.writesData,
+    capabilities: input.capabilities ?? [],
+    casePackages: input.casePackages ?? []
+  });
+  const automaticallySelected = riskSelection.recommendedRoles;
   const selectedRoles = explicitlySelected.length
     ? explicitlySelected
     : automaticallySelected;
@@ -262,9 +253,10 @@ export function buildReviewPolicy(input: BuildReviewPolicyInput): ReviewPolicy {
     ...selectedRoles,
     ...(input.writesData ? ["impact" as const] : [])
   ]) as ReviewRole[];
-  if (!riskSelection || explicitlySelected.length) {
-    const policy: LegacyReviewPolicy = {
+  if (explicitlySelected.length) {
+    const policy: ReviewPolicy = {
       schemaVersion: "review-policy-v1",
+      mode: requiredRoles.includes("impact") ? "combined_with_impact" : "combined",
       requiredRoles,
       ...(riskSelection
         ? {
@@ -275,15 +267,16 @@ export function buildReviewPolicy(input: BuildReviewPolicyInput): ReviewPolicy {
             ]
           }
         : {}),
-      maxConcurrentReviewers: 3,
+      maxConcurrentReviewers: 2,
       maxAttemptsPerRole: input.maxAttemptsPerRole ?? 3,
-      maxUnchangedRevisionCycles: input.maxUnchangedRevisionCycles ?? 2
+      maxUnchangedRevisionCycles: input.maxUnchangedRevisionCycles ?? 2,
+      maxSemanticEvolutionCycles: input.maxSemanticEvolutionCycles ?? 2
     };
     validateReviewPolicy(policy);
     return policy;
   }
-  const tieredRoles = riskSelection.recommendedRoles as TieredReviewPolicy["requiredRoles"];
-  const mode: TieredReviewPolicy["mode"] = riskSelection.profile === "light"
+  const riskRequiredRoles = riskSelection.recommendedRoles;
+  const mode: ReviewPolicy["mode"] = riskSelection.profile === "light"
     ? "deterministic_only"
     : riskSelection.profile === "standard"
       ? "combined"
@@ -292,21 +285,21 @@ export function buildReviewPolicy(input: BuildReviewPolicyInput): ReviewPolicy {
     input.maxSemanticEvolutionCycles !== undefined
     && input.maxSemanticEvolutionCycles !== 2
   ) {
-    throw new Error("review-policy-v2 requires maxSemanticEvolutionCycles = 2.");
+    throw new Error("review-policy-v1 requires maxSemanticEvolutionCycles = 2.");
   }
   if (input.maxAttemptsPerRole !== undefined && input.maxAttemptsPerRole !== 3) {
-    throw new Error("review-policy-v2 requires maxAttemptsPerRole = 3.");
+    throw new Error("review-policy-v1 requires maxAttemptsPerRole = 3.");
   }
   if (
     input.maxUnchangedRevisionCycles !== undefined
     && input.maxUnchangedRevisionCycles !== 2
   ) {
-    throw new Error("review-policy-v2 requires maxUnchangedRevisionCycles = 2.");
+    throw new Error("review-policy-v1 requires maxUnchangedRevisionCycles = 2.");
   }
-  const policy: TieredReviewPolicy = {
-    schemaVersion: "review-policy-v2",
+  const policy: ReviewPolicy = {
+    schemaVersion: "review-policy-v1",
     mode,
-    requiredRoles: tieredRoles,
+    requiredRoles: riskRequiredRoles,
     riskProfile: riskSelection.profile,
     selectionReasons: riskSelection.reasons,
     maxConcurrentReviewers: 2,
@@ -318,9 +311,9 @@ export function buildReviewPolicy(input: BuildReviewPolicyInput): ReviewPolicy {
   return policy;
 }
 
-export function buildAdaptiveReviewPolicy(): ReviewPolicy {
+export function buildRiskAdaptiveReviewPolicy(): ReviewPolicy {
   const policy: ReviewPolicy = {
-    schemaVersion: "review-policy-v3",
+    schemaVersion: "review-policy-v1",
     mode: "risk_adaptive",
     requiredRoles: ["combined", "impact"],
     riskProfile: "light",
@@ -335,7 +328,7 @@ export function buildAdaptiveReviewPolicy(): ReviewPolicy {
 }
 
 export function validateReviewPolicy(policy: ReviewPolicy): void {
-  if (!["review-policy-v1", "review-policy-v2", "review-policy-v3"].includes(policy.schemaVersion)) {
+  if (policy.schemaVersion !== "review-policy-v1") {
     throw new Error("Unsupported review policy schema.");
   }
   if (policy.requiredRoles.some((role) => !role.trim())) {
@@ -363,10 +356,7 @@ export function validateReviewPolicy(policy: ReviewPolicy): void {
   ) {
     throw new Error("Review policy selection reasons must be non-empty and unique.");
   }
-  if (policy.schemaVersion === "review-policy-v1" && policy.maxConcurrentReviewers !== 3) {
-    throw new Error("Legacy review policy maxConcurrentReviewers must be 3.");
-  }
-  if (policy.schemaVersion === "review-policy-v2") {
+  if (isDeterministicReviewMode(policy) && !policy.selectionReasons?.includes("explicit_roles")) {
     const expectedRoles = policy.mode === "deterministic_only"
       ? []
       : policy.mode === "combined"
@@ -379,13 +369,13 @@ export function validateReviewPolicy(policy: ReviewPolicy): void {
       || policy.requiredRoles.length !== expectedRoles.length
       || policy.requiredRoles.some((role, index) => role !== expectedRoles[index])
     ) {
-      throw new Error("Tiered review policy mode, roles and fixed limits must agree.");
+      throw new Error("Review policy mode, roles and fixed limits must agree.");
     }
     if (policy.maxSemanticEvolutionCycles !== 2) {
-      throw new Error("Tiered review policy maxSemanticEvolutionCycles must be 2.");
+      throw new Error("Review policy maxSemanticEvolutionCycles must be 2 for deterministic modes.");
     }
   }
-  if (policy.schemaVersion === "review-policy-v3" && (
+  if (isRiskAdaptiveReviewMode(policy) && (
     policy.mode !== "risk_adaptive"
     || policy.maxConcurrentReviewers !== 2
     || policy.maxAttemptsPerRole !== 2
@@ -393,7 +383,7 @@ export function validateReviewPolicy(policy: ReviewPolicy): void {
     || policy.maxSemanticEvolutionCycles !== 1
     || policy.requiredRoles.join("|") !== "combined|impact"
   )) {
-    throw new Error("Adaptive review policy must use the fixed one-revision risk-adaptive contract.");
+    throw new Error("Risk-adaptive review mode must use the fixed one-revision contract.");
   }
   if (!Number.isInteger(policy.maxAttemptsPerRole) || policy.maxAttemptsPerRole < 1) {
     throw new Error("Review policy maxAttemptsPerRole must be a positive integer.");

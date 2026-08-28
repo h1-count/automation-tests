@@ -17,7 +17,7 @@
 - 测试结果、截图、Trace、视频、日志和协议摘要统一放在 `artifacts/`，不得提交到 Git。
 - 失败证据必须足以支持失败分类；证据不足时分类为“未知问题”，不能猜测为产品问题。
 - 报告和日志必须满足[环境规范的敏感采集边界](./environment-guideline.md#61-运行模式)，只保存完成审核所需的脱敏信息。
-- 主 Agent 可读取报告并输出分析、修复建议和 diff。只有流程规范已接受的 v7 定位漂移才能自动回退脚本阶段；其他正式脚本修改或重新执行仍须按适用确认门禁处理。
+- 主 Agent 可读取报告并输出分析、修复建议和 diff。只有流程规范已接受的 v1 定位漂移才能自动回退脚本阶段；其他正式脚本修改或重新执行仍须按适用确认门禁处理。
 - 报告必须基于“测试范围完成判定”，不能仅转述 Runner 的通过数。存在阻塞、未知或未执行范围时，结论必须标记为“部分完成”或“未完成”。
 
 <!-- delegates: automation.project-knowledge -->
@@ -31,7 +31,7 @@
 
 | 目录 | 内容 | 生成方 |
 | --- | --- | --- |
-| `artifacts/test-results/formal/<摘要>/run-summary.json` | `formal-run-summary-v2`：逐 case 状态、Oracle 契约/结果摘要、受控分类、范围、测试结论、能力和数据卫生事实。旧 v1 和已封印的 legacy 投影只读保留。 | completion seal 报告生成器。 |
+| `artifacts/test-results/formal/<摘要>/run-summary.json` | `formal-run-summary-v1`：逐 case 状态、Oracle 契约/结果摘要、受控分类、范围、测试结论、能力和数据卫生事实。非 v1 输入直接拒绝。 | completion seal 报告生成器。 |
 | `artifacts/test-results/formal/<摘要>/execution-summary.md` | 从同一 completion seal 确定性生成的中文摘要。 | completion seal 报告生成器。 |
 | `artifacts/test-results/formal/<摘要>/case-evidence/` | 每个已执行 case 的结构化证据索引。 | 正式 Runner。 |
 | `artifacts/test-results/formal/<摘要>/selector-repair/` | `selector-repair-incident-v1`：定位失败、唯一候选、副作用证明、影响范围和脱敏证据引用。 | 受控 Web/H5 定位包装器。 |
@@ -48,9 +48,9 @@
 
 | 状态 | 含义 | 报告处理 |
 | --- | --- | --- |
-| `passed` | v3 用例的全部必需业务 Oracle 都产生 `satisfied`，证据包完整且脱敏状态有效。 | 记录执行时间、环境、Oracle 契约摘要、关联用例和逐 case 证据索引。 |
+| `passed` | v1 用例的全部必需业务 Oracle 都产生 `satisfied`，证据包完整且脱敏状态有效。 | 记录执行时间、环境、Oracle 契约摘要、关联用例和逐 case 证据索引。 |
 | `failed` | 执行完成且至少一个已绑定业务 Oracle 产生 `violated`。 | 附 Oracle、失败步骤、安全原因码、证据和 `PRODUCT` 分类；前置、脚本或基础设施失败不得伪装为该状态。 |
-| `skipped` | 仅供旧记录回放或已在授权前批准为不适用的历史投影。 | v3 runnable case 禁止由 Runner 写成 `skipped`；应在授权范围形成前通过正式决定移出 runnable 集。能力、数据、依赖或 Oracle 不足必须分别形成 `blocked`、`deferred` 或 `unknown`。 |
+| `skipped` | 仅供授权前批准为不适用的当前投影。 | v1 runnable case 禁止由 Runner 写成 `skipped`；应在授权范围形成前通过正式决定移出 runnable 集。能力、数据、依赖或 Oracle 不足必须分别形成 `blocked`、`deferred` 或 `unknown`。 |
 | `blocked` | 已持久化且可校验的能力不可用、命名资源不可用或 waiting transition 使执行无法继续。 | 必须绑定对应的非业务事实；调用方原因、普通异常或无事实的 `FormalBlockedError` 不能直接写入该状态，而应保守形成 `unknown`。不得记为产品失败。 |
 | `unknown` | attempt 可以已终结，但 Oracle 缺失、`indeterminate`、观察存在歧义、未类型化异常或执行中断，Runner 无法可靠定案业务结果。 | 保留安全证据和分类依据，标记范围部分完成；不得封印或完成 Workflow。 |
 
@@ -85,7 +85,7 @@ redactionStatus
 证据按结果和风险按需采集：
 
 - 每个业务操作和断言都用可读的 `test.step` 或等价 Runner 步骤记录；步骤名描述业务动作或可观察结果，不记录输入值、凭据或内部实现细节。
-- v3 证据包必须绑定当前 `businessOracleContractDigest`，并为每个必需 Oracle 保存唯一结构化结果。JSON 与中文摘要只展示 Oracle/Rule 标识、观察类型、outcome、平台派生的 `evaluationBasis`、固定安全原因和 evidence refs，不保存 evaluator 提交的原始说明或观察到的业务原值。`addAssertion()` 与手写 operation evidence 不能代替 Oracle 结果。
+- v1 证据包必须绑定当前 `businessOracleContractDigest`，并为每个必需 Oracle 保存唯一结构化结果。JSON 与中文摘要只展示 Oracle/Rule 标识、观察类型、outcome、平台派生的 `evaluationBasis`、固定安全原因和 evidence refs，不保存 evaluator 提交的原始说明或观察到的业务原值。`addAssertion()` 与手写 operation evidence 不能代替 Oracle 结果。
 - 普通 `passed` 只要求结构化步骤、断言结果、耗时和环境/构建摘要，不强制截图、视频或 Trace。
 - DOM/ARIA、文本或浏览器响应可稳定判断时，不额外使用模型识图。需模型判断的 UI 证据只保留脱敏最小局部截图、截图 SHA-256、冻结 rubric、结论和不含敏感值的理由摘要；不得保存提示词推理过程，不得将该结论计为后端写入、短信送达或 cleanup 证据。
 - 首次失败或重试使用 Playwright `on-first-retry` Trace 和失败截图；`flaky` 同时保留首次失败与最终结果。证据不足时状态只能为 `unknown`，不得猜测失败分类。
@@ -181,7 +181,7 @@ redactionStatus
 | 分类 | 判定依据 | 建议后续动作 |
 | --- | --- | --- |
 | 产品问题 | 环境、数据和脚本前置条件满足，实际业务结果违反已确认预期。 | 提交缺陷或通知研发，附最小复现与证据。 |
-| 脚本问题 | 产品行为符合预期，但 selector、等待、断言、测试实现或数据处理不正确。 | 合格 v7 定位漂移按流程规范回退并重新确认执行清单；其他问题输出修复 diff，按适用门禁处理。 |
+| 脚本问题 | 产品行为符合预期，但 selector、等待、断言、测试实现或数据处理不正确。 | 合格 v1 定位漂移按流程规范回退并重新确认执行清单；其他问题输出修复 diff，按适用门禁处理。 |
 | 环境问题 | 服务、网络、认证、设备、Appium、Broker 或依赖不可用。 | 修复或恢复环境后复测。 |
 | 测试数据问题 | 测试账号、设备、数据前置、清理或隔离不满足要求。 | 调整 fixture、准备/清理脚本或测试数据。 |
 | 未知问题 | 证据不足、现象无法稳定复现或多个分类都无法确认。 | 补充日志/Trace/观测点后继续排查。 |

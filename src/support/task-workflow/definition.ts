@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { canonicalJson } from "./canonicalJson.js";
+import { CURRENT_WORKFLOW_VERSION } from "./currentVersion.js";
 import {
   workflowCapabilities,
   workflowDeliveryTargets,
@@ -7,18 +8,16 @@ import {
   type BuildWorkflowDefinitionInput,
   type ReusableWorkflowDefinitionInput,
   type ReviewPolicy,
+  type RequestPolicy,
   type SafeEventPayload,
   type SafeJsonValue,
   type WorkflowActivityDefinition,
   type WorkflowCapability,
   type WorkflowDeliveryTarget,
-  type WorkflowDefinition
+  type WorkflowDefinition,
+  isDeterministicReviewMode
 } from "./types.js";
-import {
-  buildAdaptiveReviewPolicy,
-  buildReviewPolicy,
-  validateReviewPolicy
-} from "./reviewPolicy.js";
+import { buildReviewPolicy, validateReviewPolicy } from "./reviewPolicy.js";
 import type { CandidateFragmentModule } from "./candidateFragments.js";
 
 function stableSegment(value: string): string {
@@ -28,6 +27,25 @@ function stableSegment(value: string): string {
 
 function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
+}
+
+function requestPolicyFor(
+  input: BuildWorkflowDefinitionInput,
+  reviewPolicy: ReviewPolicy,
+  deliveryTarget: WorkflowDeliveryTarget,
+  reuseDecision: RequestPolicy["reuseDecision"]
+): RequestPolicy {
+  const mode = "mode" in reviewPolicy ? reviewPolicy.mode : "combined";
+  return {
+    schemaVersion: "request-policy-v1",
+    reuseDecision,
+    deliveryTarget,
+    reviewSpeed: input.requestPolicy?.reviewSpeed ?? "strict",
+    reviewMode: input.requestPolicy?.reviewMode ?? mode,
+    riskProfile: input.requestPolicy?.riskProfile ?? reviewPolicy.riskProfile ?? "strict",
+    writesData: input.writesData ?? false,
+    selectedCaseIds: [...(input.requestPolicy?.selectedCaseIds ?? [])].sort()
+  };
 }
 
 function assertDigest(value: string, name: string): void {
@@ -41,8 +59,19 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition): void
     throw new Error("Workflow definition identity is incomplete.");
   }
   if (definition.reviewPolicy) validateReviewPolicy(definition.reviewPolicy);
-  if (["v3", "v4", "v5", "v6", "v7", "v8", "v9"].includes(definition.definitionVersion) && !definition.reviewPolicy) {
-    throw new Error("Workflow definition v3+ requires a pinned review policy.");
+  if (definition.definitionVersion !== CURRENT_WORKFLOW_VERSION) {
+    throw new Error(`Workflow definition must use the current ${CURRENT_WORKFLOW_VERSION} baseline.`);
+  }
+  if (!definition.reviewPolicy) {
+    throw new Error(`Workflow definition ${CURRENT_WORKFLOW_VERSION} requires a pinned review policy.`);
+  }
+  if (definition.requestPolicy.schemaVersion !== "request-policy-v1"
+    || definition.requestPolicy.deliveryTarget !== definition.deliveryTarget
+    || definition.requestPolicy.writesData !== definition.writesData
+    || !["fast", "balanced", "strict"].includes(definition.requestPolicy.reviewSpeed)
+    || !["direct_execute", "design_reconfirm", "affected_rebuild", "full_replan"].includes(definition.requestPolicy.reuseDecision)
+    || new Set(definition.requestPolicy.selectedCaseIds).size !== definition.requestPolicy.selectedCaseIds.length) {
+    throw new Error("Workflow definition has an invalid frozen request-policy-v1.");
   }
   if (definition.deliveryTarget !== undefined
     && !workflowDeliveryTargets.includes(definition.deliveryTarget)) {
@@ -110,6 +139,7 @@ function graphValue(definition: Omit<WorkflowDefinition, "graphDigest">): SafeJs
     planDigest: definition.planDigest,
     capabilities: definition.capabilities,
     writesData: definition.writesData,
+    requestPolicy: definition.requestPolicy,
     ...(definition.deliveryTarget ? { deliveryTarget: definition.deliveryTarget } : {}),
     ...(definition.reviewPolicy ? { reviewPolicy: definition.reviewPolicy } : {}),
     activities: definition.activities
@@ -132,9 +162,9 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
   )) {
     throw new Error("At least one cases.md or cases-*.md package filename is required.");
   }
-  const optimizedV3 = input.planText?.includes("rule-design-ledger-v3") === true;
-  const fragmented = optimizedV3 && input.fragmented === true;
-  const reviewPolicy = optimizedV3 ? buildAdaptiveReviewPolicy() : buildReviewPolicy({
+  const currentRelationContracts = true;
+  const fragmented = input.fragmented === true;
+  const reviewPolicy = buildReviewPolicy({
     reviewerRoles: input.reviewerRoles,
     writesData: input.writesData ?? false,
     ...(input.planText !== undefined
@@ -149,23 +179,24 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
     maxSemanticEvolutionCycles: input.reviewPolicy?.maxSemanticEvolutionCycles
   });
   const deliveryTarget = input.deliveryTarget ?? "full_run";
-  const activities = fragmented ? buildV8FullBootstrapActivities() : buildV7FullActivities(
+  const activities = fragmented ? buildFragmentedFullBootstrapActivities() : buildFullWorkflowActivities(
     capabilities,
     input.writesData ?? false,
     casePackages,
     reviewPolicy,
     deliveryTarget,
     input.executionIsolation,
-    optimizedV3
+    currentRelationContracts
   );
   const base: Omit<WorkflowDefinition, "graphDigest"> = {
     schemaVersion: "test-workflow-definition-v1",
     definitionId: input.definitionId ?? "durable-test-workflow",
-    definitionVersion: fragmented ? "v8" : "v7",
+    definitionVersion: CURRENT_WORKFLOW_VERSION,
     requestId: input.requestId,
     planDigest: input.planDigest,
     capabilities,
     writesData: input.writesData ?? false,
+    requestPolicy: requestPolicyFor(input, reviewPolicy, deliveryTarget, "full_replan"),
     deliveryTarget,
     reviewPolicy,
     activities
@@ -174,54 +205,32 @@ export function buildWorkflowDefinition(input: BuildWorkflowDefinitionInput): Wo
     ...base,
     graphDigest: workflowGraphDigest(base)
   };
+  addCurrentReadinessPreflight(definition.activities);
+  definition.graphDigest = workflowGraphDigest(definition);
   validateWorkflowDefinition(definition);
   return definition;
 }
 
-/** Builds the pinned legacy graph for replay/compatibility tests. New requests
- * must use buildWorkflowDefinition and therefore start on v7. */
-export function buildLegacyV5WorkflowDefinition(
-  input: BuildWorkflowDefinitionInput
-): WorkflowDefinition {
-  // The compatibility graph is used only to replay and verify archived event
-  // semantics. Do not let the current document marker switch its reviewer
-  // topology to the v7 risk-adaptive design.
-  const current = buildWorkflowDefinition({ ...input, planText: undefined });
-  const reviewPolicy = buildReviewPolicy({
-    reviewerRoles: input.reviewerRoles,
-    writesData: input.writesData ?? false,
-    ...(input.planText !== undefined
-      ? {
-          planText: input.planText,
-          capabilities: current.capabilities,
-          casePackages: unique(input.casePackages ?? [])
-        }
-      : {})
+/** The current workflow validates immutable execution inputs after script review. */
+export function addCurrentReadinessPreflight(activities: WorkflowActivityDefinition[]): void {
+  const readiness = activities.find((activity) => activity.id === "readiness");
+  if (!readiness || activities.some((activity) => activity.id === "readiness-preflight")) return;
+  const scriptReview = activities.find((activity) => activity.id === "script-review");
+  const dependencies = scriptReview ? ["script-review"] : [...readiness.dependencies];
+  const index = activities.indexOf(readiness);
+  activities.splice(index, 0, {
+    id: "readiness-preflight",
+    kind: "readiness_preflight",
+    phase: "script_review",
+    dependencies,
+    required: true,
+    metadata: {
+      schemaVersion: "readiness-preflight-v1",
+      outputArtifact: "execution-authorization.json",
+      evidenceKinds: ["source_contract", "selector_contract", "browser_response_contract"]
+    }
   });
-  const activities = buildV5Activities(
-    current.capabilities,
-    current.writesData,
-    unique(input.casePackages ?? []),
-    reviewPolicy,
-    input.executionIsolation
-  );
-  const {
-    graphDigest: _currentGraphDigest,
-    deliveryTarget: _currentDeliveryTarget,
-    ...currentUnsigned
-  } = current;
-  const base: Omit<WorkflowDefinition, "graphDigest"> = {
-    ...currentUnsigned,
-    definitionVersion: "v5",
-    reviewPolicy,
-    activities
-  };
-  const definition = {
-    ...base,
-    graphDigest: createHash("sha256").update(canonicalJson(graphValue(base)), "utf8").digest("hex")
-  };
-  validateWorkflowDefinition(definition);
-  return definition;
+  readiness.dependencies = ["readiness-preflight"];
 }
 
 export function buildReusableWorkflowDefinition(
@@ -242,27 +251,27 @@ export function buildReusableWorkflowDefinition(
   )) {
     throw new Error("At least one cases.md or cases-*.md package filename is required.");
   }
-  const optimizedV3 = input.planText?.includes("rule-design-ledger-v3") === true;
-  const fragmented = optimizedV3 && input.fragmented === true;
-  const reviewPolicy = optimizedV3 ? buildAdaptiveReviewPolicy() : buildReviewPolicy({
+  const currentRelationContracts = true;
+  const fragmented = input.fragmented === true;
+  const reviewPolicy = buildReviewPolicy({
     reviewerRoles: input.reviewerRoles,
     writesData: input.writesData ?? false,
-    ...(input.planText !== undefined
-      ? { planText: input.planText, capabilities, casePackages }
-      : {}),
+    planText: input.planText ?? "",
+    capabilities,
+    casePackages,
     maxAttemptsPerRole: input.reviewPolicy?.maxAttemptsPerRole,
     maxUnchangedRevisionCycles: input.reviewPolicy?.maxUnchangedRevisionCycles,
     maxSemanticEvolutionCycles: input.reviewPolicy?.maxSemanticEvolutionCycles
   });
   const deliveryTarget = input.deliveryTarget ?? "full_run";
-  const v9ZeroModelReuse = input.reuseProtocol === "v9"
+  const currentZeroModelReuse = input.reuseProtocol === CURRENT_WORKFLOW_VERSION
     && ["direct_execute", "design_reconfirm"].includes(input.reuseAssessment.decision);
-  const v9AffectedReuse = input.reuseProtocol === "v9"
+  const currentAffectedReuse = input.reuseProtocol === CURRENT_WORKFLOW_VERSION
     && input.reuseAssessment.decision === "affected_rebuild";
-  const v9FullReplan = input.reuseProtocol === "v9"
+  const currentFullReplan = input.reuseProtocol === CURRENT_WORKFLOW_VERSION
     && input.reuseAssessment.decision === "full_replan";
-  const activities = v9ZeroModelReuse
-    ? buildV9ZeroModelReuseActivities(
+  const activities = currentZeroModelReuse
+    ? buildZeroModelReuseActivities(
         capabilities,
         input.writesData ?? false,
         casePackages,
@@ -270,14 +279,14 @@ export function buildReusableWorkflowDefinition(
         deliveryTarget,
         input.executionIsolation
       )
-    : v9AffectedReuse
-      ? buildV9AffectedBootstrapActivities(input.reuseAssessment)
-      : v9FullReplan
-        ? buildV9FullReplanBootstrapActivities(input.reuseAssessment)
+    : currentAffectedReuse
+      ? upgradeCandidateBootstrap(buildAffectedBootstrapActivities(input.reuseAssessment))
+      : currentFullReplan
+        ? upgradeCandidateBootstrap(buildFullReplanBootstrapActivities(input.reuseAssessment))
       : fragmented
     && ["full_replan", "affected_rebuild"].includes(input.reuseAssessment.decision)
-    ? buildV8ReusableBootstrapActivities(input.reuseAssessment)
-    : buildV7ReusableActivities(
+    ? buildReusableBootstrapActivities(input.reuseAssessment)
+    : buildReusableWorkflowActivities(
     capabilities,
     input.writesData ?? false,
     casePackages,
@@ -285,20 +294,17 @@ export function buildReusableWorkflowDefinition(
     input.reuseAssessment,
     deliveryTarget,
     input.executionIsolation,
-    optimizedV3
+    currentRelationContracts
   );
   const base: Omit<WorkflowDefinition, "graphDigest"> = {
     schemaVersion: "test-workflow-definition-v1",
     definitionId: input.definitionId ?? "durable-test-workflow",
-    definitionVersion: v9ZeroModelReuse || v9AffectedReuse || v9FullReplan
-      ? "v9"
-      : fragmented && ["full_replan", "affected_rebuild"].includes(input.reuseAssessment.decision)
-        ? "v8"
-        : "v7",
+    definitionVersion: CURRENT_WORKFLOW_VERSION,
     requestId: input.requestId,
     planDigest: input.planDigest,
     capabilities,
     writesData: input.writesData ?? false,
+    requestPolicy: requestPolicyFor(input, reviewPolicy, deliveryTarget, input.reuseAssessment.decision),
     deliveryTarget,
     reviewPolicy,
     activities
@@ -307,6 +313,8 @@ export function buildReusableWorkflowDefinition(
     ...base,
     graphDigest: workflowGraphDigest(base)
   };
+  addCurrentReadinessPreflight(definition.activities);
+  definition.graphDigest = workflowGraphDigest(definition);
   validateWorkflowDefinition(definition);
   return definition;
 }
@@ -412,7 +420,7 @@ function appendBuildReadinessAndExecution(
     metadata: {
       capabilityContracts: capabilityContracts as unknown as SafeJsonValue,
       selectorEvidencePolicy: "mcp_candidate_playwright_verified",
-      scriptReviewPolicyVersion: "script-review-policy-v3",
+      scriptReviewPolicyVersion: "script-review-policy-v1",
       inspectorTriggers: [
         "source_contract_unresolved",
         "runtime_uniqueness_failed",
@@ -424,15 +432,64 @@ function appendBuildReadinessAndExecution(
   });
   activities.push(
     {
-      id: "readiness",
-      kind: "readiness",
+      id: "script-review-assessment",
+      kind: "script_review",
       phase: "script_review",
       dependencies: ["build"],
       required: true,
       publishesArtifacts: true,
       metadata: {
+        scriptReviewPolicyVersion: "script-review-policy-v1",
+        reviewerMode: "isolated",
+        outputArtifact: "script-review-assessment.json"
+      }
+    },
+    {
+      id: "script-review-quality",
+      kind: "review",
+      phase: "script_review",
+      dependencies: ["script-review-assessment"],
+      required: true,
+      concurrencyGroup: "reviewer",
+      activation: { activityId: "script-review-assessment", outcomes: ["standard", "strict"] },
+      metadata: { subflow: "script-review", role: "script_quality" }
+    },
+    {
+      id: "script-review-safety",
+      kind: "review",
+      phase: "script_review",
+      dependencies: ["script-review-assessment"],
+      required: true,
+      concurrencyGroup: "reviewer",
+      activation: { activityId: "script-review-assessment", outcomes: ["strict"] },
+      metadata: { subflow: "script-review", role: "execution_safety" }
+    },
+    {
+      id: "script-review",
+      kind: "script_review",
+      phase: "script_review",
+      dependencies: ["script-review-assessment", "script-review-quality", "script-review-safety"],
+      optionalDependencies: ["script-review-quality", "script-review-safety"],
+      required: true,
+      publishesArtifacts: true,
+      metadata: {
+        scriptReviewPolicyVersion: "script-review-policy-v1",
+        reviewerMode: "isolated",
+        outputArtifact: "script-review-receipt.json"
+      }
+    },
+    {
+      id: "readiness",
+      kind: "readiness",
+      phase: "script_review",
+      // addCurrentReadinessPreflight replaces this with the explicit preflight
+      // node after the complete graph has been composed.
+      dependencies: ["script-review"],
+      required: true,
+      publishesArtifacts: true,
+      metadata: {
         outputArtifact: "execution-authorization.json",
-        outputSchemaVersion: "execution-authorization-v4",
+        outputSchemaVersion: "execution-authorization-v1",
         readinessPolicyVersion: "execution-readiness-v1",
         zeroRunnablePolicy: "block_before_authorization"
       }
@@ -446,11 +503,11 @@ function appendBuildReadinessAndExecution(
       metadata: {
         decisionMode: adaptiveAuthorization ? "risk_adaptive" : "user_confirmed",
         ...(adaptiveAuthorization
-          ? { policyVersion: "policy_auto_no_write_v2" }
+          ? { policyVersion: "policy_auto_no_write_v1" }
           : {}),
         callbackSubjectArtifact: "execution-authorization.json",
         callbackSubjectFormat: "canonical_json_digest_v1",
-        callbackSubjectSchemaVersion: "execution-authorization-v4",
+        callbackSubjectSchemaVersion: "execution-authorization-v1",
         publisherActivityId: "readiness"
       }
     }
@@ -507,7 +564,7 @@ function appendBuildReadinessAndExecution(
   });
 }
 
-function buildV5Activities(
+function buildExecutionActivities(
   capabilities: WorkflowCapability[],
   writesData: boolean,
   casePackages: string[],
@@ -536,7 +593,7 @@ function buildV5Activities(
       publishesArtifacts: true,
       metadata: {
         subflow: "case-review",
-        ...(reviewPolicy.schemaVersion === "review-policy-v2"
+        ...(isDeterministicReviewMode(reviewPolicy)
           && reviewPolicy.mode === "deterministic_only"
           ? { deterministicOnly: true }
           : {})
@@ -584,7 +641,7 @@ function buildV5Activities(
   return activities;
 }
 
-function buildV6Activities(
+function buildReusableExecutionActivities(
   capabilities: WorkflowCapability[],
   writesData: boolean,
   casePackages: string[],
@@ -592,7 +649,7 @@ function buildV6Activities(
   reuseAssessment: ReusableWorkflowDefinitionInput["reuseAssessment"],
   executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"]
 ): WorkflowActivityDefinition[] {
-  const fullActivities = buildV5Activities(
+  const fullActivities = buildExecutionActivities(
     capabilities,
     writesData,
     casePackages,
@@ -668,9 +725,7 @@ function buildV6Activities(
       ? "targeted-review"
       : "build";
   const usesStableSuiteAuthorization = reuseAssessment.decision === "direct_execute";
-  const authorizationSchemaVersion = usesStableSuiteAuthorization
-    ? "execution-authorization-v5"
-    : "execution-authorization-v4";
+  const authorizationSchemaVersion = "execution-authorization-v1";
   const authorizationKind = usesStableSuiteAuthorization && !writesData
     ? "policy_authorization"
     : "execution_authorization";
@@ -755,7 +810,7 @@ function buildV6Activities(
   return activities;
 }
 
-function v7DesignActivities(
+function buildDesignActivities(
   casePackages: string[],
   reviewPolicy: ReviewPolicy
 ): WorkflowActivityDefinition[] {
@@ -824,7 +879,7 @@ function v7DesignActivities(
       publishesArtifacts: true,
       metadata: {
         subflow: "case-review",
-        ...(reviewPolicy.schemaVersion === "review-policy-v2"
+        ...(isDeterministicReviewMode(reviewPolicy)
           && reviewPolicy.mode === "deterministic_only"
           ? { deterministicOnly: true }
           : {})
@@ -852,7 +907,7 @@ function v7DesignActivities(
         outcomes: ["converged", "human_conflict", "plan_revision_required"]
       },
       metadata: {
-        subjectSchemaVersion: "case-confirmation-subject-v2",
+        subjectSchemaVersion: "case-confirmation-subject-v1",
         scope: "full",
         casePackages
       }
@@ -861,18 +916,18 @@ function v7DesignActivities(
   return activities;
 }
 
-function buildV7FullActivities(
+function buildFullWorkflowActivities(
   capabilities: WorkflowCapability[],
   writesData: boolean,
   casePackages: string[],
   reviewPolicy: ReviewPolicy,
   deliveryTarget: WorkflowDeliveryTarget,
   executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"],
-  optimizedV3 = false
+  currentRelationContracts = false
 ): WorkflowActivityDefinition[] {
-  const activities = optimizedV3
-    ? v7OptimizedDesignActivities()
-    : v7DesignActivities(casePackages, reviewPolicy);
+  const activities = currentRelationContracts
+    ? buildCandidateGateActivities()
+    : buildDesignActivities(casePackages, reviewPolicy);
   if (deliveryTarget === "testcase_only") {
     markDeliveryTerminal(activities, "case-confirmation", deliveryTarget);
     return activities;
@@ -883,17 +938,16 @@ function buildV7FullActivities(
     writesData,
     "case-confirmation",
     executionIsolation,
-    optimizedV3
+    currentRelationContracts
   );
   if (deliveryTarget === "script_only") {
-    const buildIndex = activities.findIndex((activity) => activity.id === "build");
-    activities.splice(buildIndex + 1);
-    markDeliveryTerminal(activities, "build", deliveryTarget);
+    activities.splice(activities.findIndex((activity) => activity.id === "readiness"));
+    markDeliveryTerminal(activities, "script-review", deliveryTarget);
   }
   return activities;
 }
 
-function v7OptimizedDesignActivities(): WorkflowActivityDefinition[] {
+function buildCandidateGateActivities(): WorkflowActivityDefinition[] {
   return [
     {
       id: "source-selection",
@@ -974,13 +1028,25 @@ function v7OptimizedDesignActivities(): WorkflowActivityDefinition[] {
       }
     },
     {
-      id: "case-review-evolution",
-      kind: "automatic_evolution",
+      id: "case-review-conflict-decision",
+      kind: "callback",
       phase: "case_review",
       dependencies: ["case-review-resolution"],
       required: true,
+      activation: { activityId: "case-review-resolution", outcomes: ["human_conflict"] }
+    },
+    {
+      id: "case-review-evolution",
+      kind: "automatic_evolution",
+      phase: "case_review",
+      dependencies: ["case-review-resolution", "case-review-conflict-decision"],
+      optionalDependencies: ["case-review-conflict-decision"],
+      required: true,
       publishesArtifacts: true,
-      activation: { activityId: "case-review-resolution", outcomes: ["evolve"] },
+      activation: {
+        activityId: "case-review-resolution",
+        outcomes: ["evolve", "human_conflict", "plan_revision_required"]
+      },
       metadata: { subflow: "case-review", repeatable: true, maxCycles: 1 }
     },
     {
@@ -992,10 +1058,10 @@ function v7OptimizedDesignActivities(): WorkflowActivityDefinition[] {
       required: true,
       activation: {
         activityId: "case-review-resolution",
-        outcomes: ["converged", "human_conflict", "plan_revision_required"]
+        outcomes: ["converged"]
       },
       metadata: {
-        subjectSchemaVersion: "case-confirmation-subject-v2",
+        subjectSchemaVersion: "case-confirmation-subject-v1",
         scope: "full",
         casePackages: ["cases.md"]
       }
@@ -1003,7 +1069,7 @@ function v7OptimizedDesignActivities(): WorkflowActivityDefinition[] {
   ];
 }
 
-function v8SkeletonActivity(dependency: string, scope: "full" | "affected"): WorkflowActivityDefinition {
+function buildCandidateSkeletonActivity(dependency: string, scope: "full" | "affected"): WorkflowActivityDefinition {
   return {
     id: "candidate-skeleton",
     kind: "candidate_skeleton",
@@ -1014,12 +1080,35 @@ function v8SkeletonActivity(dependency: string, scope: "full" | "affected"): Wor
     metadata: {
       scope,
       manifestPath: "candidate-fragments/manifest.json",
-      generationPolicyVersion: "candidate-generation-policy-v2"
+      generationPolicyVersion: "candidate-generation-policy-v1"
     }
   };
 }
 
-function v8PreflightActivity(dependency: string): WorkflowActivityDefinition {
+function buildCandidateCompilerActivity(
+  dependency: string,
+  scope: "full" | "affected",
+  candidateNamespace?: "delta"
+): WorkflowActivityDefinition {
+  const prefix = candidateNamespace ? "delta-" : "";
+  return {
+    id: `${prefix}candidate-compiler`,
+    kind: "candidate_compiler",
+    phase: "case_generation",
+    dependencies: [dependency],
+    required: true,
+    publishesArtifacts: true,
+    metadata: {
+      scope,
+      specPath: `${prefix}candidate-compiler/spec.json`,
+      manifestPath: `${prefix}candidate-fragments/manifest.json`,
+      generationPolicyVersion: "candidate-generation-policy-v1",
+      ...(candidateNamespace ? { candidateNamespace } : {})
+    }
+  };
+}
+
+function buildCandidatePreflightActivity(dependency: string, schemaVersion = "candidate-plan-preflight-v1"): WorkflowActivityDefinition {
   return {
     id: "candidate-preflight",
     kind: "candidate_preflight",
@@ -1027,11 +1116,11 @@ function v8PreflightActivity(dependency: string): WorkflowActivityDefinition {
     dependencies: [dependency],
     required: true,
     publishesArtifacts: true,
-    metadata: { preflightSchemaVersion: "candidate-plan-preflight-v1" }
+    metadata: { preflightSchemaVersion: schemaVersion }
   };
 }
 
-function buildV8FullBootstrapActivities(): WorkflowActivityDefinition[] {
+function buildFragmentedFullBootstrapActivities(): WorkflowActivityDefinition[] {
   return [
     {
       id: "source-selection",
@@ -1041,12 +1130,37 @@ function buildV8FullBootstrapActivities(): WorkflowActivityDefinition[] {
       required: true,
       metadata: { sourcePolicyVersion: "request-local-source-v1" }
     },
-    v8PreflightActivity("source-selection"),
-    v8SkeletonActivity("candidate-preflight", "full")
+    buildCandidatePreflightActivity("source-selection"),
+    buildCandidateCompilerActivity("candidate-preflight", "full")
   ];
 }
 
-function buildV8ReusableBootstrapActivities(
+/** Replaces bootstrap skeleton nodes with the current compiler root before the
+ * immutable workflow definition is persisted. */
+function upgradeCandidateBootstrap(activities: WorkflowActivityDefinition[]): WorkflowActivityDefinition[] {
+  return activities.map((activity) => {
+    if (activity.kind === "candidate_skeleton") {
+      const metadata = activity.metadata ?? {};
+      const scope = metadata.scope === "affected" ? "affected" : "full";
+      const candidateNamespace = metadata.candidateNamespace === "delta" ? "delta" as const : undefined;
+      return {
+        ...buildCandidateCompilerActivity(activity.dependencies[0]!, scope, candidateNamespace),
+        dependencies: activity.dependencies,
+        ...(activity.activation ? { activation: activity.activation } : {}),
+        metadata: {
+          ...metadata,
+          ...buildCandidateCompilerActivity(activity.dependencies[0]!, scope, candidateNamespace).metadata
+        }
+      };
+    }
+    if (activity.kind === "candidate_preflight") {
+      return { ...activity, metadata: { ...(activity.metadata ?? {}), preflightSchemaVersion: "candidate-plan-preflight-v1" } };
+    }
+    return activity;
+  });
+}
+
+function buildReusableBootstrapActivities(
   assessment: ReusableWorkflowDefinitionInput["reuseAssessment"]
 ): WorkflowActivityDefinition[] {
   const suiteMetadata: Record<string, SafeJsonValue> = {
@@ -1073,7 +1187,7 @@ function buildV8ReusableBootstrapActivities(
       dependencies: ["reuse-assessment"],
       required: true,
       metadata: suiteMetadata
-    }, v8PreflightActivity("impact-location"), v8SkeletonActivity("candidate-preflight", "affected"));
+    }, buildCandidatePreflightActivity("impact-location"), buildCandidateSkeletonActivity("candidate-preflight", "affected"));
   } else {
     activities.push({
       id: "source-selection",
@@ -1082,12 +1196,12 @@ function buildV8ReusableBootstrapActivities(
       dependencies: ["reuse-assessment"],
       required: true,
       metadata: { ...suiteMetadata, sourcePolicyVersion: "request-local-source-v1" }
-    }, v8PreflightActivity("source-selection"), v8SkeletonActivity("candidate-preflight", "full"));
+    }, buildCandidatePreflightActivity("source-selection"), buildCandidateSkeletonActivity("candidate-preflight", "full"));
   }
   return activities;
 }
 
-function buildV9AffectedBootstrapActivities(
+function buildAffectedBootstrapActivities(
   assessment: ReusableWorkflowDefinitionInput["reuseAssessment"]
 ): WorkflowActivityDefinition[] {
   const metadata: Record<string, SafeJsonValue> = {
@@ -1114,20 +1228,20 @@ function buildV9AffectedBootstrapActivities(
       metadata: { ...metadata, schemaVersion: "design-delta-v1" }
     },
     {
-      ...v8PreflightActivity("delta-skeleton"),
+      ...buildCandidatePreflightActivity("delta-skeleton"),
       id: "delta-candidate-preflight",
       activation: { activityId: "impact-closure-build", outcomes: ["bounded"] },
       metadata: { ...metadata, preflightSchemaVersion: "candidate-plan-preflight-v1", candidateNamespace: "delta" }
     },
     {
-      ...v8SkeletonActivity("delta-candidate-preflight", "affected"),
+      ...buildCandidateSkeletonActivity("delta-candidate-preflight", "affected"),
       id: "delta-candidate-skeleton",
       activation: { activityId: "impact-closure-build", outcomes: ["bounded"] },
       metadata: {
         ...metadata,
         scope: "affected",
         manifestPath: "delta-candidate-fragments/manifest.json",
-        generationPolicyVersion: "candidate-generation-policy-v2",
+        generationPolicyVersion: "candidate-generation-policy-v1",
         candidateNamespace: "delta"
       }
     },
@@ -1137,30 +1251,30 @@ function buildV9AffectedBootstrapActivities(
       metadata: { ...metadata, sourcePolicyVersion: "request-local-source-v1", fallbackFrom: "affected_rebuild" }
     },
     {
-      ...v8PreflightActivity("full-source-selection"),
+      ...buildCandidatePreflightActivity("full-source-selection"),
       activation: { activityId: "impact-closure-build", outcomes: ["full_replan"] },
       metadata: { ...metadata, preflightSchemaVersion: "candidate-plan-preflight-v1", fallbackFrom: "affected_rebuild" }
     },
     {
-      ...v8SkeletonActivity("candidate-preflight", "full"),
+      ...buildCandidateSkeletonActivity("candidate-preflight", "full"),
       activation: { activityId: "impact-closure-build", outcomes: ["full_replan"] },
       metadata: {
         ...metadata,
         scope: "full",
         manifestPath: "candidate-fragments/manifest.json",
-        generationPolicyVersion: "candidate-generation-policy-v2",
+        generationPolicyVersion: "candidate-generation-policy-v1",
         fallbackFrom: "affected_rebuild"
       }
     }
   ];
 }
 
-function buildV9FullReplanBootstrapActivities(
+function buildFullReplanBootstrapActivities(
   assessment: ReusableWorkflowDefinitionInput["reuseAssessment"]
 ): WorkflowActivityDefinition[] {
-  const activities = buildV8ReusableBootstrapActivities(assessment);
+  const activities = buildReusableBootstrapActivities(assessment);
   const source = activities.find((activity) => activity.id === "source-selection");
-  if (!source) throw new Error("v9 full_replan requires source-selection.");
+  if (!source) throw new Error("full_replan requires source-selection.");
   source.dependencies = ["run-intent-derive"];
   activities.splice(1, 0, {
     id: "run-intent-derive",
@@ -1181,10 +1295,10 @@ function buildV9FullReplanBootstrapActivities(
   return activities;
 }
 
-/** Builds the immutable v8 candidate subgraph after a skeleton manifest has
+/** Builds the immutable candidate subgraph after a compiler manifest has
  * frozen module ownership. The graph is intentionally constructed only from
  * the manifest, never from model fragment output. */
-export function buildV8CandidateExtension(input: {
+export function buildCandidateExtension(input: {
   modules: CandidateFragmentModule[];
   scope: "full" | "affected";
   capabilities: WorkflowCapability[];
@@ -1192,15 +1306,15 @@ export function buildV8CandidateExtension(input: {
   deliveryTarget: WorkflowDeliveryTarget;
   reviewPolicy: ReviewPolicy;
   executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"];
-  /** Pinned from candidate-skeleton so historical v8 graph expansions replay
-   * exactly; newly built v8 graphs use v2. */
-  generationPolicyVersion?: "candidate-generation-policy-v1" | "candidate-generation-policy-v2";
-  /** v9 delta uses a separate fragment and assembly namespace; full v8/v9
-   * keeps the historical identifiers unchanged. */
+  /** Pinned from the current compiler manifest. */
+  generationPolicyVersion?: "candidate-generation-policy-v1";
+  /** Delta generation uses a separate fragment and assembly namespace. */
   candidateNamespace?: "delta";
+  /** Compiler root used to derive fragment activities. */
+  rootActivityId?: string;
 }): WorkflowActivityDefinition[] {
   const prefix = input.candidateNamespace ? `${input.candidateNamespace}-` : "";
-  const skeletonId = `${prefix}candidate-skeleton`;
+  const skeletonId = input.rootActivityId ?? `${prefix}candidate-skeleton`;
   const fragmentRoot = `${prefix}candidate-fragments`;
   const fragments = input.modules.map((module) => ({
     id: `${prefix}candidate-fragment-${module.id}`,
@@ -1215,12 +1329,22 @@ export function buildV8CandidateExtension(input: {
       moduleId: module.id,
       moduleTitle: module.title,
       ruleIds: module.ruleIds,
+      caseIds: module.caseIds,
+      ruleCaseIds: module.ruleCaseIds,
       casePrefix: module.casePrefix,
       sourceRefs: module.sourceRefs,
       fragmentPath: `${fragmentRoot}/${module.id}.md`,
+      generationMode: module.generationMode,
+      deterministicRuleIds: module.deterministicRuleIds,
+      modelRuleIds: module.modelRuleIds,
+      ...(module.caseGeneration ? { caseGeneration: module.caseGeneration } : {}),
+      ...(module.deterministicCaseIds ? { deterministicCaseIds: module.deterministicCaseIds } : {}),
+      ...(module.modelCaseIds ? { modelCaseIds: module.modelCaseIds } : {}),
+      ...(module.deterministicClauseIds ? { deterministicClauseIds: module.deterministicClauseIds } : {}),
+      ...(module.modelClauseIds ? { modelClauseIds: module.modelClauseIds } : {}),
       ...(input.candidateNamespace ? { candidateNamespace: input.candidateNamespace } : {}),
-      ...((input.generationPolicyVersion ?? "candidate-generation-policy-v2") === "candidate-generation-policy-v2"
-        ? { generationPolicyVersion: "candidate-generation-policy-v2" }
+      ...((input.generationPolicyVersion ?? "candidate-generation-policy-v1") === "candidate-generation-policy-v1"
+        ? { generationPolicyVersion: "candidate-generation-policy-v1" }
         : {})
     }
   }));
@@ -1234,7 +1358,7 @@ export function buildV8CandidateExtension(input: {
     metadata: { package: "cases.md", scope: input.scope, ...(input.candidateNamespace ? { candidateNamespace: input.candidateNamespace } : {}) }
   };
   if (input.scope === "full") {
-    const downstream = buildV7FullActivities(
+    const downstream = buildFullWorkflowActivities(
       input.capabilities,
       input.writesData,
       ["cases.md"],
@@ -1274,7 +1398,7 @@ export function buildV8CandidateExtension(input: {
       dependencies: ["targeted-review"],
       required: true,
       metadata: {
-        subjectSchemaVersion: "case-confirmation-subject-v2",
+        subjectSchemaVersion: "case-confirmation-subject-v1",
         scope: "affected",
         casePackages: ["cases.md"],
         completesWorkflow: input.deliveryTarget === "testcase_only",
@@ -1292,9 +1416,8 @@ export function buildV8CandidateExtension(input: {
       true
     );
     if (input.deliveryTarget === "script_only") {
-      const buildIndex = activities.findIndex((activity) => activity.id === "build");
-      activities.splice(buildIndex + 1);
-      markDeliveryTerminal(activities, "build", input.deliveryTarget);
+      activities.splice(activities.findIndex((activity) => activity.id === "readiness"));
+      markDeliveryTerminal(activities, "script-review", input.deliveryTarget);
     }
   }
   return activities;
@@ -1314,10 +1437,10 @@ function markDeliveryTerminal(
   };
 }
 
-/** v9 reuse branches are intentionally graph-level proof that design LLM work
+/** Reuse branches are intentionally graph-level proof that design LLM work
  * is absent. The run-intent artifact binds the request to the stable suite;
  * no plan/candidate/reviewer activity is present in either branch. */
-function buildV9ZeroModelReuseActivities(
+function buildZeroModelReuseActivities(
   capabilities: WorkflowCapability[],
   writesData: boolean,
   casePackages: string[],
@@ -1331,6 +1454,7 @@ function buildV9ZeroModelReuseActivities(
     assessmentDigest: reuseAssessment.assessmentDigest,
     selectedCaseIds: reuseAssessment.selectedCaseIds,
     affectedCaseIds: reuseAssessment.affectedCaseIds,
+    reasons: reuseAssessment.reasons ?? [],
     decision: reuseAssessment.decision,
     reuseProtocol: "run-intent-v1"
   } as Record<string, SafeJsonValue>;
@@ -1361,23 +1485,67 @@ function buildV9ZeroModelReuseActivities(
         dependencies: [intent.id],
         required: true,
         metadata: { ...metadata, tier: "design", scope: "reconfirm" }
-      },
-      {
-        id: "case-confirmation",
-        kind: "callback",
-        phase: "case_confirmation",
-        dependencies: ["design-revalidation"],
-        required: true,
-        metadata: {
-          ...metadata,
-          subjectSchemaVersion: "case-confirmation-subject-v2",
-          scope: "reconfirm",
-          casePackages,
-          completesWorkflow: true,
-          deliveryTarget: "testcase_only"
-        }
       }
     ];
+    activities.push({
+      id: "case-confirmation",
+      kind: "callback",
+      phase: "case_confirmation",
+      dependencies: ["design-revalidation"],
+      required: true,
+      metadata: {
+        ...metadata,
+        subjectSchemaVersion: "case-confirmation-subject-v1",
+        scope: "reconfirm",
+        casePackages,
+        ...(deliveryTarget === "testcase_only" ? { completesWorkflow: true, deliveryTarget } : {})
+      }
+    });
+    if (deliveryTarget === "testcase_only") {
+      return activities;
+    }
+    appendBuildReadinessAndExecution(
+      activities,
+      capabilities,
+      writesData,
+      "case-confirmation",
+      executionIsolation
+    );
+    const hasReusableReviewedScripts = (reuseAssessment.reasons ?? []).some((reason) =>
+      reason.startsWith("stable_scripts_reviewed_not_verified:")
+    );
+    if (deliveryTarget === "full_run" && hasReusableReviewedScripts) {
+      const skipped = new Set([
+        "script-review-assessment",
+        "script-review-quality",
+        "script-review-safety",
+        "script-review"
+      ]);
+      for (let index = activities.length - 1; index >= 0; index -= 1) {
+        if (skipped.has(activities[index]!.id)) activities.splice(index, 1);
+      }
+      const readiness = activities.find((activity) => activity.id === "readiness");
+      if (!readiness) throw new Error("Reviewed script reuse requires readiness for full_run.");
+      readiness.dependencies = ["build"];
+      readiness.metadata = {
+        ...readiness.metadata,
+        scriptReviewReuse: "stable_reviewed"
+      };
+    }
+    const build = activities.find((activity) => activity.id === "build")!;
+    build.metadata = {
+      ...build.metadata,
+      designReuseExecution: "stable_design_zero_drift",
+      stableSuiteInputs: {
+        suiteId: reuseAssessment.suiteId,
+        ...(reuseAssessment.suiteVersion ? { suiteVersion: reuseAssessment.suiteVersion } : {}),
+        selectedCaseIds: reuseAssessment.selectedCaseIds
+      } as unknown as SafeJsonValue
+    };
+    if (deliveryTarget === "script_only") {
+      activities.splice(activities.findIndex((activity) => activity.id === "readiness"));
+      markDeliveryTerminal(activities, "script-review", deliveryTarget);
+    }
     return activities;
   }
   const activities: WorkflowActivityDefinition[] = [
@@ -1391,6 +1559,12 @@ function buildV9ZeroModelReuseActivities(
       required: true,
       metadata
     },
+  ];
+  if (deliveryTarget !== "full_run") {
+    markDeliveryTerminal(activities, "suite-validation", deliveryTarget);
+    return activities;
+  }
+  activities.push(
     {
       id: "readiness",
       kind: "readiness",
@@ -1401,7 +1575,7 @@ function buildV9ZeroModelReuseActivities(
       metadata: {
         ...metadata,
         outputArtifact: "execution-authorization.json",
-        outputSchemaVersion: "execution-authorization-v5",
+        outputSchemaVersion: "execution-authorization-v1",
         readinessPolicyVersion: "execution-readiness-v1",
         zeroRunnablePolicy: "block_before_authorization"
       }
@@ -1417,7 +1591,7 @@ function buildV9ZeroModelReuseActivities(
         decisionMode: !writesData ? "policy_auto_no_write" : "user_confirmed",
         callbackSubjectArtifact: "execution-authorization.json",
         callbackSubjectFormat: "canonical_json_digest_v1",
-        callbackSubjectSchemaVersion: "execution-authorization-v5",
+        callbackSubjectSchemaVersion: "execution-authorization-v1",
         publisherActivityId: "readiness"
       }
     },
@@ -1439,7 +1613,7 @@ function buildV9ZeroModelReuseActivities(
       publishesArtifacts: true,
       metadata: { ...metadata, completionContract: "formal-execution-completion-seal-v1", completesWorkflow: true }
     }
-  ];
+  );
   if (deliveryTarget !== "full_run") {
     activities.splice(activities.findIndex((activity) => activity.id === "readiness"));
     markDeliveryTerminal(activities, "suite-validation", deliveryTarget);
@@ -1447,7 +1621,7 @@ function buildV9ZeroModelReuseActivities(
   return activities;
 }
 
-function buildV7ReusableActivities(
+function buildReusableWorkflowActivities(
   capabilities: WorkflowCapability[],
   writesData: boolean,
   casePackages: string[],
@@ -1455,7 +1629,7 @@ function buildV7ReusableActivities(
   reuseAssessment: ReusableWorkflowDefinitionInput["reuseAssessment"],
   deliveryTarget: WorkflowDeliveryTarget,
   executionIsolation?: BuildWorkflowDefinitionInput["executionIsolation"],
-  optimizedV3 = false
+  currentRelationContracts = false
 ): WorkflowActivityDefinition[] {
   const suiteMetadata = {
     suiteId: reuseAssessment.suiteId,
@@ -1503,7 +1677,7 @@ function buildV7ReusableActivities(
       required: true,
       metadata: {
         ...suiteMetadata,
-        subjectSchemaVersion: "case-confirmation-subject-v2",
+        subjectSchemaVersion: "case-confirmation-subject-v1",
         scope: "reconfirm",
         casePackages
       }
@@ -1554,16 +1728,16 @@ function buildV7ReusableActivities(
       required: true,
       metadata: {
         ...suiteMetadata,
-        subjectSchemaVersion: "case-confirmation-subject-v2",
+        subjectSchemaVersion: "case-confirmation-subject-v1",
         scope: "affected",
         casePackages
       }
     }
   ];
   if (deliveryTarget !== "testcase_only") affectedActivities.push(affectedBuild);
-  const fullActivities = (optimizedV3
-    ? v7OptimizedDesignActivities()
-    : v7DesignActivities(casePackages, reviewPolicy))
+  const fullActivities = (currentRelationContracts
+    ? buildCandidateGateActivities()
+    : buildDesignActivities(casePackages, reviewPolicy))
     .filter((activity) => !["readiness", "execution-authorization", "run", "report"].includes(activity.id));
   fullActivities.find((activity) => activity.id === "source-selection")!.dependencies = ["reuse-assessment"];
   const fullBuildChain: WorkflowActivityDefinition[] = [];
@@ -1588,7 +1762,7 @@ function buildV7ReusableActivities(
     const branchTail = reuseAssessment.decision === "direct_execute"
       ? "suite-validation"
       : reuseAssessment.decision === "design_reconfirm"
-        ? "case-confirmation"
+        ? deliveryTarget === "script_only" ? "script-review" : "case-confirmation"
         : deliveryTarget === "testcase_only"
         ? "case-confirmation"
         : "build";
@@ -1602,13 +1776,11 @@ function buildV7ReusableActivities(
   }
   const branchTail = reuseAssessment.decision === "direct_execute" ? "suite-validation" : "build";
   const usesStableSuiteAuthorization = reuseAssessment.decision === "direct_execute";
-  const authorizationSchemaVersion = usesStableSuiteAuthorization
-    ? "execution-authorization-v5"
-    : "execution-authorization-v4";
+  const authorizationSchemaVersion = "execution-authorization-v1";
   const authorizationKind = usesStableSuiteAuthorization && !writesData
     ? "policy_authorization"
     : "execution_authorization";
-  const adaptiveAuthorization = optimizedV3 && !usesStableSuiteAuthorization;
+  const adaptiveAuthorization = currentRelationContracts && !usesStableSuiteAuthorization;
   return [
     assessmentActivity,
     ...branchActivities,
@@ -1641,7 +1813,7 @@ function buildV7ReusableActivities(
             ? "risk_adaptive"
             : "user_confirmed",
         ...(adaptiveAuthorization
-          ? { policyVersion: "policy_auto_no_write_v2" }
+          ? { policyVersion: "policy_auto_no_write_v1" }
           : {}),
         callbackSubjectArtifact: "execution-authorization.json",
         callbackSubjectFormat: "canonical_json_digest_v1",
@@ -1699,6 +1871,7 @@ export function workflowStartedPayload(definition: WorkflowDefinition): SafeEven
   return {
     planDigest: definition.planDigest,
     graphDigest: definition.graphDigest,
+    requestPolicy: definition.requestPolicy as unknown as SafeJsonValue,
     ...(definition.deliveryTarget ? { deliveryTarget: definition.deliveryTarget } : {}),
     ...(reuse ? { reuseAssessment: reuse as unknown as SafeJsonValue } : {})
   };
@@ -1710,6 +1883,7 @@ export function activitiesExpandedPayload(definition: WorkflowDefinition): SafeE
     graphDigest: definition.graphDigest,
     capabilities: definition.capabilities,
     writesData: definition.writesData,
+    requestPolicy: definition.requestPolicy as unknown as SafeJsonValue,
     ...(definition.deliveryTarget ? { deliveryTarget: definition.deliveryTarget } : {}),
     ...(definition.reviewPolicy
       ? { reviewPolicy: definition.reviewPolicy as unknown as SafeJsonValue }

@@ -39,7 +39,7 @@ const PLAN = [
 const CASES = [
   "# cases",
   "",
-  "> 格式：testcase-v6-layered；测试类型：Web；目标环境：test；数据策略：no_write；来源=SRC-001。",
+  "> 格式：testcase-v1-layered；测试类型：Web；目标环境：test；数据策略：no_write；来源=SRC-001。",
   "",
   "## 模块：X",
   "",
@@ -102,14 +102,13 @@ describe("review mode capping", () => {
     assert.equal(capReviewMode("balanced", "deterministic_only", false), "deterministic_only");
   });
 
-  it("strict (and legacy undefined) keeps the derived mode", () => {
+  it("strict keeps the derived mode", () => {
     assert.equal(capReviewMode("strict", "combined_with_impact", false), "combined_with_impact");
-    assert.equal(capReviewMode(undefined, "combined", false), "combined");
   });
 });
 
 describe("candidate gate honors speed", () => {
-  it("derives combined_with_impact on strict legacy behavior for captcha-mentioning suites", () => {
+  it("derives combined_with_impact on strict current behavior for captcha-mentioning suites", () => {
     const report = evaluateCandidateGate({ plan: PLAN, cases: CASES });
     assert.equal(report.reviewSpeed, "strict");
     assert.equal(report.reviewMode, "combined_with_impact");

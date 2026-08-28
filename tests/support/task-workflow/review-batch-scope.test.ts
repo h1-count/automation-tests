@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  buildReviewBatchScope,
-  buildReviewBatchScopeV2,
-  buildReviewBatchScopeV3,
+  buildCompleteReviewBatchScope,
   parseReviewBatchScope,
   reviewBatchScopeDigest
 } from "../../../src/support/task-workflow/reviewBatchScope.js";
@@ -26,13 +24,37 @@ function evidence(activityId: string, role: string) {
   };
 }
 
+function scriptReviewAssessment() {
+  const cases = [
+    {
+      caseId: "OPEN-REG-001",
+      level: "standard" as const,
+      requirementRefs: ["REQ-REG-001"],
+      ruleRefs: ["RULE-REG-001"],
+      reasons: []
+    }
+  ];
+  return {
+    schemaVersion: "case-review-risk-v1" as const,
+    distribution: "uniform" as const,
+    maxLevel: "standard" as const,
+    counts: { light: 0, standard: 1, strict: 0 },
+    cases,
+    digest: caseReviewRiskDigest({ cases })
+  };
+}
+
 test("full review scope is deterministic and does not reuse submissions", () => {
-  const first = buildReviewBatchScope({
-    allActivityIds: [...activities].reverse()
-  });
-  const second = buildReviewBatchScope({
-    allActivityIds: activities
-  });
+  const assessment = scriptReviewAssessment();
+  const input = {
+    allActivityIds: activities,
+    caseRiskAssessment: assessment,
+    activityRoles: activities.map((activityId) => ({ activityId, role: "requirements" })),
+    reviewEpochDigest: "a".repeat(64),
+    semanticEvolutionCycle: 0
+  };
+  const first = buildCompleteReviewBatchScope({ ...input, allActivityIds: [...activities].reverse(), activityRoles: [...input.activityRoles].reverse() });
+  const second = buildCompleteReviewBatchScope(input);
   assert.deepEqual(first, second);
   assert.equal(first.mode, "full");
   assert.deepEqual(first.requiredActivityIds, [...activities].sort());
@@ -41,8 +63,12 @@ test("full review scope is deterministic and does not reuse submissions", () => 
 });
 
 test("targeted scope binds affected refs and every reused reviewer evidence", () => {
-  const scope = buildReviewBatchScope({
+  const scope = buildCompleteReviewBatchScope({
     allActivityIds: activities,
+    caseRiskAssessment: scriptReviewAssessment(),
+    activityRoles: activities.map((activityId) => ({ activityId, role: "requirements" })),
+    reviewEpochDigest: "a".repeat(64),
+    semanticEvolutionCycle: 0,
     requiredActivityIds: ["case-review-design"],
     affectedRefs: ["RULE-REG-007", "OPEN-REG-007", "RULE-REG-007"],
     excludedRefs: ["cases-account-login.md"],
@@ -62,8 +88,12 @@ test("targeted scope binds affected refs and every reused reviewer evidence", ()
 
 test("targeted scope fails closed without impact refs or reusable evidence", () => {
   assert.throws(
-    () => buildReviewBatchScope({
+    () => buildCompleteReviewBatchScope({
       allActivityIds: activities,
+      caseRiskAssessment: scriptReviewAssessment(),
+      activityRoles: activities.map((activityId) => ({ activityId, role: "requirements" })),
+      reviewEpochDigest: "a".repeat(64),
+      semanticEvolutionCycle: 0,
       requiredActivityIds: ["case-review-design"],
       baseBatchId: "REV-01",
       reason: "changed"
@@ -71,8 +101,12 @@ test("targeted scope fails closed without impact refs or reusable evidence", () 
     /affectedRefs/
   );
   assert.throws(
-    () => buildReviewBatchScope({
+    () => buildCompleteReviewBatchScope({
       allActivityIds: activities,
+      caseRiskAssessment: scriptReviewAssessment(),
+      activityRoles: activities.map((activityId) => ({ activityId, role: "requirements" })),
+      reviewEpochDigest: "a".repeat(64),
+      semanticEvolutionCycle: 0,
       requiredActivityIds: ["case-review-design"],
       affectedRefs: ["RULE-REG-007"],
       baseBatchId: "REV-01",
@@ -83,8 +117,8 @@ test("targeted scope fails closed without impact refs or reusable evidence", () 
   );
 });
 
-test("v3 mixed scope excludes light from combined and keeps impact strict-only", () => {
-  const v6Document = (caseId: string, strategy: string, risk: string, action: string) => `> 结构版本：testcase-v6-layered。
+test("current mixed scope excludes light from combined and keeps impact strict-only", () => {
+  const testcaseDocument = (caseId: string, strategy: string, risk: string, action: string) => `> 结构版本：testcase-v1-layered。
 
 # 用例集：注册演示
 
@@ -104,7 +138,7 @@ test("v3 mixed scope excludes light from combined and keeps impact strict-only",
 
 </details>
 `;
-  const plan = `> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
+  const plan = `> 结构版本：test-design-index-v1 / rule-design-ledger-v1 / case-relation-projection-v1。
 
 ## 需求索引
 
@@ -121,11 +155,11 @@ test("v3 mixed scope excludes light from combined and keeps impact strict-only",
 | RULE-REG-002 | REQ-REG-002 | SRC-REG-002 | 提交申请 | 提交结果受控 | 场景法 | OPEN-REG-002 | 受控执行 | 已覆盖 |
 `;
   const assessment = assessCaseReviewRisk([
-    v6Document("OPEN-REG-001", "no_write", "低", "打开当前页"),
-    v6Document("OPEN-REG-002", "managed_cleanup", "高", "发送一次 OTP 并提交申请")
+    testcaseDocument("OPEN-REG-001", "no_write", "低", "打开当前页"),
+    testcaseDocument("OPEN-REG-002", "ephemeral_cleanup", "高", "发送一次 OTP 并提交申请")
   ], { plan });
   const allActivityIds = ["case-review-combined", "case-review-impact"];
-  const scope = buildReviewBatchScopeV3({
+  const scope = buildCompleteReviewBatchScope({
     allActivityIds,
     caseRiskAssessment: assessment,
     activityRoles: [
@@ -135,7 +169,7 @@ test("v3 mixed scope excludes light from combined and keeps impact strict-only",
     reviewEpochDigest: "c".repeat(64),
     semanticEvolutionCycle: 1
   });
-  assert.equal(scope.schemaVersion, "review-batch-scope-v3");
+  assert.equal(scope.schemaVersion, "review-batch-scope-v1");
   assert.deepEqual(scope.riskSummary.counts, { light: 1, standard: 0, strict: 1 });
   assert.deepEqual(
     scope.roleScopes.find((item) => item.role === "combined")?.caseIds,
@@ -167,16 +201,82 @@ test("v3 mixed scope excludes light from combined and keeps impact strict-only",
   });
 });
 
-test("v1 review scope parsing and digest stay backward compatible", () => {
-  const scope = buildReviewBatchScope({ allActivityIds: activities });
+test("script review roles are risk-scoped instead of silently receiving every case", () => {
+  const cases = [
+    { caseId: "OPEN-REG-001", level: "light" as const, requirementRefs: ["REQ-REG-001"], ruleRefs: ["RULE-REG-001"], reasons: [] },
+    { caseId: "OPEN-REG-002", level: "standard" as const, requirementRefs: ["REQ-REG-002"], ruleRefs: ["RULE-REG-002"], reasons: [] },
+    { caseId: "OPEN-REG-003", level: "strict" as const, requirementRefs: ["REQ-REG-003"], ruleRefs: ["RULE-REG-003"], reasons: [] }
+  ];
+  const assessment = {
+    schemaVersion: "case-review-risk-v1" as const,
+    distribution: "mixed" as const,
+    maxLevel: "strict" as const,
+    counts: { light: 1, standard: 1, strict: 1 },
+    cases,
+    digest: caseReviewRiskDigest({ cases })
+  };
+  const scope = buildCompleteReviewBatchScope({
+    allActivityIds: ["script-review-quality", "script-review-safety"],
+    caseRiskAssessment: assessment,
+    activityRoles: [
+      { activityId: "script-review-quality", role: "script_quality" },
+      { activityId: "script-review-safety", role: "execution_safety" }
+    ],
+    reviewEpochDigest: "a".repeat(64),
+    semanticEvolutionCycle: 0
+  });
+  assert.deepEqual(scope.roleScopes.find((item) => item.role === "script_quality")?.caseIds, ["OPEN-REG-002", "OPEN-REG-003"]);
+  assert.deepEqual(scope.roleScopes.find((item) => item.role === "execution_safety")?.caseIds, ["OPEN-REG-003"]);
+});
+
+test("script review freezes the assessment's exact per-role case scope", () => {
+  const cases = [
+    { caseId: "OPEN-REG-001", level: "light" as const, requirementRefs: ["REQ-REG-001"], ruleRefs: ["RULE-REG-001"], reasons: [] },
+    { caseId: "OPEN-REG-002", level: "standard" as const, requirementRefs: ["REQ-REG-002"], ruleRefs: ["RULE-REG-002"], reasons: [] },
+    { caseId: "OPEN-REG-003", level: "strict" as const, requirementRefs: ["REQ-REG-003"], ruleRefs: ["RULE-REG-003"], reasons: [] }
+  ];
+  const assessment = {
+    schemaVersion: "case-review-risk-v1" as const,
+    distribution: "mixed" as const,
+    maxLevel: "strict" as const,
+    counts: { light: 1, standard: 1, strict: 1 },
+    cases,
+    digest: caseReviewRiskDigest({ cases })
+  };
+  const scope = buildCompleteReviewBatchScope({
+    allActivityIds: ["script-review-quality", "script-review-safety"],
+    caseRiskAssessment: assessment,
+    activityRoles: [
+      { activityId: "script-review-quality", role: "script_quality" },
+      { activityId: "script-review-safety", role: "execution_safety" }
+    ],
+    roleCaseIdsByActivity: {
+      "script-review-quality": ["OPEN-REG-001", "OPEN-REG-003"],
+      "script-review-safety": ["OPEN-REG-003"]
+    },
+    reviewEpochDigest: "a".repeat(64),
+    semanticEvolutionCycle: 0
+  });
+  assert.deepEqual(scope.roleScopes.find((item) => item.role === "script_quality")?.caseIds, ["OPEN-REG-001", "OPEN-REG-003"]);
+  assert.deepEqual(scope.roleScopes.find((item) => item.role === "execution_safety")?.caseIds, ["OPEN-REG-003"]);
+});
+
+test("current review scope parsing and digest remain deterministic", () => {
+  const scope = buildCompleteReviewBatchScope({
+    allActivityIds: activities,
+    caseRiskAssessment: scriptReviewAssessment(),
+    activityRoles: activities.map((activityId) => ({ activityId, role: "requirements" })),
+    reviewEpochDigest: "a".repeat(64),
+    semanticEvolutionCycle: 0
+  });
   assert.equal(scope.schemaVersion, "review-batch-scope-v1");
   assert.deepEqual(parseReviewBatchScope(scope), scope);
   assert.equal(reviewBatchScopeDigest(parseReviewBatchScope(scope)), reviewBatchScopeDigest(scope));
 });
 
-test("v3 scoped revision slices the REQ/RULE/case closure and fails closed for global or broad refs", () => {
+test("current scoped revision slices the REQ/RULE/case closure and fails closed for global or broad refs", () => {
   const assessment = {
-    schemaVersion: "case-review-risk-v2" as const,
+    schemaVersion: "case-review-risk-v1" as const,
     cases: Array.from({ length: 9 }, (_, index) => ({
       caseId: `OPEN-REG-${String(index + 1).padStart(3, "0")}`,
       level: "standard" as const,
@@ -198,10 +298,10 @@ test("v3 scoped revision slices the REQ/RULE/case closure and fails closed for g
     reviewEpochDigest: "d".repeat(64),
     semanticEvolutionCycle: 1
   };
-  assert.deepEqual(buildReviewBatchScopeV3({ ...input, affectedRefs: ["RULE-REG-001"] })
+  assert.deepEqual(buildCompleteReviewBatchScope({ ...input, affectedRefs: ["RULE-REG-001"] })
     .roleScopes[0]?.caseIds, ["OPEN-REG-001"]);
-  assert.equal(buildReviewBatchScopeV3({ ...input, affectedRefs: ["请求默认值"] })
+  assert.equal(buildCompleteReviewBatchScope({ ...input, affectedRefs: ["请求默认值"] })
     .roleScopes[0]?.caseIds.length, 9);
-  assert.equal(buildReviewBatchScopeV3({ ...input, affectedRefs: assessment.cases.map((item) => item.caseId) })
+  assert.equal(buildCompleteReviewBatchScope({ ...input, affectedRefs: assessment.cases.map((item) => item.caseId) })
     .roleScopes[0]?.caseIds.length, 9);
 });

@@ -17,15 +17,15 @@
 测试设计资产按套件组织，纳入 Git 并随提交演进；单次运行状态是本机运行档案，不进 Git。
 
 - 套件目录：`testcases/<type>/<project>/suites/<feature>/`；
-  - `cases.md`：唯一的 `testcase-v6-layered` 完整用例集（活资产，增量修订）；
-  - `design.md`：`test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3` 设计台账——请求外来源登记、`REQ`、唯一 RULE 台账、缺口与风险、变更记录；
+  - `cases.md`：唯一的 `testcase-v1-layered` 完整用例集（活资产，增量修订）；
+  - `design.md`：`test-design-index-v1 / rule-design-ledger-v1 / case-relation-projection-v1` 设计台账——请求外来源登记、`REQ`、唯一 RULE 台账、缺口与风险、变更记录；
 - 运行档案：`.local/test-runs/<type>/<project>/<request>/`（被 Git 忽略）；
   - `plan.md`：本次运行意图（测试类型、目标环境、数据策略、范围与用户排除项、请求内来源、最新 reviewer 结论与正式用户决定行）；
   - `workflow-history.ndjson`：该次运行 Activity、重试、等待、恢复与终态的唯一事实源。
 
 同一功能反复测试 = 对同一套件发起新运行并按需增量修订；回归 = 直接复用套件重跑。套件不按请求复制，Git 历史（commit + design.md 变更记录）即是套件版本与归档。
 
-已归档的 v2/v3/v4/v5 文件与旧请求目录只作为字节级审计证据保存，不再进入当前解析、评审、关系、执行或恢复链路，也不改写 graphDigest、评审或确认证据。
+调试期只维护当前 `testcase-v1-layered` 套件资产；旧请求目录和旧格式不进入解析、评审、关系、执行或恢复链路。
 
 ### 2.1 运行档案 `plan.md`
 
@@ -38,7 +38,7 @@
 
 Activity、重试、等待、完整度和终态只来自 `workflow-history.ndjson` 与真实产物，不写入 `plan.md`。设计台账（REQ、RULE、来源登记、缺口与风险、变更记录）在套件 `design.md` 维护，不在运行档案中重复。不再维护平行覆盖矩阵、用例包目录或重复 caseId 清单。
 
-v9 的 `direct_execute` 和 `design_reconfirm` 不创建 `plan.md`：运行档案改用 `run-intent.json`（`run-intent-v1`），仅记录套件/版本、复用结论、环境、交付目标、选中 caseId、来源与边界摘要以及安全路径引用。`affected_rebuild` 同时保留本轮候选 `plan.md` 与运行意图；它的 plan 只能经候选预检原子发布。运行意图不是稳定设计资产，也不得记录业务需求正文、授权、账号、能力、数据台账、清理结论或执行结果。删除本机文件后可由 `RunIntentDerived` 与稳定套件重新派生，恢复不得追加 history。
+当前 `direct_execute` 和 `design_reconfirm` 不创建 `plan.md`：运行档案改用 `run-intent.json`（`run-intent-v1`），仅记录套件/版本、复用结论、环境、交付目标、选中 caseId、来源与边界摘要以及安全路径引用。`affected_rebuild` 同时保留本轮候选 `plan.md` 与运行意图；它的 plan 只能经候选预检原子发布。运行意图不是稳定设计资产，也不得记录业务需求正文、授权、账号、能力、数据台账、清理结论或执行结果。
 
 ### 2.2 来源登记
 
@@ -63,11 +63,13 @@ v9 的 `direct_execute` 和 `design_reconfirm` 不创建 `plan.md`：运行档�
 
 用例标题使用“验证/检查/测试 + 行为”，但标题不代替步骤和预期。生成阶段不输出可直接执行的 CRUD SQL/Shell；实现细节留到用例确认后的 build 与执行授权。
 
-### 3.1 v8 candidate-generation 分片并行
+### 3.1 candidate-generation 分片并行
 
-新建 v8 请求按“严格预检 → 冻结骨架 → 并行片段 → 确定性拼装”执行。`candidate-preflight` 只接受宿主准备的 plan 暂存文件；通过 `candidate-plan-preflight-v1` 后才原子发布 `plan.md` 并允许骨架开始。`candidate-skeleton` 原子发布 `candidate-fragments/manifest.json` 后，`CandidateGraphExpanded` 把模块清单冻结为一次不可变子图；每个 `candidate-fragment-<moduleId>` 是独立可续租、重试和限流的 Activity，默认最多并发 3 个。旧 v7 history 仍按单一 `candidate-generation` Activity 只读回放。
+`conditional_enum` 用于来源已经定义条件关系的有限集合。提议必须逐行给出全部条件、目标枚举值和可观察结果；编译器只渲染该判定表，不能补造未登记的组合或将条件枚举压缩为模糊的集合描述。
 
-1. **冻结骨架**：先产出 plan 草案，确定模块清单、`REQ → RULE` 台账、每条 RULE 的设计方法，并按模块为 `RULE/caseId` 分配唯一前缀段。骨架一旦冻结就是各片段的唯一分工依据；片段不得改动骨架、跨段补号或引用其他模块的 case。
+当前请求按“严格预检 → 规则编译提议 → 并行片段 → 确定性拼装”执行。`candidate-preflight` 只接受宿主准备的 plan 暂存文件；通过当前预检契约后才原子发布 `plan.md`。`请求内来源`必须为每个受控来源登记事实范围：Markdown 使用 `L<n>` / `L<n>-L<m>`，DOCX 使用 `P<n>` / `P<n>-P<m>`。预检只在该范围内确定性抽取明确枚举、数值范围和条件枚举；`## 显式事实覆盖`必须将每条事实映射到同来源且有 caseId 的 RULE，或以 `excluded` / `ambiguous` 登记无 RULE 的可审计理由。`## 编译子约束分解`是冻结的 case 分配表：每行一个 `CLAUSE → RULE → caseId`，并登记同源坐标范围、可选事实引用和摘要；编译提议不能重写该关系，同一 case 的所有 clause 必须同为确定性或模型。工具从冻结 `RULE → caseId` 计算共享 case 闭包，派生分片清单。现有字段模板外，向导/页面结构、选择约束、展示和分页只在 `no_write` 观察步骤中确定性渲染；状态迁移、创建、配额与跨页面业务语义仍保留模型。`CandidateGraphExpanded` 把清单冻结为一次不可变子图；每个分片默认最多并发 3 个。
+
+1. **冻结骨架**：先产出 plan 草案，确定 `REQ → RULE → caseId` 台账与来源登记。`plan.md` 是唯一关系事实源；工具自动把共享任一 caseId 的 RULE 归入同一分片，并从该闭包派生前缀、来源并集和模块标题。片段不得改动骨架、跨闭包补号或引用其他分片的 case。
 2. **并行片段**：每个模块一个独立生成请求，输入只含该模块的骨架切片（模块名、关联 `RULE` 与来源引用、前缀段、优先级与风险指引）和命中的冻结来源；输出只写该模块 `## 模块：…` 下的折叠详情，不含文件头、统计行、快速索引。骨架及分片必须由 `task:manage candidate-generation-start` 领取；该命令以同一原子事件序列登记租约、尝试和模型调用开始，发布前缺少当前 attempt 计时即拒绝。片段之间不共享推理，跨模块依赖只能回到骨架表达。宿主对可能超过 120 秒的骨架或分片调用必须用 `createCandidateGenerationLeaseKeepalive()` 每租约三分之一续约；续约失败后停止新调用与发布，`assertHealthy()` 失败即交由既有对账恢复。
 3. **确定性拼装**：按骨架顺序把运行档案 `candidate-fragments/<moduleId>.md` 拼成单一 `cases.md`；统计、快速索引与 `RULE → caseId` 投影一律由工具从折叠详情确定性重建（派生区契约见 §4.2），禁止手写或修改派生区。片段被确定性检查判无效时只重新生成该模块片段，不重跑整份生成，也不因片段失败扩大或缩小骨架范围。片段正文不写 workflow history，只登记路径与 SHA-256；不得直接改写稳定套件。
 
@@ -79,13 +81,14 @@ v9 的 `direct_execute` 和 `design_reconfirm` 不创建 `plan.md`：运行档�
 
 1. **参数化判定先行**：为用例引入 `D01-D99` 参数实例前，先判定各实例是否共享同一操作文本与操作链；只有同操作链实例才参数化，异构操作（各实例触发不同字段、入口或校验）必须逐实例拆固定行且数据编号为 `—`，两种写法不得在同一用例混用，参数实例步骤从 1 连续递增。
 2. **no_write 校验守卫**：字段校验类用例在数据策略为 `no_write` 时必须附安全边界句式——校验触发方式限定为字段级（失焦或即时提示）；若所验校验仅随提交触发，则停止执行、升级数据策略并按[环境规范](./environment-guideline.md)申请授权后再继续；含最终提交动作的表单类用例另加防止全部必填项同时满足的提交边界。
-3. **设计图断言双读者**：以整页设计图或原型截图为唯一来源的页面结构断言，写入前必须经两次独立读图交叉验证（可由骨架阶段与片段阶段各一次独立读图构成）；两读不一致或依据不足时改用中性表述并加“执行前以真实页面确认”前置条件，不得从设计图推断并断言具体按钮、链接或默认态文案。
-4. **行级原子性**：执行表每行最多一个业务动作且绑定一个可观察预期；创建、查询确认和最终状态核对必须拆步。§4.2 的结构门禁在拼装后复核上述内容，生成阶段不得依赖其兜底。
-5. **平行需求段交叉对照**：描述同一对象/同一行为的段落（统一说明、总则、主段落、附录）逐条对照口径；需求索引表为每条 `REQ` 记录来源段落定位（章节+段落编号）。发现矛盾时原文引用两侧段落、登记 `REQ` 对并按 §5 歧义前置一次裁决，不单边采信任何一侧口径。
-6. **规则边界完整性**：上限/下限/必填/排除子句未建模，或验证依赖环境前提时，登记歧义或排除并弱化断言至可证明范围，不补造数值或枚举。
-7. **状态机完整性**：状态的入口、可观察行为或可执行操作在资料中未明说时，改用中性表述并加「执行前以真实页面确认」前置条件，不从资料推断具体按钮或文案。
-8. **写入/后置行为**：创建、删除、修改的后置状态（列表移除、搜索不可见、时间刷新）属推导而非资料明说时，登记推导口径，不作为资料事实断言。
-9. **可机判项预自查**：`no_write` 用例操作列零写动词（含否定句与引述）；必填字段关联参数化用例含空值行；来源 SHA 与追溯完整。写动词×`no_write` 与必填空值行已由候选门禁 lint 强制（阻断/warning），生成阶段预自查使门禁一次通过。
+3. **受控测试数据守卫**：任何非 `no_write` 用例必须明确其合成资源名称、资源类型、创建/消费关系、预算、UI 创建成功证据和删除/恢复步骤；不得把“测试写入”表述为可操作任意已有业务数据。资源 ID 在正式执行前不得作为前置条件或写入用例正文。
+4. **设计图断言双读者**：以整页设计图或原型截图为唯一来源的页面结构断言，写入前必须经两次独立读图交叉验证（可由骨架阶段与片段阶段各一次独立读图构成）；两读不一致或依据不足时改用中性表述并加“执行前以真实页面确认”前置条件，不得从设计图推断并断言具体按钮、链接或默认态文案。
+5. **行级原子性**：执行表每行最多一个业务动作且绑定一个可观察预期；创建、查询确认和最终状态核对必须拆步。§4.2 的结构门禁在拼装后复核上述内容，生成阶段不得依赖其兜底。
+6. **平行需求段交叉对照**：描述同一对象/同一行为的段落（统一说明、总则、主段落、附录）逐条对照口径；需求索引表为每条 `REQ` 记录来源段落定位（章节+段落编号）。发现矛盾时原文引用两侧段落、登记 `REQ` 对并按 §5 歧义前置一次裁决，不单边采信任何一侧口径。
+7. **规则边界完整性**：上限/下限/必填/排除子句未建模，或验证依赖环境前提时，登记歧义或排除并弱化断言至可证明范围，不补造数值或枚举。
+8. **状态机完整性**：状态的入口、可观察行为或可执行操作在资料中未明说时，改用中性表述并加「执行前以真实页面确认」前置条件，不从资料推断具体按钮或文案。
+9. **写入/后置行为**：创建、删除、修改的后置状态（列表移除、搜索不可见、时间刷新）属推导而非资料明说时，登记推导口径，不作为资料事实断言。
+10. **可机判项预自查**：`no_write` 用例操作列零写动词（含否定句与引述）；必填字段关联参数化用例含空值行；来源 SHA 与追溯完整。写动词×`no_write` 与必填空值行已由候选门禁 lint 强制（阻断/warning），生成阶段预自查使门禁一次通过。
 
 ## 4. REQ、RULE 与用例
 
@@ -97,7 +100,7 @@ RULE 台账每行固定为：
 
 作者只维护 `RULE → caseId`。工具从 RULE 自动派生 case 的 REQ、来源、请求默认的测试类型、环境和数据策略。每个适用/受控 RULE 至少对应一个真实 caseId，每个 caseId 在请求内唯一。
 
-### 4.2 `testcase-v6-layered`
+### 4.2 `testcase-v1-layered`
 
 每条 case 只强制：
 
@@ -110,7 +113,7 @@ RULE 台账每行固定为：
 
 `cases.md` 同时提供五列快速索引和按模块分组的折叠详情；详情是唯一作者源，索引、统计和风险摘要由工具确定性重建：
 
-- 文件顶部显式声明 `testcase-v6-layered`，展示测试类型、默认环境、默认数据策略，并统一声明“只确认设计，不授权执行或业务写入”；
+- 文件顶部显式声明 `testcase-v1-layered`，展示测试类型、默认环境、默认数据策略，并统一声明“只确认设计，不授权执行或业务写入”；
 - 快速索引固定为“模块、用例编号、用例标题、优先级、风险”五列；折叠标题固定展示 `caseId、标题、优先级、有效风险`；
 - 每条详情只写一次 RULE、前置条件和按需差异，执行表固定为“数据编号、步骤、操作、测试数据、预期结果”五列；
 - 环境和数据策略继承文件默认值；差异只允许 `环境=...；数据策略=...；来源=...`。有效风险在折叠标题和索引中展示，不能低于系统派生风险；来源默认通过 `RULE → sourceRef` 追溯，显式来源与派生来源取并集；
@@ -126,7 +129,7 @@ RULE 台账每行固定为：
 
 ### 4.3 Excel 只读评审版
 
-reviewer 收敛后、发起用例确认前，**必须**由登记的确定性生成脚本（`scripts/build-testcase-review-workbook.mjs`，exceljs 实现）从标准化评审模型（`testcase-review-model-v1`）生成 `cases-review.xlsx`，作为每轮用例确认的用户审核界面（确认后 `accepted` 的用户侧交付 Excel 见 §7.1）：
+v1 的 reviewer 收敛后、发起用例确认前，**必须**由登记的确定性生成脚本（`scripts/build-testcase-review-workbook.mjs`，exceljs 实现）从标准化评审模型（`testcase-review-model-v1`）生成本轮 `.local/test-runs/<request>/cases-review.xlsx`，作为每轮用例确认的用户审核界面（确认后 `accepted` 的用户侧交付 Excel 见 §7.1）。`direct_execute` 不产生设计确认；其余 `testcase_only`、`script_only`、`full_run` 均不得绕过此界面：
 
 - 一致性不变量：Excel 永远是 `cases.md` 当时的确定性投影，单向生成、禁止反向导入；`cases.md` 任何演进（revision_requested 后的修订、新一轮 reviewer 收敛）后、再次发起用例确认前，必须重新生成并重新发布 `cases-review.xlsx`，禁止向用户呈现与当前 `cases.md` 不一致的评审 Excel，也不得复用上一轮的旧文件；
 
@@ -135,22 +138,15 @@ reviewer 收敛后、发起用例确认前，**必须**由登记的确定性生�
 - 说明页记录运行编号（requestId）、格式版本、默认值、当前 `callbackSubjectDigest` 和用例语义摘要；索引启用筛选、冻结表头，并用公式统计用例、P0 和高风险数量；
 - 工作簿必须标注“只读评审版，以 cases.md 为准”，禁止把人工修改后的 Excel 导回正式用例；
 - `.xlsx` 保存到运行档案目录（`.local/test-runs/<type>/<project>/<request>/`），不提交 Git、不写 workflow history，也不属于 candidate-generation 事实；
-- 生成前通过 `testcase-review-prepare` 从当前 v7 gate、`plan.md` 和 `cases.md` 自动导出 `testcase-review-export-v1`，不得手填确认摘要或复用其他请求的模型；
-- 宿主生成器必须从模型动态派生标题、统计公式、模块、用例和执行行，并产生 `testcase-review-workbook-receipt-v1`。回执固定记录模型摘要、工作簿 SHA-256、三张工作表、模块/用例/执行行统计、公式错误数和逐表预览摘要；
+- v1 使用 `testcase-review-render-publish`；它从当前 gate、稳定设计资产与本轮确认摘要自动导出 `testcase-review-export-v1`，不得手填确认摘要或复用其他请求的绑定信息；
+- 模型冻结有序 `selectedCaseIds`，只渲染本轮确认范围；`contentDigest` 包含该范围、用例语义、RULE→来源投影、默认值、标题、布局与渲染器版本，`bindingDigest` 绑定 requestId + callback subject + contentDigest。`.local/test-review-cache/` 仅以内容摘要复用索引/详情主体，并保存完整主体校验摘要、缓存工作簿 SHA-256 与 LRU 时间；每轮必须刷新说明页、回执和绑定摘要。缓存损坏、摘要不符或渲染器升级时完整确定性重渲染；
+- 宿主生成器必须产生 `testcase-review-workbook-receipt-v1`。回执固定记录内容/绑定摘要、工作簿 SHA-256、三张工作表、模块/用例/执行行统计、公式错误数和逐表预览摘要；发布成功后追加 `TestcaseReviewWorkbookPublished`，`case-confirmation` 的申请与接受均校验同一确认摘要对应的该事件；
 - `testcase-review-publish` 必须在发布前重新计算当前模型与确认摘要，并校验工作簿、回执和三张预览的摘要；仅通过校验的暂存工作簿可原子发布为 `cases-review.xlsx`。生成后到 callback 发起前的资料漂移继续由 callback subject 门禁阻止；
 - 生成期间检查关键区域和公式错误，并为全部工作表生成确定性文本预览；公式错误、空工作表、空执行行、缺少预览或摘要不一致均视为生成失败。生成脚本不可用或失败时回退到完整 Markdown，不复用过期文件、不改变工作流状态。
 
-### 4.4 历史格式归档与重新启用
+### 4.4 当前格式边界
 
-`testcase-v6-layered` 是唯一可解析、校验、评审、投影和执行的用例格式；`rule-design-ledger-v3 / case-relation-projection-v3` 是唯一运行时规则关系组合。旧格式不得通过缺省、兼容模式或自动降级进入当前链路。
-
-已归档的 v2/v3/v4/v5-flat 用例、v1/v2 规则台账与关系投影保留原始文件、history、graphDigest 和评审证据，但含义仅为：
-
-- workflow reducer 可回放既有事件文本和摘要，不重新解析归档用例正文；
-- 审计人员可直接查看原始 Markdown/history，但工具不得据此生成新的确认、授权或执行事实；
-- 归档内容保持字节不变，尤其不得修改 `workflow-history.ndjson` 的哈希链。
-
-需要继续旧请求的业务范围时，对目标套件发起新运行，从归档资料中人工选择仍有效的业务依据，并按 v3/v6 重新生成、门禁、评审和确认后并入套件；不得把归档目录移回活跃区直接续写。契约注册表把这些旧标识登记为“归档证据”，不是“仅回放运行时契约”。
+`testcase-v1-layered` 是唯一可解析、校验、评审、投影和执行的用例格式；`rule-design-ledger-v1 / case-relation-projection-v1` 是唯一运行时规则关系组合。调试期不提供旧格式解析、迁移或回放入口。
 
 套件演进的评审记录与正式决定属于运行档案（`.local/test-runs/`），不进 Git；套件层的正式结论以 design.md 变更记录与 Git 提交信息承载。
 
@@ -158,11 +154,10 @@ reviewer 收敛后、发起用例确认前，**必须**由登记的确定性生�
 
 设计链路固定为：
 
-v8：`source-selection（affected 时为 impact-location）→ candidate-preflight → candidate-skeleton → CandidateGraphExpanded → candidate-fragment-* → candidate-assemble → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`。预检校验请求默认值、必要章节、来源 ID/路径/SHA、RULE sourceRef、规则台账，以及显式 `原文：SRC-<ID>「逐字文本」`：只扫描此格式，且文本必须在同一受控 SRC 的原生文本或 DOCX 正文中逐字出现；不可校验或漂移均阻断，不自动修复业务文本。`candidate-assemble` 不调用模型：它只按冻结骨架顺序读取已校验分片，确定性拼接详情并从详情重建 `cases.md` 的统计与快速索引；缺失分片、模块标题/RULE/caseId 前缀漂移或结构校验失败时拒绝发布。
+当前候选链路为：`source-selection（affected 时为 impact-location）→ candidate-preflight → candidate-compiler → CandidateGraphExpanded → candidate-fragment-* → candidate-assemble → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`。预检校验请求默认值、必要章节、来源 ID/路径/SHA、RULE sourceRef、规则台账、逐字引文与冻结 clause→RULE→caseId 分解；不可校验或漂移均阻断，不自动修复业务文本。compiler 只接受每个 clause 的生成方式与确定性动作绑定、数据和可观察预期，不能提交 RULE/caseId/sourceRef/模块。确定性与模型 case 可在同一闭包模块内合并；模型分片只能接收模型 case，工具在发布时拒绝其覆盖确定性 block 或篡改冻结关系。`candidate-assemble` 不调用模型：它只按冻结清单顺序读取已校验分片，确定性拼接详情并从详情重建 `cases.md` 的统计与快速索引。
 
-v9：`direct_execute` 为 `run-intent-derive → suite-validation → readiness → authorization → run → report`，`design_reconfirm` 为 `run-intent-derive → design-revalidation → case-confirmation`；两者没有候选计划、候选分片、candidate gate、设计 reviewer 或设计侧模型调用。`affected_rebuild` 的图在初始化时预声明双分支：有界闭包走 `impact-location → run-intent-derive → impact-closure-build → delta-preflight → delta-skeleton → delta candidate fragments → delta-assemble`，然后进入 targeted gate/review；无法证明闭包时 `impact-closure-build` 以 `full_replan` 成功，取消 delta 分支并在同一 request 激活独立的完整候选链路。delta 绑定稳定基线、模块、RULE、caseId 与来源；只替换命中 RULE 的 case block，汇总前后逐一比较未命中 case 的语义正文，任何漂移都拒绝发布。闭包为空、超过 8 个语义用例、映射不完整或涉及默认值、环境、数据、权限、安全边界时必须回退 full replan。
+复用分支：`direct_execute` 为 `run-intent-derive → suite-validation → readiness → authorization → run → report`，且全部选中 case 必须有 `verified` 脚本绑定。设计层零漂移的 `design_reconfirm` 在 `testcase_only` 为 `run-intent-derive → design-revalidation → case-confirmation`，在 `script_only` 为 `run-intent-derive → design-revalidation → build/复用 reviewed 脚本 → script-review → reviewed promotion`，在 `full_run` 为 `run-intent-derive → design-revalidation → build/复用 reviewed 脚本 → script-review（缺少有效评审证据时）→ readiness-preflight → readiness → authorization → run → report → verified promotion`；三条均不创建候选计划、候选分片、candidate gate、设计 reviewer 或设计侧模型调用。候选脚本只能存在于本轮 `.local/test-runs/<request>/candidate-scripts/`，稳定回归脚本只能存在于 `tests/<type>/<project>/suites/<feature>/`；运行 history 只记录摘要绑定。预检只接受 suite binding、run intent、formal manifest、source/selector/browser-response evidence、选中 case 与本地授权输出边界的确定性证明；缺失或漂移直接阻断，不安排 retry。设计复用 build 只接受冻结的 suite/version、run intent 与选中 caseId；任一选中用例的数据策略缺失或非 `no_write` 时不得自动授权执行。`affected_rebuild` 的图在初始化时预声明双分支：有界闭包走 `impact-location → run-intent-derive → impact-closure-build → delta-preflight → delta-skeleton → delta candidate compiler/fragments → delta-assemble`，然后进入 targeted gate/review；无法证明闭包时 `impact-closure-build` 以 `full_replan` 成功，取消 delta 分支并在同一 request 激活完整候选链路。delta 绑定稳定基线、模块、RULE、caseId 与来源；只替换命中 RULE 的 case block，汇总前后逐一比较未命中 case 的语义正文，任何漂移都拒绝发布。闭包为空、超过 8 个语义用例、映射不完整或涉及默认值、环境、数据、权限、安全边界时必须回退 full replan。
 
-旧 v7：`source-selection → candidate-generation → candidate-gate → 可选 reviewer/一次自动修订 → case-confirmation`。
 
 `candidate-gate-v1` 合并结构、关系和完整度确定性检查，输出 `profile、reviewMode、effectiveWritesData、issues、warnings、digest`。精简门禁只阻止：
 
@@ -187,12 +182,12 @@ v9：`direct_execute` 为 `run-intent-derive → suite-validation → readiness 
 评审产物与生成结构不变量（引擎强制，2026-08-19 起）：
 
 - **评审发现文件契约（`review-findings-evidence-v1`）**：任何 `reviewer-submit`（含 LLM 隔离评审员）必须带 `--findings`；文件骨架为「## 结论」（converged/findings_present 枚举）+「## 发现项」（findings_present 时必须为非空表）。引擎校验骨架并把 findingsDigest 与 conclusion 写入 ReviewerSubmitted 事件——评审轮结束后发现文件缺失或结论非法不再产生整轮返工。
-- **reviewer 执行预算（`reviewer-execution-policy-v1`）**：新 v8 批次为每个 reviewer attempt 冻结一次主模型调用和 10 分钟墙钟；只有首个响应结构无效且仍在墙钟内，才可携带失效响应摘要登记一次补充调用。宿主必须在实际调用前执行 `reviewer-model-call-start`，完成后执行 `reviewer-model-call-complete`；未闭合、越次数、超时或 stale attempt 的调用都不能 `reviewer-submit`。structural 档保持零模型调用。
+- **reviewer 执行预算（`reviewer-execution-policy-v1`）**：每个 reviewer attempt 冻结一次主模型调用和 10 分钟墙钟；只有首个响应结构无效且仍在墙钟内，才可携带失效响应摘要登记一次补充调用。宿主必须在实际调用前执行 `reviewer-model-call-start`，完成后执行 `reviewer-model-call-complete`；未闭合、越次数、超时或 stale attempt 的调用都不能 `reviewer-submit`。structural 档保持零模型调用。
 - **定向复审闭包**：scoped 修订仅向角色 packet 放入 `affectedRefs` 命中的 `REQ → RULE → caseId` 闭包、关联台账行、来源摘录及全局数据/安全边界。闭包为空、超过 8 个语义用例、触及请求默认值/数据策略/权限安全边界或范围不可判定时必须回退完整评审；combined 与 impact 仍可并行，自动语义复审至多一轮。
 - **派生区唯一作者**：cases.md 统计行与快速索引由 `projectTestcaseV6DerivedView` 从用例体确定性生成，禁止手写。candidate-gate 与一切用例包发布边界（含评审演进修订）都会执行重投影等价校验，漂移（陈旧计数、索引与正文模块错位）确定性拒绝。结构修复用 `npm run testcases:reproject -- <cases.md>`（`--dry-run` 预览；按原始快速索引的模块声明归位正文块，产物必须通过结构校验才落盘）。
 - **覆盖 lint**：no_write 用例操作列含业务写动词（创建/新增/提交/修改/编辑/更新/删除/上传/写入）为阻断 issue——需要写动作的步骤必须拆分为 ephemeral_cleanup 用例并受执行授权约束；RULE 台账「条件/输入」声明必填但关联参数化用例无空值数据行为 warning，交 reviewer/用户裁决。
 - **歧义前置**：plan.md 必须含「## 需求歧义与未定义预期」节（无歧义显式写「无」）；每条歧义登记冲突的 REQ 对、资料出处与建议默认口径，在 plan 确认回调一次裁决——不在评审后才升级为用户裁决。
-- **全量复审防呆**：同纪元已有前导批次时，`review-batch-start` 不带 `--activity/--affected-ref` 会得到全量复审警告；验证有界修正集必须优先走修订分层 structural/scoped 档或 targeted 范围。
+- **单轮复审收敛**：`review-batch-start` 只允许创建首轮批次；语义演进完成后只可执行 `review-rereview-start --from-batch <id>`。工具从冻结快照和角色语义摘要确定性派生批次、范围与复用证据；无语义变化不创建批次，未变化角色零模型调用。第 1 次复审后仍有语义发现必须以 `human_conflict` 进入业务裁决，不再启动 reviewer 模型。
 - **reviewer 定向读取图（`review-reading-map-v1`，2026-08-21 起）**：reviewer 派发前由 `npx tsx scripts/build-review-reading-map.ts --design <套件 design.md>` 从 RULE 台账 sourceRef 确定性生成读取图（必读区间并集、交叉对照配对、可选抽查区间）；定向复审批次加 `--only-rules <id,…>`。reviewer 的输入文件集与冻结快照 digest 不变，读取方式按图执行：必读区间精读，交叉对照配对两侧必须一起读（§3.2 红线 5 的机判化），与资料矛盾、边界存疑或核对相邻口径需要时回退读取来源全文。读取图只是读取指导，不进入评审语义输入，不写 workflow history。
 
 `case-review-resolution` 汇总 reviewer 发现项时必须逐项归类，并把分类写入发现项处置字段（固定取值：结构修复 / 语义演进 / 需用户裁决）：
@@ -206,19 +201,19 @@ reviewer 仍提交结构类发现时，视为 §3.2 生成红线泄漏：resolut
 
 ## 6. 风险升级与数据词汇
 
-reviewer 语义风险按 `case-review-risk-v2` 评估，默认 `lean`。出现以下任一事实时自动升级 `strict`：生产、真实或归属未知数据、批量/不可逆操作、权限提升、安全挑战、OTP、设备控制、结果未知，或影响通过判定的来源冲突/未定义验收。strict case 必须能从文件默认值、RULE 来源、差异字段和风险派生得到完整的有效治理值。
+reviewer 语义风险按 `case-review-risk-v1` 评估，默认 `lean`。出现以下任一事实时自动升级 `strict`：生产、真实或归属未知数据、批量/不可逆操作、权限提升、安全挑战、OTP、设备控制、结果未知，或影响通过判定的来源冲突/未定义验收。strict case 必须能从文件默认值、RULE 来源、差异字段和风险派生得到完整的有效治理值。
 
-新资产的数据策略只允许：`no_write / ephemeral_cleanup / reusable_fixture / tracked_residual`。`managed_cleanup` 仅供历史回放。普通 test 环境的 `ephemeral_cleanup` 仍使用精简 case 结构，但必须经 impact reviewer、readiness 和独立执行清单确认。
+新资产的数据策略只允许：`no_write / ephemeral_cleanup / reusable_fixture / tracked_residual`。普通 test 环境的 `ephemeral_cleanup` 仍使用精简 case 结构，但必须经 impact reviewer、readiness 和独立执行清单确认。
 
 ## 7. 一次用例确认
 
-v7 没有独立计划确认。候选集通过门禁并完成适用评审后，一次提交完整用例和所有待确认项：
+v1 没有独立计划确认。候选集通过门禁并完成适用评审后，一次提交完整用例和所有待确认项：
 
 - `full_replan`：确认全部 case；
 - `affected_rebuild`：只确认确定性影响的 RULE/case，继续绑定未变全局边界；
 - `direct_execute`：复用已确认设计，不重复确认。
 
-只允许 `accepted / revision_requested / cancelled`；`rejected` 仅供旧定义回放。用例确认只批准设计，不授权业务写入、设备操作、生产访问或安全挑战处理。
+只允许 `accepted / revision_requested / cancelled`。用例确认只批准设计，不授权业务写入、设备操作、生产访问或安全挑战处理。
 
 ### 7.1 用例确认后的交付 Excel
 

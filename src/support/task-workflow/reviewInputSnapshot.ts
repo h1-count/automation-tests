@@ -6,7 +6,8 @@ import { canonicalJson } from "./canonicalJson.js";
 import {
   reviewBatchScopeDigest,
   type ReviewBatchScope,
-  type ReviewRoleCaseScope
+  type ReviewRoleCaseScope,
+  hasCompleteReviewBatchScope
 } from "./reviewBatchScope.js";
 import { RuntimeLeaseStore } from "./runtimeLeaseStore.js";
 import {
@@ -17,8 +18,6 @@ import {
 } from "../testcase/testcaseDocument.js";
 
 export const REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION = "review-input-snapshot-v1" as const;
-export const REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION = "review-input-snapshot-v2" as const;
-export const REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION = "review-input-snapshot-v3" as const;
 
 export interface ReviewInputSnapshotArtifact {
   sourcePath: string;
@@ -41,22 +40,17 @@ export interface ReviewRoleInputPacket {
 }
 
 export interface ReviewInputSnapshotManifest {
-  schemaVersion:
-    | typeof REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION
-    | typeof REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
-    | typeof REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION;
+  schemaVersion: typeof REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION;
   requestId: string;
   batchId: string;
   createdAt: string;
   artifacts: ReviewInputSnapshotArtifact[];
-  /** Optional for historical manifest v1 compatibility. */
-  scope?: ReviewBatchScope;
-  scopeDigest?: string;
+  scope: ReviewBatchScope;
+  scopeDigest: string;
   combinedDigest: string;
-  semanticDigest?: string;
-  roleInputDigests?: Record<string, string>;
-  /** Present only in v3; these are disposable role-specific projections. */
-  rolePackets?: ReviewRoleInputPacket[];
+  semanticDigest: string;
+  roleInputDigests: Record<string, string>;
+  rolePackets: ReviewRoleInputPacket[];
 }
 
 export interface ReviewInputIdentity {
@@ -86,8 +80,7 @@ function sha256(value: string | Uint8Array): string {
 }
 
 function isSemanticSnapshotManifest(manifest: ReviewInputSnapshotManifest): boolean {
-  return manifest.schemaVersion === REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
-    || manifest.schemaVersion === REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION;
+  return Boolean(manifest.semanticDigest);
 }
 
 export function reviewInputDigest(
@@ -281,7 +274,7 @@ export function semanticReviewInputDigest(
   scopeDigest?: string
 ): string {
   return sha256(canonicalJson({
-    schemaVersion: REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION,
+    schemaVersion: REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION,
     requestId,
     ...(scopeDigest ? { scopeDigest } : {}),
     artifacts: [...artifacts].map(({ sourcePath, semanticDigest }) => ({
@@ -300,11 +293,11 @@ export function reviewRoleInputDigests(
   scopeDigest: string | undefined,
   scope?: ReviewBatchScope
 ): Record<string, string> {
-  if (!scope || scope.schemaVersion !== "review-batch-scope-v3") return {};
+  if (!scope || !hasCompleteReviewBatchScope(scope)) return {};
   return Object.fromEntries(scope.roleScopes.map((roleScope) => [
     roleScope.activityId,
     sha256(canonicalJson({
-      schemaVersion: "review-role-input-v2",
+      schemaVersion: "review-role-input-v1",
       requestId,
       ...(scopeDigest ? { scopeDigest } : {}),
       artifacts: [...artifacts].map((artifact) => ({
@@ -430,7 +423,7 @@ export class ReviewInputSnapshotStore {
   async freeze(
     batchId: string,
     inputPaths: string[],
-    scope?: ReviewBatchScope
+    scope: ReviewBatchScope
   ): Promise<ReviewInputSnapshotManifest> {
     this.validateBatchId(batchId);
     if (!inputPaths.length) throw new Error("A review input snapshot requires at least one input path.");
@@ -447,14 +440,10 @@ export class ReviewInputSnapshotStore {
         digest: sha256(content),
         sizeBytes: content.byteLength,
         semanticDigest: sha256(semanticReviewContent(sourcePath, content)),
-        ...(scope?.schemaVersion === "review-batch-scope-v3"
-          ? {
-              roleSemanticDigests: Object.fromEntries(scope.roleScopes.map((roleScope) => [
-                roleScope.activityId,
-                sha256(roleSemanticReviewContent(sourcePath, content, roleScope))
-              ]))
-            }
-          : {}),
+        roleSemanticDigests: Object.fromEntries(scope.roleScopes.map((roleScope) => [
+          roleScope.activityId,
+          sha256(roleSemanticReviewContent(sourcePath, content, roleScope))
+        ])),
         content
       };
     }));
@@ -463,16 +452,10 @@ export class ReviewInputSnapshotStore {
       digest,
       sizeBytes
     }));
-    const scopeDigest = scope ? reviewBatchScopeDigest(scope) : undefined;
-    const useSemanticSnapshot = scope?.schemaVersion === "review-batch-scope-v3";
-    const semanticDigest = useSemanticSnapshot
-      ? semanticReviewInputDigest(this.requestId, artifacts, scopeDigest)
-      : undefined;
-    const combinedDigest = semanticDigest
-      ?? reviewInputDigest(this.requestId, identity, scopeDigest);
-    const reviewerDigests = semanticDigest
-      ? reviewRoleInputDigests(this.requestId, artifacts, scopeDigest, scope)
-      : {};
+    const scopeDigest = reviewBatchScopeDigest(scope);
+    const semanticDigest = semanticReviewInputDigest(this.requestId, artifacts, scopeDigest);
+    const combinedDigest = semanticDigest;
+    const reviewerDigests = reviewRoleInputDigests(this.requestId, artifacts, scopeDigest, scope);
     const existing = await this.readIfExists(batchId);
     if (existing) {
       if (existing.combinedDigest !== combinedDigest) {
@@ -490,8 +473,7 @@ export class ReviewInputSnapshotStore {
         const blobPath = await this.ensureBlob(artifact.digest, artifact.content);
         await this.materializeSnapshot(blobPath, artifact.snapshotPath, artifact.content);
       }
-      const rolePackets = scope?.schemaVersion === "review-batch-scope-v3"
-        ? await Promise.all(scope.roleScopes.map(async (roleScope) => {
+      const rolePackets = await Promise.all(scope.roleScopes.map(async (roleScope) => {
             const content = Buffer.from(rolePacketMarkdown(batchId, roleScope, artifacts), "utf8");
             const packetPath = resolve(this.batchRoot(batchId), "packets", `${roleScope.activityId}.md`);
             await atomicWrite(packetPath, content);
@@ -503,25 +485,19 @@ export class ReviewInputSnapshotStore {
               packetBytes: content.byteLength,
               originalBytes: artifacts.reduce((sum, artifact) => sum + artifact.sizeBytes, 0)
             };
-          }))
-        : undefined;
+          }));
       const manifest: ReviewInputSnapshotManifest = {
-        schemaVersion: rolePackets
-          ? REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION
-          : useSemanticSnapshot
-            ? REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
-          : REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION,
+        schemaVersion: REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION,
         requestId: this.requestId,
         batchId,
         createdAt: new Date().toISOString(),
         artifacts: artifacts.map(({ content: _content, ...artifact }) => artifact),
-        ...(scope ? { scope, scopeDigest } : {}),
+        scope,
+        scopeDigest,
         combinedDigest,
-        ...(semanticDigest ? {
-          semanticDigest,
-          roleInputDigests: reviewerDigests
-        } : {}),
-        ...(rolePackets ? { rolePackets } : {})
+        semanticDigest,
+        roleInputDigests: reviewerDigests,
+        rolePackets
       };
       await atomicWrite(
         this.manifestPath(batchId),
@@ -549,7 +525,7 @@ export class ReviewInputSnapshotStore {
         digest: sha256(content),
         sizeBytes: content.byteLength,
         semanticDigest: sha256(semanticReviewContent(sourcePath, content)),
-        ...(scope?.schemaVersion === "review-batch-scope-v3"
+        ...(scope !== undefined && hasCompleteReviewBatchScope(scope)
           ? {
               roleSemanticDigests: Object.fromEntries(scope.roleScopes.map((roleScope) => [
                 roleScope.activityId,
@@ -560,7 +536,7 @@ export class ReviewInputSnapshotStore {
       };
     }));
     const scopeDigest = scope ? reviewBatchScopeDigest(scope) : undefined;
-    const semanticDigest = scope?.schemaVersion === "review-batch-scope-v3"
+    const semanticDigest = scope !== undefined && hasCompleteReviewBatchScope(scope)
       ? semanticReviewInputDigest(this.requestId, artifacts, scopeDigest)
       : undefined;
     return {
@@ -629,7 +605,7 @@ export class ReviewInputSnapshotStore {
       }
       if (
         isSemanticSnapshotManifest(manifest)
-        && manifest.scope?.schemaVersion === "review-batch-scope-v3"
+        && hasCompleteReviewBatchScope(manifest.scope)
       ) {
         const expectedRoleArtifactDigests = Object.fromEntries(
           manifest.scope.roleScopes.map((roleScope) => [
@@ -642,9 +618,7 @@ export class ReviewInputSnapshotStore {
         }
       }
     }
-    const scopeDigest = manifest.scope
-      ? reviewBatchScopeDigest(manifest.scope)
-      : undefined;
+    const scopeDigest = reviewBatchScopeDigest(manifest.scope);
     if (
       scopeDigest !== manifest.scopeDigest
       || (manifest.scopeDigest !== undefined && !digestPattern.test(manifest.scopeDigest))
@@ -674,9 +648,9 @@ export class ReviewInputSnapshotStore {
         throw new Error(`Review input snapshot ${batchId} has invalid role input digests.`);
       }
     }
-    if (manifest.schemaVersion === REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION) {
-      if (!manifest.scope || manifest.scope.schemaVersion !== "review-batch-scope-v3") {
-        throw new Error(`Review input snapshot ${batchId} v3 requires a role scope.`);
+    if (manifest.schemaVersion === REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION) {
+      if (!hasCompleteReviewBatchScope(manifest.scope)) {
+        throw new Error(`Review input snapshot ${batchId} requires a role scope.`);
       }
       const expectedActivities = manifest.scope.roleScopes.map((scope) => scope.activityId).sort();
       const packets = manifest.rolePackets ?? [];
@@ -743,7 +717,7 @@ export class ReviewInputSnapshotStore {
   async repair(
     batchId: string,
     inputPaths: string[],
-    scope?: ReviewBatchScope
+    scope: ReviewBatchScope
   ): Promise<ReviewInputSnapshotManifest> {
     this.validateBatchId(batchId);
     await rm(this.batchRoot(batchId), { recursive: true, force: true });
@@ -842,7 +816,7 @@ export class ReviewInputSnapshotStore {
       requestRelative
       && requestRelative !== ".."
       && !requestRelative.startsWith("../")
-      && /^(?:plan\.md|cases(?:-[a-z0-9][a-z0-9-]*)?\.md)$/.test(requestRelative)
+      && /^(?:plan\.md|run-intent\.json|script-review-assessment\.json|cases(?:-[a-z0-9][a-z0-9-]*)?\.md|candidate-scripts\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.(?:ts|json))$/.test(requestRelative)
     ) {
       return portableRelative(this.workspaceRoot, absolute);
     }
@@ -867,6 +841,7 @@ export class ReviewInputSnapshotStore {
       !hasHiddenSegment
       && (
         workspaceRelative === "sources/manifest.yaml"
+        || /^(?:src\/support\/(?:formal-execution\/(?:formalCase|manifest|operationEvidence)|web\/networkOperationGuard)\.ts)$/.test(workspaceRelative)
         || /^sources\/indexes\/[a-z0-9][a-z0-9-]*\.ya?ml$/.test(workspaceRelative)
         || /^sources\/(?!indexes\/|README)[^/]+\/.+/.test(workspaceRelative)
       )
@@ -898,8 +873,8 @@ export class ReviewInputSnapshotStore {
     if (
       ![
         REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION,
-        REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION,
-        REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION
+        REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION,
+        REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION
       ].includes(parsed.schemaVersion)
       || parsed.requestId !== this.requestId
       || parsed.batchId !== batchId
@@ -907,15 +882,15 @@ export class ReviewInputSnapshotStore {
       || !parsed.artifacts.length
       || (parsed.scope === undefined) !== (parsed.scopeDigest === undefined)
       || !digestPattern.test(parsed.combinedDigest)
-      || ((parsed.schemaVersion === REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION
-          || parsed.schemaVersion === REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION)
+      || ((parsed.schemaVersion === REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION
+          || parsed.schemaVersion === REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION)
         && (
           !parsed.semanticDigest
           || !digestPattern.test(parsed.semanticDigest)
           || !parsed.roleInputDigests
           || Object.values(parsed.roleInputDigests).some((digest) => !digestPattern.test(digest))
         ))
-      || (parsed.schemaVersion === REVIEW_INPUT_SNAPSHOT_V3_SCHEMA_VERSION
+      || (parsed.schemaVersion === REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION
         && !Array.isArray(parsed.rolePackets))
     ) {
       throw new Error(`Review input snapshot manifest ${batchId} is invalid.`);

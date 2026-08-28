@@ -41,7 +41,7 @@ async function createRun(manager: TestDataManager) {
     projectId,
     envId,
     caseIds: [caseId],
-    dataWritePolicy: "managed_cleanup",
+    dataWritePolicy: "ephemeral_cleanup",
     authorizationDigest: "a".repeat(64),
     writeBudget: { product: 10 }
   });
@@ -78,7 +78,7 @@ test("resumes the same authorized run without resetting resources or budgets", a
     envId,
     suiteId: "web/open-platform/registration",
     caseIds: [caseId],
-    dataWritePolicy: "managed_cleanup" as const,
+    dataWritePolicy: "ephemeral_cleanup" as const,
     authorizationDigest: "b".repeat(64),
     writeBudget: { product: 1 }
   };
@@ -96,7 +96,7 @@ test("refuses to resume an authorized run with drifted write constraints", async
     envId,
     suiteId: "web/open-platform/registration",
     caseIds: [caseId],
-    dataWritePolicy: "managed_cleanup" as const,
+    dataWritePolicy: "ephemeral_cleanup" as const,
     authorizationDigest: "e".repeat(64),
     writeBudget: { product: 1 },
     residualTtlHours: 24
@@ -249,6 +249,7 @@ test("rejects resources whose owner or machine does not match", async (context) 
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     metadata: {},
+    leases: [],
     reuseCount: 0,
     stateHistory: []
   };

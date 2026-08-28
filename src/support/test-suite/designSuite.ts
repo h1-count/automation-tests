@@ -1,5 +1,5 @@
 /**
- * Design-tier stable suite registration and assessment (manifest v2).
+ * Design-tier stable suite registration and assessment (manifest v3).
  *
  * A testcase_only request whose case-confirmation the user accepted can be
  * registered as a design-tier stable suite. The registration freezes the
@@ -10,7 +10,7 @@
  * - zero drift on every frozen identity      -> design_reconfirm
  * - source-file drift with a complete
  *   SRC -> RULE -> caseIds closure           -> affected_rebuild
- * - suite asset drift or an incomplete map   -> full_replan (fail closed)
+ * - unbounded asset/boundary drift           -> full_replan (fail closed)
  *
  * Design-tier suites never authorize execution: they carry no scripts, no
  * formal manifest and no execution evidence. Promotion to the execution tier
@@ -19,9 +19,9 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readFile, readdir } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, relative, resolve, sep } from "node:path";
 import { atomicWrite, atomicWriteText } from "../test-data/ledgerStore.js";
 import { canonicalJson, sha256Canonical } from "../task-workflow/canonicalJson.js";
 import type { SafeJsonValue } from "../task-workflow/types.js";
@@ -32,11 +32,21 @@ import {
 } from "../testcase/relationProjection.js";
 import {
   isStructuredTestcaseDocumentVersion,
-  parseTestcaseDocument
+  parseTestcaseDocument,
+  type ParsedTestcase,
+  type ParsedTestcaseDocument
 } from "../testcase/testcaseDocument.js";
 import type { StableTestSuiteFileIdentity } from "./stableSuite.js";
+import { loadFormalExecutionManifestFromPath } from "../formal-execution/manifest.js";
+import { resolveLocalScriptDependencyClosure } from "../formal-execution/scriptDependencyClosure.js";
+import { FORMAL_WEB_SCRIPT_COMPILER_VERSION } from "../formal-execution/webScriptCompiler.js";
+import { assertFormalWebCoveragePlan } from "../formal-execution/webScriptCoverage.js";
+import {
+  validateStableScriptAssets,
+  type StableScriptAssets
+} from "./scriptAssets.js";
 
-export const STABLE_DESIGN_SUITE_SCHEMA_VERSION = "stable-test-suite-manifest-v2" as const;
+export const STABLE_DESIGN_SUITE_SCHEMA_VERSION = "stable-test-suite-manifest-v1" as const;
 export const DESIGN_TIER = "design" as const;
 export const EXECUTION_TIER = "execution" as const;
 
@@ -56,6 +66,22 @@ export interface StableDesignSourceRegistration {
   fileDigests: Array<{ path: string; digest: string }>;
 }
 
+/**
+ * A compact, accepted baseline for one case package.  It deliberately stores
+ * semantic and execution-boundary digests instead of testcase prose: the
+ * stable suite remains the only reusable design asset, while a later request
+ * can still prove that only a bounded set of existing case blocks changed.
+ */
+export interface StableDesignCasePackageBaseline {
+  path: string;
+  defaultsDigest: string;
+  cases: Array<{
+    caseId: string;
+    semanticDigest: string;
+    executionBoundaryDigest: string;
+  }>;
+}
+
 export interface StableDesignSuiteManifest {
   schemaVersion: typeof STABLE_DESIGN_SUITE_SCHEMA_VERSION;
   tier: typeof DESIGN_TIER;
@@ -65,7 +91,10 @@ export interface StableDesignSuiteManifest {
   /** The testcase_only request whose case-confirmation was accepted. */
   sourceRequestId: string;
   designLedger: StableTestSuiteFileIdentity;
+  /** Canonical semantic projection of the design ledger, excluding formatting-only markers. */
+  designLedgerSemanticDigest: string;
   casePackages: StableTestSuiteFileIdentity[];
+  casePackageBaselines: StableDesignCasePackageBaseline[];
   caseIds: string[];
   profiles: {
     full_feature: string[];
@@ -74,6 +103,8 @@ export interface StableDesignSuiteManifest {
   };
   sourceRegistry: StableDesignSourceRegistration[];
   allowedEnvironments: Array<"test" | "pre">;
+  /** Optional execution assets. Their case-level level controls script reuse. */
+  scriptAssets?: StableScriptAssets;
   acceptance: {
     /** Workflow history head digest at acceptance time. */
     workflowHeadDigest: string;
@@ -81,6 +112,21 @@ export interface StableDesignSuiteManifest {
     confirmationDigest: string;
     acceptedAt: string;
   };
+}
+
+export type DesignSuiteRefreshStatus =
+  | "unchanged"
+  | "refreshable_nonsemantic"
+  | "semantic_drift"
+  | "source_drift"
+  | "missing_semantic_baseline";
+
+export interface DesignSuiteRefreshReport {
+  suiteId: string;
+  status: DesignSuiteRefreshStatus;
+  issues: string[];
+  manifestPath: string;
+  suiteVersion?: string;
 }
 
 export type DesignSuiteReuseDecision =
@@ -135,6 +181,39 @@ function normalizeSourcePath(link: string): string {
   return segments.join("/");
 }
 
+/**
+ * Accept only a real, workspace-contained source artifact.  A source that is
+ * not already frozen in the stable design registry is new requirement input,
+ * so callers must fail closed to a full replan instead of treating the suite
+ * as zero-drift.
+ */
+export function normalizeControlledSourcePaths(
+  sourcePaths: string[] | undefined,
+  workspaceRoot = process.cwd()
+): string[] {
+  if (!sourcePaths?.length) return [];
+  const root = realpathSync(resolve(workspaceRoot));
+  const normalized = new Set<string>();
+  for (const sourcePath of sourcePaths) {
+    if (!sourcePath || sourcePath !== sourcePath.trim()) {
+      throw new Error("Additional source paths must be non-empty workspace-relative paths.");
+    }
+    const resolved = resolve(root, sourcePath);
+    if (!existsSync(resolved) || !statSync(resolved).isFile()) {
+      throw new Error(`Additional source must be an existing file: ${sourcePath}`);
+    }
+    const actualPath = realpathSync(resolved);
+    const workspacePath = relative(root, actualPath).split(sep).join("/");
+    if (!workspacePath.startsWith("sources/")
+      || workspacePath.startsWith("../")
+      || workspacePath === "sources") {
+      throw new Error("Additional sources must be workspace-contained files under sources/.");
+    }
+    normalized.add(workspacePath);
+  }
+  return [...normalized].sort();
+}
+
 /** Parse RULE ledger rows into RULE -> { sourceRefs, caseIds } pairs. */
 export function parseRuleLedger(designLedger: string): Array<{
   ruleId: string;
@@ -165,6 +244,32 @@ export function parseRuleLedger(designLedger: string): Array<{
     }));
 }
 
+function normalizedSectionRows(designLedger: string, section: string): string[][] {
+  return markdownTableRows(markdownSection(designLedger, section))
+    .map((row) => row.map((cell) => cell.replace(/\s+/gu, " ").trim()))
+    .filter((row) => row.some(Boolean));
+}
+
+function normalizedSectionText(designLedger: string, section: string): string {
+  return markdownSection(designLedger, section)
+    .split(/\r?\n/gu)
+    .map((line) => line.replace(/\s+/gu, " ").trim())
+    .filter((line) => line && !/^\|(?:\s*:?-+:?\s*\|)+$/u.test(line))
+    .join("\n");
+}
+
+/** Stable semantic proof for a design ledger. Header-only contract renames do not affect it. */
+export function digestDesignLedgerSemantics(designLedger: string): string {
+  return sha256Canonical({
+    requestDefaults: normalizedSectionRows(designLedger, "请求默认值"),
+    scope: normalizedSectionText(designLedger, "测试范围"),
+    sources: normalizedSectionRows(designLedger, "请求内来源"),
+    requirements: normalizedSectionRows(designLedger, "需求索引"),
+    rules: normalizedSectionRows(designLedger, "规则设计台账"),
+    ambiguities: normalizedSectionText(designLedger, "需求歧义与未定义预期")
+  } as unknown as SafeJsonValue);
+}
+
 function fileIdentity(workspaceRoot: string, path: string): StableTestSuiteFileIdentity {
   const absolute = resolve(workspaceRoot, path);
   if (!existsSync(absolute)) {
@@ -176,7 +281,81 @@ function fileIdentity(workspaceRoot: string, path: string): StableTestSuiteFileI
   };
 }
 
-function digestDesignSuiteEvidence(value: {
+function testcaseSemanticDigest(testcase: ParsedTestcase): string {
+  return sha256Canonical({
+    module: testcase.module,
+    caseId: testcase.caseId,
+    title: testcase.title,
+    priority: testcase.priority,
+    ruleIds: [...testcase.ruleIds].sort(),
+    preconditions: testcase.preconditions,
+    executionRows: testcase.executionRows.map((row) => ({
+      ...(row.dataId ? { dataId: row.dataId } : {}),
+      stepIndex: row.stepIndex,
+      action: row.action,
+      data: row.data,
+      expected: row.expected
+    })),
+    overrides: {
+      ...(testcase.overrides.environment ? { environment: testcase.overrides.environment } : {}),
+      ...(testcase.overrides.dataStrategy ? { dataStrategy: testcase.overrides.dataStrategy } : {}),
+      ...(testcase.overrides.risk ? { risk: testcase.overrides.risk } : {}),
+      sourceRefs: [...testcase.overrides.sourceRefs].sort()
+    }
+  } as unknown as SafeJsonValue);
+}
+
+function testcaseExecutionBoundaryDigest(
+  testcase: ParsedTestcase,
+  defaults: ParsedTestcaseDocument["defaults"]
+): string {
+  return sha256Canonical({
+    environment: testcase.overrides.environment ?? defaults.environment ?? "",
+    dataStrategy: testcase.overrides.dataStrategy ?? defaults.dataStrategy ?? "",
+    sourceRefs: [...testcase.overrides.sourceRefs].sort()
+  } as unknown as SafeJsonValue);
+}
+
+function semanticCasePackageBaseline(
+  path: string,
+  content: string
+): StableDesignCasePackageBaseline {
+  const document = parseTestcaseDocument(content);
+  if (!isStructuredTestcaseDocumentVersion(document.version)) {
+    throw new Error(`Design suite case package must use testcase-v1-layered: ${path}.`);
+  }
+  const caseIds = document.cases.map((testcase) => testcase.caseId);
+  if (new Set(caseIds).size !== caseIds.length) {
+    throw new Error(`Design suite case package has duplicate caseIds: ${path}.`);
+  }
+  return {
+    path,
+    defaultsDigest: sha256Canonical({
+      testType: document.defaults.testType ?? "",
+      environment: document.defaults.environment ?? "",
+      dataStrategy: document.defaults.dataStrategy ?? ""
+    } as unknown as SafeJsonValue),
+    cases: document.cases.map((testcase) => ({
+      caseId: testcase.caseId,
+      semanticDigest: testcaseSemanticDigest(testcase),
+      executionBoundaryDigest: testcaseExecutionBoundaryDigest(testcase, document.defaults)
+    })).sort((left, right) => left.caseId.localeCompare(right.caseId))
+  };
+}
+
+function currentCasePackageBaseline(
+  workspaceRoot: string,
+  path: string
+): StableDesignCasePackageBaseline {
+  try {
+    return semanticCasePackageBaseline(path, readFileSync(resolve(workspaceRoot, path), "utf8"));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to establish the current case package baseline for ${path}: ${message}`);
+  }
+}
+
+export function digestDesignSuiteEvidence(value: {
   profiles: StableDesignSuiteManifest["profiles"];
   [key: string]: unknown;
 }): string {
@@ -279,6 +458,11 @@ export async function registerStableDesignSuite(input: {
     throw new Error("Design suite and source request must use the same type/project scope.");
   }
   const acceptance = await readAcceptedConfirmation(root, input.requestId);
+  if (!digestPattern.test(acceptance.workflowHeadDigest)
+    || !digestPattern.test(acceptance.confirmationDigest)
+    || !Number.isFinite(Date.parse(acceptance.acceptedAt))) {
+    throw new Error("Current v1 design-suite acceptance evidence is malformed.");
+  }
   const [type, project, feature] = input.suiteId.split("/");
   const suiteDir = ["testcases", type, project, "suites", feature].join("/");
   const designLedgerPath = `${suiteDir}/design.md`;
@@ -318,13 +502,14 @@ export async function registerStableDesignSuite(input: {
   }
   const caseIds: string[] = [];
   const smokeCaseIds: string[] = [];
+  const casePackageBaselines: StableDesignCasePackageBaseline[] = [];
   for (const identity of casePackages) {
-    const document = parseTestcaseDocument(
-      await readFile(resolve(root, identity.path), "utf8")
-    );
+    const content = await readFile(resolve(root, identity.path), "utf8");
+    const document = parseTestcaseDocument(content);
     if (!isStructuredTestcaseDocumentVersion(document.version)) {
-      throw new Error(`Design suite case package must use testcase-v6-layered: ${identity.path}.`);
+      throw new Error(`Design suite case package must use testcase-v1-layered: ${identity.path}.`);
     }
+    casePackageBaselines.push(semanticCasePackageBaseline(identity.path, content));
     for (const testcase of document.cases) {
       caseIds.push(testcase.caseId);
       if (testcase.priority === "P0") smokeCaseIds.push(testcase.caseId);
@@ -338,7 +523,9 @@ export async function registerStableDesignSuite(input: {
     tier: DESIGN_TIER,
     suiteId: input.suiteId,
     designLedger: fileIdentity(root, designLedgerPath),
+    designLedgerSemanticDigest: digestDesignLedgerSemantics(designLedger),
     casePackages: casePackages.sort((left, right) => left.path.localeCompare(right.path)),
+    casePackageBaselines: casePackageBaselines.sort((left, right) => left.path.localeCompare(right.path)),
     caseIds: [...caseIds].sort(),
     profiles: {
       full_feature: [...caseIds].sort(),
@@ -413,6 +600,31 @@ export function parseStableDesignSuiteManifest(
   if (!digestPattern.test(manifest.designLedger.digest ?? "")) {
     throw new Error("Stable design suite designLedger digest is invalid.");
   }
+  if (!digestPattern.test(manifest.designLedgerSemanticDigest ?? "")) {
+    throw new Error("Stable design suite requires a designLedgerSemanticDigest; run test:suite:refresh-design -- --suite <suite> --seed-design-baseline --confirm-current-design --apply.");
+  }
+  if (!Array.isArray(manifest.casePackageBaselines)
+    || manifest.casePackageBaselines.length !== manifest.casePackages.length
+    || manifest.casePackageBaselines.some((baseline) =>
+      typeof baseline?.path !== "string"
+      || !manifest.casePackages.some((identity) => identity.path === baseline.path)
+      || !digestPattern.test(baseline.defaultsDigest ?? "")
+      || !Array.isArray(baseline.cases)
+      || !baseline.cases.length
+      || baseline.cases.some((testcase) =>
+        typeof testcase?.caseId !== "string"
+        || !digestPattern.test(testcase.semanticDigest ?? "")
+        || !digestPattern.test(testcase.executionBoundaryDigest ?? "")))) {
+    throw new Error("Stable design suite case package semantic baselines are invalid.");
+  }
+  const baselineCaseIds = manifest.casePackageBaselines.flatMap((baseline) =>
+    baseline.cases.map((testcase) => testcase.caseId)
+  );
+  if (new Set(baselineCaseIds).size !== baselineCaseIds.length
+    || canonicalJson([...baselineCaseIds].sort() as unknown as SafeJsonValue)
+      !== canonicalJson([...manifest.caseIds].sort() as unknown as SafeJsonValue)) {
+    throw new Error("Stable design suite case package baselines do not match manifest caseIds.");
+  }
   if (!Array.isArray(manifest.sourceRegistry) || !manifest.sourceRegistry.length) {
     throw new Error("Stable design suite requires a non-empty sourceRegistry.");
   }
@@ -451,6 +663,9 @@ export function parseStableDesignSuiteManifest(
     || manifest.allowedEnvironments.some((environment) => !["test", "pre"].includes(environment))) {
     throw new Error("Stable design suite allowedEnvironments must contain test/pre values.");
   }
+  if (manifest.scriptAssets !== undefined) {
+    validateStableScriptAssets(manifest.scriptAssets, manifest.caseIds);
+  }
   if (!manifest.acceptance
     || !digestPattern.test(manifest.acceptance.workflowHeadDigest ?? "")
     || !digestPattern.test(manifest.acceptance.confirmationDigest ?? "")
@@ -462,6 +677,234 @@ export function parseStableDesignSuiteManifest(
     throw new Error("Stable design suite suiteVersion does not match its frozen design evidence.");
   }
   return structuredClone(manifest);
+}
+
+function sourceRegistryDrift(
+  root: string,
+  registrations: StableDesignSourceRegistration[]
+): string[] {
+  const drifted: string[] = [];
+  for (const registration of registrations) {
+    const baseline = new Map(registration.fileDigests.map((entry) => [entry.path, entry.digest]));
+    for (const sourcePath of registration.sourcePaths) {
+      try {
+        const current = fileIdentity(root, sourcePath).digest;
+        if (current !== baseline.get(sourcePath)) {
+          drifted.push(registration.sourceId);
+          break;
+        }
+      } catch {
+        drifted.push(registration.sourceId);
+        break;
+      }
+    }
+  }
+  return [...new Set(drifted)].sort();
+}
+
+/**
+ * Recomputes file identities only after proving that all durable design facts
+ * remain unchanged.  Missing semantic baselines require an explicit one-time
+ * seed; ordinary runtime loading never accepts them.
+ */
+export async function refreshStableDesignSuite(input: {
+  suiteId: string;
+  apply?: boolean;
+  seedDesignBaseline?: boolean;
+  confirmCurrentDesign?: boolean;
+  workspaceRoot?: string;
+}): Promise<DesignSuiteRefreshReport> {
+  const root = resolve(input.workspaceRoot ?? process.cwd());
+  const manifestPath = designSuiteManifestPath(input.suiteId, root);
+  if (!existsSync(manifestPath)) throw new Error(`Stable design suite is not registered: ${input.suiteId}.`);
+  const raw = JSON.parse(await readFile(manifestPath, "utf8")) as StableDesignSuiteManifest;
+  if (raw.schemaVersion !== STABLE_DESIGN_SUITE_SCHEMA_VERSION || raw.tier !== DESIGN_TIER || raw.suiteId !== input.suiteId) {
+    throw new Error("Stable design suite manifest identity is invalid.");
+  }
+  const designLedger = await readFile(resolve(root, raw.designLedger.path), "utf8");
+  const currentSemanticDigest = digestDesignLedgerSemantics(designLedger);
+  const currentPackages = raw.casePackages.map((identity) =>
+    currentCasePackageBaseline(root, identity.path));
+  const currentPackageIdentities = raw.casePackages.map((identity) => fileIdentity(root, identity.path));
+  const sourceDrift = sourceRegistryDrift(root, raw.sourceRegistry ?? []);
+  const issues: string[] = [];
+  if (sourceDrift.length) issues.push(`来源摘要漂移：${sourceDrift.join("、")}`);
+  const seedingBaseline = !digestPattern.test(raw.designLedgerSemanticDigest ?? "");
+  if (seedingBaseline) {
+    if (!input.seedDesignBaseline) {
+      return { suiteId: input.suiteId, status: "missing_semantic_baseline", issues: ["缺少 designLedgerSemanticDigest；必须显式 seed 当前已确认设计基线。"], manifestPath };
+    }
+    if (!input.confirmCurrentDesign) {
+      throw new Error("Seeding a design baseline requires --confirm-current-design.");
+    }
+  } else if (raw.designLedgerSemanticDigest !== currentSemanticDigest) {
+    issues.push("设计台账语义摘要漂移。");
+  }
+  const baselineByPath = new Map(raw.casePackageBaselines?.map((baseline) => [baseline.path, baseline]));
+  for (const current of currentPackages) {
+    const baseline = baselineByPath.get(current.path);
+    if (!seedingBaseline
+      && (!baseline || canonicalJson(baseline as unknown as SafeJsonValue) !== canonicalJson(current as unknown as SafeJsonValue))) {
+      issues.push(`用例语义或执行边界漂移：${current.path}`);
+    }
+  }
+  if (sourceDrift.length) return { suiteId: input.suiteId, status: "source_drift", issues, manifestPath };
+  if (issues.length) return { suiteId: input.suiteId, status: "semantic_drift", issues, manifestPath };
+  const next: StableDesignSuiteManifest = {
+    ...raw,
+    designLedger: fileIdentity(root, raw.designLedger.path),
+    designLedgerSemanticDigest: currentSemanticDigest,
+    casePackages: currentPackageIdentities,
+    casePackageBaselines: currentPackages
+  };
+  const { suiteVersion: _suiteVersion, status: _status, sourceRequestId: _sourceRequestId, acceptance: _acceptance, ...immutable } = next;
+  next.suiteVersion = digestDesignSuiteEvidence(immutable);
+  const changed = canonicalJson(next as unknown as SafeJsonValue) !== canonicalJson(raw as unknown as SafeJsonValue);
+  if (changed && input.apply) await atomicWrite(manifestPath, next);
+  return {
+    suiteId: input.suiteId,
+    status: changed ? "refreshable_nonsemantic" : "unchanged",
+    issues: changed && !input.apply ? ["运行 --apply 后才会写入刷新后的冻结摘要。"] : [],
+    manifestPath,
+    suiteVersion: next.suiteVersion
+  };
+}
+
+/**
+ * Attach reviewed or verified script bindings without duplicating testcase
+ * design.  The caller supplies assets that have already passed the workflow
+ * gate; this function only validates identities and updates the frozen suite
+ * version atomically.
+ */
+export async function updateStableDesignScriptAssets(input: {
+  suiteId: string;
+  scriptAssets: StableScriptAssets;
+  workspaceRoot?: string;
+}): Promise<StableDesignSuiteManifest> {
+  const root = resolve(input.workspaceRoot ?? process.cwd());
+  const path = designSuiteManifestPath(input.suiteId, root);
+  const manifest = parseStableDesignSuiteManifest(
+    JSON.parse(await readFile(path, "utf8")) as unknown,
+    input.suiteId
+  );
+  const scriptAssets = validateStableScriptAssets(input.scriptAssets, manifest.caseIds, root);
+  const { suiteVersion: _suiteVersion, status: _status, sourceRequestId: _sourceRequestId, acceptance: _acceptance, ...immutable } = manifest;
+  const next: StableDesignSuiteManifest = {
+    ...manifest,
+    scriptAssets,
+    suiteVersion: digestDesignSuiteEvidence({ ...immutable, scriptAssets })
+  };
+  await atomicWrite(path, next);
+  return next;
+}
+
+/**
+ * Promote a reviewed request-local script set into the suite without claiming
+ * it has run.  The resulting assets are reusable as a build seed; only a
+ * later sealed execution may create an execution-tier suite.
+ */
+export async function promoteReviewedDesignScripts(input: {
+  suiteId: string;
+  requestId: string;
+  reviewDigest: string;
+  caseScripts: Array<{ caseId: string; sourcePath: string }>;
+  workspaceRoot?: string;
+}): Promise<StableDesignSuiteManifest> {
+  const root = resolve(input.workspaceRoot ?? process.cwd());
+  const suite = await loadStableDesignSuite(input.suiteId, root);
+  if (!digestPattern.test(input.reviewDigest)) throw new Error("Reviewed script promotion requires a script-review digest.");
+  const candidatePrefix = `.local/test-runs/${input.requestId}/candidate-scripts/`;
+  const [type, project, feature] = input.suiteId.split("/");
+  const stablePrefix = `tests/${type}/${project}/suites/${feature}/`;
+  const formalManifestPath = `${candidatePrefix}execution.manifest.ts`;
+  const coveragePlanPath = `${candidatePrefix}web-script-coverage-plan.json`;
+  if (!existsSync(resolve(root, formalManifestPath))) {
+    throw new Error("Reviewed script promotion requires this request's candidate execution.manifest.ts.");
+  }
+  if (!existsSync(resolve(root, coveragePlanPath))) {
+    throw new Error("Reviewed script promotion requires this request's frozen web coverage plan.");
+  }
+  const coveragePlan = JSON.parse(await readFile(resolve(root, coveragePlanPath), "utf8")) as unknown;
+  assertFormalWebCoveragePlan(coveragePlan);
+  const formalManifest = await loadFormalExecutionManifestFromPath(formalManifestPath, {
+    workspaceRoot: root,
+    expectedRequestId: input.requestId
+  });
+  const manifestCases = new Set(formalManifest.cases.map((item) => item.caseId));
+  const coverageCases = new Set(coveragePlan.entries.map((entry) => entry.caseId));
+  const bindings = input.caseScripts.map((binding) => ({ ...binding }));
+  if (!bindings.length || new Set(bindings.map((binding) => binding.caseId)).size !== bindings.length
+    || bindings.some((binding) => !suite.caseIds.includes(binding.caseId)
+      || !manifestCases.has(binding.caseId)
+      || !coverageCases.has(binding.caseId)
+      || !binding.sourcePath.startsWith(candidatePrefix)
+      || !binding.sourcePath.endsWith(".formal.spec.ts"))) {
+    throw new Error("Reviewed script promotion requires one candidate formal spec binding for every promoted case.");
+  }
+  const entryPaths = [...new Set([formalManifestPath, ...bindings.map((binding) => binding.sourcePath)])].sort();
+  const closure = resolveLocalScriptDependencyClosure({ workspaceRoot: root, entryPaths }).paths;
+  const candidateFiles = closure.filter((path) => path.startsWith(candidatePrefix));
+  if (!candidateFiles.includes(formalManifestPath)) {
+    throw new Error("Reviewed script promotion could not prove the candidate formal manifest closure.");
+  }
+  const rehome = (path: string) => path.startsWith(candidatePrefix)
+    ? `${stablePrefix}${path.slice(candidatePrefix.length)}`
+    : path;
+  const rewrite = (source: string, targetPath: string): string => source
+    .split(candidatePrefix).join(stablePrefix)
+    .replace(/(["'])(?:\.\.\/)+src\//gu, (_match, quote: string) => {
+      const toSource = relative(dirname(resolve(root, targetPath)), resolve(root, "src")).split(sep).join("/");
+      return `${quote}${toSource.startsWith(".") ? toSource : `./${toSource}`}/`;
+    });
+  for (const path of candidateFiles.filter((path) => path !== formalManifestPath)) {
+    const targetPath = rehome(path);
+    await atomicWriteText(resolve(root, targetPath), rewrite(await readFile(resolve(root, path), "utf8"), targetPath));
+  }
+  const buildEvidence = formalManifest.buildEvidence ?? [];
+  for (const evidence of buildEvidence) {
+    if (!evidence.path.startsWith(candidatePrefix)) {
+      throw new Error("Reviewed script promotion only accepts request-local build evidence.");
+    }
+    if (!digestPattern.test(evidence.sha256 ?? "")) {
+      throw new Error("Reviewed script promotion requires SHA-256 build evidence.");
+    }
+    const targetPath = rehome(evidence.path);
+    await atomicWriteText(resolve(root, targetPath), rewrite(await readFile(resolve(root, evidence.path), "utf8"), targetPath));
+  }
+  const sourceManifest = await readFile(resolve(root, formalManifestPath), "utf8");
+  let rewrittenManifest = rewrite(sourceManifest, rehome(formalManifestPath));
+  for (const evidence of buildEvidence) {
+    const targetPath = rehome(evidence.path);
+    const newDigest = fileIdentity(root, targetPath).digest;
+    rewrittenManifest = rewrittenManifest.split(evidence.sha256 ?? "").join(newDigest);
+  }
+  await atomicWriteText(resolve(root, rehome(formalManifestPath)), rewrittenManifest);
+  const stableEntryPaths = entryPaths.map(rehome);
+  const stableClosure = resolveLocalScriptDependencyClosure({
+    workspaceRoot: root,
+    entryPaths: stableEntryPaths
+  }).paths.map((path) => fileIdentity(root, path));
+  const closureDigest = sha256Canonical(stableClosure
+    .map((identity) => ({ path: identity.path, digest: identity.digest }))
+    .sort((left, right) => left.path.localeCompare(right.path)) as unknown as SafeJsonValue);
+  return updateStableDesignScriptAssets({
+    suiteId: input.suiteId,
+    workspaceRoot: root,
+    scriptAssets: {
+      schemaVersion: "stable-script-assets-v1",
+      formalManifest: fileIdentity(root, rehome(formalManifestPath)),
+      scriptClosure: stableClosure,
+      caseBindings: bindings.map((binding) => ({
+        caseId: binding.caseId,
+        entryScript: fileIdentity(root, rehome(binding.sourcePath)),
+        closureDigest,
+        reviewDigest: input.reviewDigest,
+        coveragePlanDigest: coveragePlan.digest,
+        compilerVersion: FORMAL_WEB_SCRIPT_COMPILER_VERSION,
+        level: "reviewed" as const
+      })).sort((left, right) => left.caseId.localeCompare(right.caseId))
+    }
+  });
 }
 
 export interface DesignSuiteValidation {
@@ -530,14 +973,119 @@ export async function validateStableDesignSuite(
   };
 }
 
+interface BoundedCasePackageDrift {
+  kind: "format_only" | "scoped" | "unsafe";
+  affectedCaseIds: string[];
+  reasons: string[];
+}
+
+/**
+ * Resolve an edited case package against the semantic identities captured at
+ * acceptance.  This is intentionally stricter than a textual diff: changing
+ * document defaults, a case's execution boundary, its RULE mapping, or its
+ * source mapping changes the request boundary and must restart full planning.
+ */
+function assessBoundedCasePackageDrift(input: {
+  manifest: StableDesignSuiteManifest;
+  workspaceRoot: string;
+  driftedCasePaths: string[];
+}): BoundedCasePackageDrift {
+  const affected = new Set<string>();
+  const rules = parseRuleLedger(readFileSync(resolve(input.workspaceRoot, input.manifest.designLedger.path), "utf8"));
+  const expectedRulesByCase = new Map<string, string[]>();
+  const expectedSourcesByCase = new Map<string, string[]>();
+  for (const rule of rules) {
+    for (const caseId of rule.caseIds) {
+      expectedRulesByCase.set(
+        caseId,
+        [...new Set([...(expectedRulesByCase.get(caseId) ?? []), rule.ruleId])].sort()
+      );
+      expectedSourcesByCase.set(
+        caseId,
+        [...new Set([...(expectedSourcesByCase.get(caseId) ?? []), ...rule.sourceRefs])].sort()
+      );
+    }
+  }
+  for (const path of input.driftedCasePaths) {
+    const baseline = input.manifest.casePackageBaselines.find((item) => item.path === path);
+    if (!baseline) {
+      return { kind: "unsafe", affectedCaseIds: [], reasons: [`case_baseline_missing:${path}`] };
+    }
+    let current: StableDesignCasePackageBaseline;
+    try {
+      current = currentCasePackageBaseline(input.workspaceRoot, path);
+    } catch (error) {
+      return {
+        kind: "unsafe",
+        affectedCaseIds: [],
+        reasons: [error instanceof Error ? error.message : `case_package_invalid:${path}`]
+      };
+    }
+    if (current.defaultsDigest !== baseline.defaultsDigest) {
+      return { kind: "unsafe", affectedCaseIds: [], reasons: [`case_defaults_drift:${path}`] };
+    }
+    const baselineByCase = new Map(baseline.cases.map((testcase) => [testcase.caseId, testcase]));
+    const currentByCase = new Map(current.cases.map((testcase) => [testcase.caseId, testcase]));
+    if (baselineByCase.size !== currentByCase.size
+      || [...baselineByCase.keys()].some((caseId) => !currentByCase.has(caseId))) {
+      return { kind: "unsafe", affectedCaseIds: [], reasons: [`case_identity_set_drift:${path}`] };
+    }
+    const currentDocument = parseTestcaseDocument(readFileSync(resolve(input.workspaceRoot, path), "utf8"));
+    for (const testcase of currentDocument.cases) {
+      const frozen = baselineByCase.get(testcase.caseId)!;
+      if (testcaseExecutionBoundaryDigest(testcase, currentDocument.defaults)
+        !== frozen.executionBoundaryDigest) {
+        return {
+          kind: "unsafe",
+          affectedCaseIds: [],
+          reasons: [`case_execution_boundary_drift:${testcase.caseId}`]
+        };
+      }
+      const expectedRules = expectedRulesByCase.get(testcase.caseId) ?? [];
+      const expectedSources = expectedSourcesByCase.get(testcase.caseId) ?? [];
+      if (canonicalJson([...testcase.ruleIds].sort() as unknown as SafeJsonValue)
+          !== canonicalJson(expectedRules as unknown as SafeJsonValue)
+        || canonicalJson([...testcase.overrides.sourceRefs].sort() as unknown as SafeJsonValue)
+          !== canonicalJson(expectedSources as unknown as SafeJsonValue)) {
+        return {
+          kind: "unsafe",
+          affectedCaseIds: [],
+          reasons: [`case_rule_or_source_mapping_drift:${testcase.caseId}`]
+        };
+      }
+      if (currentByCase.get(testcase.caseId)!.semanticDigest !== frozen.semanticDigest) {
+        affected.add(testcase.caseId);
+      }
+    }
+  }
+  if (!affected.size) {
+    return { kind: "format_only", affectedCaseIds: [], reasons: ["case_package_format_only_drift"] };
+  }
+  if (affected.size > 8) {
+    return {
+      kind: "unsafe",
+      affectedCaseIds: [...affected].sort(),
+      reasons: [`case_semantic_drift_exceeds_scoped_limit:${affected.size}`]
+    };
+  }
+  return {
+    kind: "scoped",
+    affectedCaseIds: [...affected].sort(),
+    reasons: ["bounded_case_semantic_drift", `affected_case_count:${affected.size}`]
+  };
+}
+
 export async function assessStableDesignSuite(input: {
   suiteId: string;
   environment: string;
+  /** Explicit sources supplied for this request, outside the frozen registry. */
+  additionalSourcePaths?: string[];
   workspaceRoot?: string;
 }): Promise<DesignSuiteAssessment & { manifest: StableDesignSuiteManifest }> {
   const root = resolve(input.workspaceRoot ?? process.cwd());
   const validation = await validateStableDesignSuite(input.suiteId, root);
   const { manifest } = validation;
+  const additionalSourcePaths = normalizeControlledSourcePaths(input.additionalSourcePaths, root);
   if (!manifest.allowedEnvironments.includes(input.environment as "test" | "pre")) {
     return {
       manifest,
@@ -547,7 +1095,10 @@ export async function assessStableDesignSuite(input: {
       reasons: ["environment_outside_suite_policy"]
     };
   }
-  if (validation.driftedSuitePaths.length) {
+  const casePackagePaths = new Set(manifest.casePackages.map((item) => item.path));
+  const nonCaseSuiteDrift = validation.driftedSuitePaths.filter((path) => !casePackagePaths.has(path));
+  const driftedCasePaths = validation.driftedSuitePaths.filter((path) => casePackagePaths.has(path));
+  if (nonCaseSuiteDrift.length) {
     return {
       manifest,
       decision: "full_replan",
@@ -555,8 +1106,54 @@ export async function assessStableDesignSuite(input: {
       affectedCaseIds: [],
       reasons: [
         "suite_design_drift_out_of_band",
-        ...validation.driftedSuitePaths.map((path) => `asset_digest_drift:${path}`)
+        ...nonCaseSuiteDrift.map((path) => `asset_digest_drift:${path}`)
       ]
+    };
+  }
+  const registeredPaths = new Set(
+    manifest.sourceRegistry.flatMap((registration) => registration.sourcePaths)
+  );
+  const newSourcePaths = additionalSourcePaths.filter((path) => !registeredPaths.has(path));
+  if (newSourcePaths.length) {
+    return {
+      manifest,
+      decision: "full_replan",
+      selectedCaseIds: [],
+      affectedCaseIds: [],
+      reasons: newSourcePaths.map((path) => `new_request_source:${path}`)
+    };
+  }
+  let caseDrift: BoundedCasePackageDrift | undefined;
+  if (driftedCasePaths.length) {
+    caseDrift = assessBoundedCasePackageDrift({
+      manifest,
+      workspaceRoot: root,
+      driftedCasePaths
+    });
+    if (!validation.driftedSourceIds.length && caseDrift.kind === "format_only") {
+      return {
+        manifest,
+        decision: "design_reconfirm",
+        selectedCaseIds: [...manifest.profiles.full_feature].sort(),
+        affectedCaseIds: [],
+        reasons: caseDrift.reasons
+      };
+    }
+    if (!validation.driftedSourceIds.length && caseDrift.kind === "scoped") {
+      return {
+        manifest,
+        decision: "affected_rebuild",
+        selectedCaseIds: caseDrift.affectedCaseIds,
+        affectedCaseIds: caseDrift.affectedCaseIds,
+        reasons: caseDrift.reasons
+      };
+    }
+    if (caseDrift.kind === "unsafe") return {
+      manifest,
+      decision: "full_replan",
+      selectedCaseIds: [],
+      affectedCaseIds: caseDrift.affectedCaseIds,
+      reasons: ["suite_design_drift_out_of_band", ...caseDrift.reasons]
     };
   }
   if (!validation.driftedSourceIds.length) {
@@ -607,6 +1204,16 @@ export async function assessStableDesignSuite(input: {
       reasons: ["impact_mapping_incomplete_or_core_contract_drift"]
     };
   }
+  if (caseDrift?.kind === "scoped") caseDrift.affectedCaseIds.forEach((caseId) => affected.add(caseId));
+  if (affected.size > 8) {
+    return {
+      manifest,
+      decision: "full_replan",
+      selectedCaseIds: [],
+      affectedCaseIds: [...affected].sort(),
+      reasons: ["combined_impact_closure_exceeds_scoped_limit", `affected_case_count:${affected.size}`]
+    };
+  }
   return {
     manifest,
     decision: "affected_rebuild",
@@ -614,6 +1221,7 @@ export async function assessStableDesignSuite(input: {
     affectedCaseIds: [...affected].sort(),
     reasons: [
       "complete_case_impact_mapping",
+      ...(caseDrift?.kind === "scoped" ? ["combined_source_and_case_semantic_drift"] : []),
       ...validation.driftedSourceIds.map((sourceId) => `source_digest_drift:${sourceId}`)
     ]
   };

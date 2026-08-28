@@ -14,7 +14,7 @@ export const workflowEventTypes = [
   "RetryScheduled",
   "CallbackRequested",
   "CallbackResolved",
-  "PlanConfirmationCarriedForward",
+  "TestcaseReviewWorkbookPublished",
   "BlockerRaised",
   "BlockerResolved",
   "ExternalOperationStarted",
@@ -30,8 +30,7 @@ export const workflowEventTypes = [
   "WorkflowSuspended",
   "WorkflowResumed",
   "WorkflowCompleted",
-  "WorkflowCancelled",
-  "LegacyStateImported"
+  "WorkflowCancelled"
 ] as const;
 
 export type WorkflowEventType = (typeof workflowEventTypes)[number];
@@ -118,6 +117,7 @@ export type ActivityKind =
   | "policy_authorization"
   | "source_selection"
   | "candidate_preflight"
+  | "candidate_compiler"
   | "candidate_skeleton"
   | "candidate_fragment"
   | "candidate_assembly"
@@ -142,6 +142,7 @@ export type ActivityKind =
   | "report"
   | "complete"
   | "build"
+  | "readiness_preflight"
   | "readiness"
   | "run";
 
@@ -190,16 +191,10 @@ export interface WorkflowDefinition {
   graphDigest: string;
   capabilities: WorkflowCapability[];
   writesData: boolean;
-  /**
-   * v7 runs pin the user-selected delivery endpoint before initialization.
-   * Historical definitions omit it and are interpreted by their stored graph.
-   */
-  deliveryTarget?: WorkflowDeliveryTarget;
-  /**
-   * New v4+ runs pin their review policy with the graph. Older event histories
-   * omit this field and remain replayable from their expanded activities.
-   */
-  reviewPolicy?: ReviewPolicy;
+  /** Immutable request-level routing policy for the only writable baseline. */
+  requestPolicy: RequestPolicy;
+  deliveryTarget: WorkflowDeliveryTarget;
+  reviewPolicy: ReviewPolicy;
   activities: WorkflowActivityDefinition[];
 }
 
@@ -219,32 +214,33 @@ interface ReviewPolicyBase {
   maxUnchangedRevisionCycles: number;
 }
 
-export interface LegacyReviewPolicy extends ReviewPolicyBase {
+export interface ReviewPolicy extends ReviewPolicyBase {
   schemaVersion: "review-policy-v1";
-  maxConcurrentReviewers: 3;
-}
-
-export interface TieredReviewPolicy extends ReviewPolicyBase {
-  schemaVersion: "review-policy-v2";
-  mode: "deterministic_only" | "combined" | "combined_with_impact";
-  requiredRoles: [] | ["combined"] | ["combined", "impact"];
+  mode: "deterministic_only" | "combined" | "combined_with_impact" | "risk_adaptive";
   maxConcurrentReviewers: 2;
-  maxAttemptsPerRole: 3;
-  maxUnchangedRevisionCycles: 2;
-  maxSemanticEvolutionCycles: 2;
+  maxSemanticEvolutionCycles: number;
+}
+/** mode expresses business routing, not version compatibility. */
+export function isDeterministicReviewMode(policy: ReviewPolicy): boolean {
+  return policy.mode === "deterministic_only"
+      || policy.mode === "combined"
+      || policy.mode === "combined_with_impact";
 }
 
-export interface AdaptiveReviewPolicy extends ReviewPolicyBase {
-  schemaVersion: "review-policy-v3";
-  mode: "risk_adaptive";
-  requiredRoles: ["combined", "impact"];
-  maxConcurrentReviewers: 2;
-  maxAttemptsPerRole: 2;
-  maxUnchangedRevisionCycles: 1;
-  maxSemanticEvolutionCycles: 1;
+export function isRiskAdaptiveReviewMode(policy: ReviewPolicy): boolean {
+  return policy.mode === "risk_adaptive";
 }
 
-export type ReviewPolicy = LegacyReviewPolicy | TieredReviewPolicy | AdaptiveReviewPolicy;
+export interface RequestPolicy {
+  schemaVersion: "request-policy-v1";
+  reuseDecision: "direct_execute" | "design_reconfirm" | "affected_rebuild" | "full_replan";
+  deliveryTarget: WorkflowDeliveryTarget;
+  reviewSpeed: "fast" | "balanced" | "strict";
+  reviewMode: "deterministic_only" | "combined" | "combined_with_impact" | "risk_adaptive";
+  riskProfile: "light" | "standard" | "strict";
+  writesData: boolean;
+  selectedCaseIds: string[];
+}
 
 export interface BuildWorkflowDefinitionInput {
   requestId: string;
@@ -252,12 +248,13 @@ export interface BuildWorkflowDefinitionInput {
   /**
    * New workflow creation may supply the current plan so reviewer roles are
    * selected from durable risk markers. Historical/direct callers that omit
-   * it retain the legacy pinned reviewer policy.
+   * it retain the caller-pinned reviewer policy.
    */
   planText?: string;
   capabilities: WorkflowCapability[];
   writesData?: boolean;
   deliveryTarget?: WorkflowDeliveryTarget;
+  requestPolicy?: Omit<RequestPolicy, "reviewMode" | "riskProfile"> & Partial<Pick<RequestPolicy, "reviewMode" | "riskProfile">>;
   casePackages?: string[];
   reviewerRoles?: ReviewRole[];
   reviewPolicy?: {
@@ -274,14 +271,14 @@ export interface BuildWorkflowDefinitionInput {
     sharedAccount?: boolean;
   };
   definitionId?: string;
-  /** v8 is enabled by the public task entrypoint; direct engine callers keep
-   * v7 unless they explicitly opt into the dynamic candidate graph. */
+  /** Candidate generation is opt-in for direct engine tests; public initialization
+   * derives the current route from the frozen request policy. */
   fragmented?: boolean;
 }
 
 export interface ReusableWorkflowDefinitionInput extends BuildWorkflowDefinitionInput {
-  /** New request-only reuse protocol. Omitted callers preserve v7/v8 graphs. */
-  reuseProtocol?: "v9";
+  /** The current request protocol is the only supported reusable route. */
+  reuseProtocol?: typeof CURRENT_WORKFLOW_VERSION;
   reuseAssessment: {
     schemaVersion: "test-suite-reuse-assessment-v1";
     suiteId: string;
@@ -292,6 +289,8 @@ export interface ReusableWorkflowDefinitionInput extends BuildWorkflowDefinition
     effectiveProfile: "full_feature" | "smoke" | "affected" | "failed_or_blocked";
     selectedCaseIds: string[];
     affectedCaseIds: string[];
+    /** Frozen routing reasons; used only to skip a duplicate review of reviewed scripts. */
+    reasons?: string[];
   };
 }
 
@@ -318,7 +317,6 @@ export const workflowStates = [
   "BLOCKED",
   "SUSPENDED",
   "SUCCEEDED",
-  "FAILED",
   "CANCELLED"
 ] as const;
 export type WorkflowState = (typeof workflowStates)[number];
@@ -366,7 +364,7 @@ export interface ActivityProjection {
 }
 
 export interface WorkflowWait {
-  kind: "human" | "external" | "retry" | "blocker" | "reconciliation";
+  kind: "human" | "external" | "retry" | "recovery" | "blocker" | "reconciliation";
   activityId?: string;
   referenceId?: string;
   detail?: string;
@@ -379,6 +377,7 @@ export interface WorkflowProjection {
   definitionVersion: string;
   graphDigest: string;
   planDigest: string;
+  requestPolicy: RequestPolicy;
   runIntent?: {
     decision: string;
     suiteId: string;
@@ -390,6 +389,17 @@ export interface WorkflowProjection {
     affectedCaseIds?: string[];
     sourceDigest?: string;
     boundaryDigest?: string;
+  };
+  reviewWorkbook?: {
+    activityId: string;
+    subjectDigest: string;
+    contentDigest: string;
+    bindingDigest: string;
+    workbookDigest: string;
+    receiptDigest: string;
+    path: string;
+    cacheStatus: "hit" | "miss" | "rebuild";
+    renderMilliseconds: number;
   };
   deliveryTarget?: WorkflowDeliveryTarget;
   reviewPolicy?: ReviewPolicy;
@@ -418,3 +428,4 @@ export interface WorkflowProjection {
 export class WorkflowHistoryConflictError extends Error {}
 export class WorkflowHistoryIntegrityError extends Error {}
 export class WorkflowTransitionError extends Error {}
+import { CURRENT_WORKFLOW_VERSION } from "./currentVersion.js";

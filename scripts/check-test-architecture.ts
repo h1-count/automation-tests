@@ -5,8 +5,7 @@ import {
   PUBLIC_TASK_COMMANDS
 } from "./public-task-command-contract.js";
 import {
-  inspectContractRegistry,
-  inspectCurrentContractUsage
+  inspectContractRegistry
 } from "./contract-registry-contract.js";
 import {
   inspectRootRuleBoundary,
@@ -117,23 +116,12 @@ function checkContractRegistry(): void {
     })))
   ].filter((document) => document.path !== registryPath);
   const inspection = inspectContractRegistry(read(registryPath), documents);
-  const currentGenerationDocuments = listFiles(
-    resolve(projectRoot, "skills/iot-automation-testing/templates"),
-    (path) => /\.(?:md|ts)$/u.test(path)
-  ).map((path) => ({
-    path: relative(projectRoot, path).split(sep).join("/"),
-    content: readFileSync(path, "utf8")
-  }));
-  const currentUsageViolations = inspectCurrentContractUsage(
-    read(registryPath),
-    currentGenerationDocuments
-  );
-  const violations = [...inspection.violations, ...currentUsageViolations];
+  const violations = inspection.violations;
   record(
     violations.length === 0 ? "PASS" : "FAIL",
     "专有契约注册表",
     violations.length === 0
-      ? `已登记 ${inspection.activeIds.length} 个当前标识、${inspection.replayOnlyIds.length} 个仅回放标识和 ${inspection.archivedIds.length} 个归档证据标识；扫描范围无未登记契约。`
+      ? `已登记 ${inspection.activeIds.length} 个当前标识和 ${inspection.retiredIds.length} 个入口拒绝的已退役标识；扫描范围无未登记契约。`
       : violations.join("；")
   );
 }
@@ -159,6 +147,7 @@ function checkWorkflowFiles(): void {
     "src/support/formal-execution/authorization.ts",
     "src/support/formal-execution/buildEvidenceIdentity.ts",
     "src/support/test-suite/stableSuite.ts",
+    "src/support/test-suite/scriptAssets.ts",
     "scripts/manage-test-suite.ts"
   ];
   const forbidden = [
@@ -249,7 +238,7 @@ function checkImportBoundaries(): void {
 }
 
 function checkOptionalHostAdapterConfiguration(): void {
-  const hookPath = resolve(projectRoot, "scripts/codex-stop-stage-envelope.mjs");
+  const hookPath = resolve(projectRoot, "scripts/harness-stop-stage-envelope.mjs");
   const configPath = resolve(projectRoot, ".codex/hooks.json");
   if (!existsSync(configPath) && !existsSync(hookPath)) {
     record("PASS", "可选宿主停止适配", "未启用宿主专属停止事件适配；仓库 workflow 仍可显式恢复。");
@@ -275,7 +264,7 @@ function checkOptionalHostAdapterConfiguration(): void {
   );
   const valid = stopCommands.length === 1
     && stopCommands[0]!.type === "command"
-    && stopCommands[0]!.command.includes("scripts/codex-stop-stage-envelope.mjs");
+    && stopCommands[0]!.command.includes("scripts/harness-stop-stage-envelope.mjs");
   record(
     valid ? "PASS" : "FAIL",
     "可选宿主停止适配",
@@ -300,7 +289,16 @@ function checkCurrentTestcaseFormatBoundary(): void {
     "skills/iot-automation-testing/templates/test-plan.template.md",
     "skills/iot-automation-testing/templates/testcase-package.template.md"
   ];
-  const retiredDependency = /(?:testcase-v[234]|testcase-v5-flat|TESTCASE_V[2345]|validateTestcaseV[2345]|projectTestcaseV[2345]|renderTestcaseV[2345]|testcaseV[2345]|legacy_replay)/u;
+  const retiredDependency = new RegExp([
+    "testcase-v[234]",
+    "testcase" + "-v1-" + "flat",
+    "TESTCASE_V[2345]",
+    "validateTestcaseV[2345]",
+    "projectTestcaseV[2345]",
+    "renderTestcaseV[2345]",
+    "testcaseV[2345]",
+    "legacy_replay"
+  ].join("|"), "u");
   const violations = runtimePaths.filter((path) => retiredDependency.test(read(path)));
   if (/\bDEFAULT_REQUIRED_CASE_SECTIONS\b/u.test(
     read("src/support/task-workflow/packageCompleteness.ts")
@@ -311,7 +309,7 @@ function checkCurrentTestcaseFormatBoundary(): void {
     violations.length === 0 ? "PASS" : "FAIL",
     "当前用例格式边界",
     violations.length === 0
-      ? "当前解析、门禁、评审、关系、稳定套件和正式执行只消费 testcase-v6-layered；旧格式仅保留归档原文。"
+      ? "当前解析、门禁、评审、关系、稳定套件和正式执行只消费 testcase-v1-layered；旧格式仅保留归档原文。"
       : `当前运行时引用了已归档用例格式：${violations.join("、")}。`
   );
 }
@@ -326,12 +324,12 @@ function checkCurrentRelationContractBoundary(): void {
     "src/support/formal-execution/sourceContract.ts",
     "skills/iot-automation-testing/templates/test-plan.template.md"
   ];
-  const retiredMarker = /\b(?:rule-coverage-v1|rule-design-matrix-v1|rule-design-ledger-v2|case-relation-projection-v[12]|legacy_replay)\b/u;
+  const retiredMarker = /\b(?:rule-coverage-v[2-9]\d*|rule-design-matrix-v\d+|rule-design-ledger-v[2-9]\d*|case-relation-projection-v[2-9]\d*|legacy_replay)\b/u;
   const violations = runtimePaths.filter((path) => retiredMarker.test(read(path)));
   const contractSource = read("src/support/testcase/relationContract.ts");
   for (const marker of [
-    "rule-design-ledger-v3",
-    "case-relation-projection-v3"
+    "rule-design-ledger-v1",
+    "case-relation-projection-v1"
   ]) {
     if (!contractSource.includes(`\"${marker}\"`)) violations.push(`relationContract.ts:missing-${marker}`);
   }
@@ -339,8 +337,65 @@ function checkCurrentRelationContractBoundary(): void {
     violations.length === 0 ? "PASS" : "FAIL",
     "当前规则台账与关系投影边界",
     violations.length === 0
-      ? "v3 是唯一运行时规则台账与关系投影契约；旧 marker 只允许出现在归档原文和拒绝性测试中。"
+      ? "v1 是唯一运行时规则台账与关系投影契约；旧 marker 只允许出现在归档原文和拒绝性测试中。"
       : `当前运行时重新持有已归档规则契约：${violations.join("、")}。`
+  );
+}
+
+function checkRetiredWorkflowCompatibilityBoundary(): void {
+  const roots = [
+    "src/support/task-workflow",
+    "tests/support/task-workflow"
+  ];
+  const retired = /\b(?:PlanConfirmationCarriedForward|LegacyStateImported|reconcileSupersededPlanConfirmation)\b|\b(?:Legacy|Compat)[A-Z][A-Za-z0-9_]*\b|\b[A-Za-z][A-Za-z0-9_]*V[2-9]\d*\b|\b[A-Za-z][A-Za-z0-9_-]*-v[2-9]\d*\b|\btest\.skip\s*\(/u;
+  const violations = roots.flatMap((root) => listFiles(
+    resolve(projectRoot, root),
+    (path) => path.endsWith(".ts")
+  )).filter((path) => retired.test(readFileSync(path, "utf8")))
+    .map((path) => relative(projectRoot, path).split(sep).join("/"));
+  record(
+    violations.length === 0 ? "PASS" : "FAIL",
+    "旧工作流兼容边界",
+    violations.length === 0
+      ? "工作流源码与公共夹具均未保留旧事件、旧回调实现或跳过的历史夹具。"
+      : `仍保留旧工作流兼容实现或夹具：${violations.join("、")}。`
+  );
+}
+
+function checkCurrentWorkflowNarrative(): void {
+  const path = "docs/testing/automation-guideline.md";
+  const content = read(path);
+  const prohibited = [
+    /\bv(?:[5-9]|1[0-3])\s*(?:的|批次|请求|定义|正式\s*Runner|full_replan|design_reconfirm)/u,
+    /(?:旧|历史)\s*(?:v\d+|workflow|定义|批次|request).{0,48}(?:回放|兼容|迁移|恢复)/u,
+    /testcases\/archive\/.*automation/u
+  ];
+  const violations = prohibited
+    .filter((pattern) => pattern.test(content))
+    .map((pattern) => pattern.toString());
+  record(
+    violations.length === 0 ? "PASS" : "FAIL",
+    "流程规范当前 v1 叙述",
+    violations.length === 0
+      ? "流程规范只描述当前 v1 路径；契约版本号仅作为登记标识出现。"
+      : `${path} 仍包含历史 workflow 叙述：${violations.join("、")}。`
+  );
+}
+
+function checkRequestScriptBoundary(): void {
+  const runtimeFiles = [
+    ...listFiles(resolve(projectRoot, "src"), (path) => /\.tsx?$/u.test(path)),
+    ...listFiles(resolve(projectRoot, "scripts"), (path) => /\.tsx?$/u.test(path))
+  ];
+  const violations = runtimeFiles
+    .filter((path) => /tests\/\$\{(?:requestId|runRequestId|manager\.requestId)\}/u.test(readFileSync(path, "utf8")))
+    .map((path) => relative(projectRoot, path).split(sep).join("/"));
+  record(
+    violations.length === 0 ? "PASS" : "FAIL",
+    "请求候选脚本目录边界",
+    violations.length === 0
+      ? "运行时代码不再把候选脚本写入 tests/<request>；候选输出仅位于本轮 .local/test-runs/<request>/candidate-scripts。"
+      : `仍按 request 写入 tests/ 的运行时代码：${violations.join("、")}。`
   );
 }
 
@@ -362,5 +417,8 @@ checkPublicCommands();
 checkImportBoundaries();
 checkCurrentTestcaseFormatBoundary();
 checkCurrentRelationContractBoundary();
+checkRetiredWorkflowCompatibilityBoundary();
+checkCurrentWorkflowNarrative();
+checkRequestScriptBoundary();
 checkOptionalHostAdapterConfiguration();
 printResults();

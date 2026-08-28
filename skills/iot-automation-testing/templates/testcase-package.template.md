@@ -1,6 +1,6 @@
 <!-- role: structure-only -->
 
-> 结构版本：testcase-v6-layered。
+> 结构版本：testcase-v1-layered。
 
 # 用例集：<请求标题>
 

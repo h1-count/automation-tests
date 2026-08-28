@@ -33,7 +33,7 @@ function buildCapabilityContract(capability: WorkflowCapability) {
   return contracts?.[capability];
 }
 
-test("v5 pins every supported capability into one build contract", () => {
+test("current pins every supported capability into one build contract", () => {
   const expectedMetadata: Record<WorkflowCapability, Record<string, unknown>> = {
     web: {
       sourceContract: "runtime_first_source_supplement",
@@ -96,7 +96,7 @@ test("v5 pins every supported capability into one build contract", () => {
   ]);
 });
 
-test("v5 permits two isolated read-only workers only for non-device capabilities", () => {
+test("current permits two isolated read-only workers only for non-device capabilities", () => {
   for (const capability of ["web", "h5", "api", "mqtt"] as WorkflowCapability[]) {
     const execute = definitionFor([capability]).activities.find((activity) => activity.id === "run");
     assert.equal(execute?.metadata?.maxWorkers, 2, capability);

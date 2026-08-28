@@ -28,7 +28,7 @@ export function buildSummary(runId: string, resources: TestResourceRecord[]): Te
     runId,
     totalResources: resources.length,
     created: resources.filter((resource) => resource.runId === runId).length,
-    reused: resources.filter((resource) => resource.lease?.runId === runId && resource.runId !== runId).length,
+    reused: resources.filter((resource) => resource.leases.some((lease) => lease.runId === runId) && resource.runId !== runId).length,
     cleaned: resources.filter((resource) => resource.state === "cleaned").length,
     cleanupFailed,
     manualRequired,

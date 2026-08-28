@@ -46,13 +46,15 @@ function validateExport(value) {
     throw new Error(`Review export schema must be ${exportSchema}.`);
   }
   const { model } = value;
-  if (!model || model.schema !== modelSchema || model.formatVersion !== "testcase-v6-layered") {
-    throw new Error("Review export must contain a testcase-v6-layered review model.");
+  if (!model || model.schema !== modelSchema || model.formatVersion !== "testcase-v1-layered") {
+    throw new Error("Review export must contain a testcase-v1-layered review model.");
   }
   for (const [label, digest] of [
     ["modelDigest", value.modelDigest],
     ["callbackSubjectDigest", value.callbackSubjectDigest],
     ["semanticDigest", value.semanticDigest],
+    ["contentDigest", value.contentDigest],
+    ["bindingDigest", value.bindingDigest],
   ]) {
     if (!digestPattern.test(digest ?? "")) throw new Error(`${label} must be a lowercase SHA-256 digest.`);
   }
@@ -62,6 +64,8 @@ function validateExport(value) {
   if (
     model.callbackSubjectDigest !== value.callbackSubjectDigest
     || model.semanticDigest !== value.semanticDigest
+    || model.contentDigest !== value.contentDigest
+    || model.bindingDigest !== value.bindingDigest
   ) {
     throw new Error("Review export digests do not match its model.");
   }
@@ -219,6 +223,44 @@ function renderSheetPreview(sheet) {
   return `${lines.join("\n")}\n`;
 }
 
+function assertCachedWorkbookBody(workbook, exported, layout) {
+  const index = workbook.getWorksheet("用例索引");
+  const detail = workbook.getWorksheet("用例详情");
+  if (index.rowCount !== layout.indexLastRow || detail.rowCount !== layout.detailLastRow) {
+    throw new Error("Cached workbook body does not match the current review content.");
+  }
+  exported.model.indexRows.forEach((expected, offset) => {
+    const row = index.getRow(offset + 2);
+    const actual = [row.getCell(1).value, row.getCell(2).value, row.getCell(3).value, row.getCell(4).value, row.getCell(5).value];
+    if (JSON.stringify(actual) !== JSON.stringify([expected.module, expected.caseId, expected.title, expected.priority, expected.risk])) {
+      throw new Error(`Cached workbook index row ${offset + 2} differs from the current review content.`);
+    }
+  });
+  let rowNumber = 2;
+  for (const module of exported.model.modules) {
+    for (const testcase of module.cases) {
+      testcase.executionRows.forEach((execution, indexInCase) => {
+        const row = detail.getRow(rowNumber + indexInCase);
+        if (indexInCase === 0 && (String(row.getCell(2).value ?? "").split("\n")[0] !== testcase.caseId
+          || String(row.getCell(3).value ?? "") !== testcase.priority || String(row.getCell(4).value ?? "") !== testcase.risk)) {
+          throw new Error(`Cached workbook testcase header differs for ${testcase.caseId}.`);
+        }
+        const expectedAction = `${execution.stepIndex}. ${execution.action}`;
+        if (String(row.getCell(8).value ?? "") !== expectedAction
+          || String(row.getCell(9).value ?? "") !== execution.data || String(row.getCell(10).value ?? "") !== execution.expected) {
+          throw new Error(`Cached workbook execution row differs for ${testcase.caseId}.`);
+        }
+      });
+      rowNumber += testcase.executionRows.length;
+    }
+  }
+  const expectedMerges = layout.merges.map((item) => item.range).sort();
+  const actualMerges = [...detail.model.merges].sort();
+  if (JSON.stringify(actualMerges) !== JSON.stringify(expectedMerges)) {
+    throw new Error("Cached workbook merge ranges differ from the current review layout.");
+  }
+}
+
 async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
   const exceljsModule = await import("exceljs");
   const ExcelJS = exceljsModule.default ?? exceljsModule;
@@ -303,6 +345,8 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
     ["默认数据策略", model.defaults.dataStrategy],
     ["确认摘要", model.callbackSubjectDigest],
     ["用例语义摘要", model.semanticDigest],
+    ["内容摘要", model.contentDigest],
+    ["本轮绑定摘要", model.bindingDigest],
   ];
   metaRows.forEach(([label, value]) => {
     const row = infoSheet.addRow([label, value]);
@@ -471,7 +515,7 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
       detailSheet.getCell(moduleEnd, column).border = { ...border, bottom: mediumNavy };
     }
   }
-  setWidths(detailSheet, [16, 31, 10, 10, 26, 32, 11, 34, 30, 44]);
+  setWidths(detailSheet, [21, 31, 10, 10, 26, 32, 11, 34, 30, 44]);
   detailSheet.views = [{ state: "frozen", xSplit: 2, ySplit: 1 }];
   detailSheet.properties.showGridLines = false;
 
@@ -530,9 +574,9 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
     throw new Error("Workbook detail first execution row mismatch.");
   }
   const rereadFormulaAudit = auditStatisticsFormulas(model, layout, [
-    rereadInfo.getCell(13, 2),
-    rereadInfo.getCell(14, 2),
     rereadInfo.getCell(15, 2),
+    rereadInfo.getCell(16, 2),
+    rereadInfo.getCell(17, 2),
   ]);
   if (rereadFormulaAudit.length > 0) {
     throw new Error(`Workbook formula audit failed after write: ${rereadFormulaAudit.join("；")}`);
@@ -561,7 +605,63 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
     modelDigest: exported.modelDigest,
     callbackSubjectDigest: exported.callbackSubjectDigest,
     semanticDigest: exported.semanticDigest,
+    contentDigest: exported.contentDigest,
+    bindingDigest: exported.bindingDigest,
     workbookSha256: sha256(workbookBytes),
+    sheets: sheetNames,
+    statistics: layout.statistics,
+    formulaErrorCount: 0,
+    previews,
+  };
+  await writeJsonAtomic(receiptPath, receipt);
+  return receipt;
+}
+
+/** Reuses only the request-independent index/detail workbook body.  Binding
+ * metadata and receipt are always regenerated for the current request. */
+async function refreshCachedWorkbook(exported, cachedPath, outputPath, previewDir, receiptPath) {
+  const exceljsModule = await import("exceljs");
+  const ExcelJS = exceljsModule.default ?? exceljsModule;
+  const layout = buildWorkbookLayout(exported);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(cachedPath);
+  for (const sheetName of sheetNames) {
+    if (!workbook.getWorksheet(sheetName)) throw new Error(`Cached workbook is missing ${sheetName}.`);
+  }
+  assertCachedWorkbookBody(workbook, exported, layout);
+  const info = workbook.getWorksheet("说明");
+  info.getCell(4, 2).value = exported.model.requestId;
+  info.getCell(9, 2).value = exported.callbackSubjectDigest;
+  info.getCell(10, 2).value = exported.semanticDigest;
+  info.getCell(11, 2).value = exported.contentDigest;
+  info.getCell(12, 2).value = exported.bindingDigest;
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await workbook.xlsx.writeFile(outputPath);
+  const reread = new ExcelJS.Workbook();
+  await reread.xlsx.readFile(outputPath);
+  const formulas = auditStatisticsFormulas(exported.model, layout, [
+    reread.getWorksheet("说明").getCell(15, 2),
+    reread.getWorksheet("说明").getCell(16, 2),
+    reread.getWorksheet("说明").getCell(17, 2),
+  ]);
+  if (formulas.length) throw new Error(`Cached workbook formula audit failed: ${formulas.join("；")}`);
+  await fs.rm(previewDir, { recursive: true, force: true });
+  await fs.mkdir(previewDir, { recursive: true });
+  const previews = [];
+  for (const sheetName of sheetNames) {
+    const text = renderSheetPreview(reread.getWorksheet(sheetName));
+    const previewPath = path.join(previewDir, `${sheetName}.md`);
+    await fs.writeFile(previewPath, text, "utf8");
+    previews.push({ sheet: sheetName, path: path.relative(path.dirname(receiptPath), previewPath), sha256: sha256(text) });
+  }
+  const receipt = {
+    schema: receiptSchema,
+    modelDigest: exported.modelDigest,
+    callbackSubjectDigest: exported.callbackSubjectDigest,
+    semanticDigest: exported.semanticDigest,
+    contentDigest: exported.contentDigest,
+    bindingDigest: exported.bindingDigest,
+    workbookSha256: sha256(await fs.readFile(outputPath)),
     sheets: sheetNames,
     statistics: layout.statistics,
     formulaErrorCount: 0,
@@ -583,7 +683,10 @@ async function main() {
   const outputPath = path.resolve(required(args, "--output"));
   const previewDir = path.resolve(required(args, "--preview-dir"));
   const receiptPath = path.resolve(required(args, "--receipt"));
-  const receipt = await createWorkbook(exported, outputPath, previewDir, receiptPath);
+  const cachedPath = option(args, "--reuse-workbook");
+  const receipt = cachedPath
+    ? await refreshCachedWorkbook(exported, path.resolve(cachedPath), outputPath, previewDir, receiptPath)
+    : await createWorkbook(exported, outputPath, previewDir, receiptPath);
   process.stdout.write(`${JSON.stringify({ outputPath, receiptPath, ...receipt })}\n`);
 }
 

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 import {
-  CASE_RELATION_PROJECTION_MARKER_V3,
+  CASE_RELATION_PROJECTION_MARKER_V1,
   synchronizeRequest
 } from "../../scripts/testcase-relation-projections.ts";
 import {
@@ -17,7 +17,7 @@ import {
   ruleLedgerContractIssues
 } from "../../src/support/testcase/relationContract.js";
 
-const plan = `> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / ${CASE_RELATION_PROJECTION_MARKER_V3}。
+const plan = `> 结构版本：test-design-index-v1 / rule-design-ledger-v1 / ${CASE_RELATION_PROJECTION_MARKER_V1}。
 
 ## 需求索引
 
@@ -32,7 +32,7 @@ const plan = `> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / ${
 | RULE-DEMO-001 | REQ-DEMO-001 | SRC-DEMO-001 | 打开页面 | 展示欢迎信息 | 场景法 | DEMO-MAIN-001 | no_write | 已覆盖 |
 `;
 
-const cases = `> 结构版本：testcase-v6-layered。
+const cases = `> 结构版本：testcase-v1-layered。
 
 # 用例集：Demo
 
@@ -61,11 +61,11 @@ const cases = `> 结构版本：testcase-v6-layered。
 </details>
 `;
 
-test("v3 是唯一当前规则台账与关系投影", () => {
+test("v1 是唯一当前规则台账与关系投影", () => {
   assert.deepEqual(ruleLedgerContractIssues(plan), []);
   assert.deepEqual(relationProjectionContractIssues(plan), []);
-  assert.ok(ruleLedgerContractIssues(plan.replace("rule-design-ledger-v3", "rule-design-ledger-v2")).length > 0);
-  assert.ok(relationProjectionContractIssues(plan.replace("case-relation-projection-v3", "case-relation-projection-v2")).length > 0);
+  assert.ok(ruleLedgerContractIssues(plan.replace("rule-design-ledger-v1", "unsupported-version")).length > 0);
+  assert.ok(relationProjectionContractIssues(plan.replace("case-relation-projection-v1", "unsupported-version")).length > 0);
 });
 
 test("当前计划与 v6 用例通过规则设计和双向关系校验", () => {
@@ -82,13 +82,13 @@ test("关系投影只重建 v6 详情中的 RULE 与派生索引", () => {
 
 test("旧用例格式不进入关系解析器", () => {
   const issues = validateRelationProjection(plan, {
-    "cases.md": cases.replace("testcase-v6-layered", "testcase-v4")
+    "cases.md": cases.replace("testcase-v1-layered", "testcase-v1")
   });
   assert.ok(issues.some((issue) => issue.name === "用例格式"));
 });
 
 test("文件适配器只同步当前请求", async (context) => {
-  const root = await mkdtemp(resolve(tmpdir(), "relation-v3-only-"));
+  const root = await mkdtemp(resolve(tmpdir(), "relation-v1-only-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(root, { recursive: true });
   await writeFile(resolve(root, "plan.md"), plan, "utf8");
@@ -98,7 +98,7 @@ test("文件适配器只同步当前请求", async (context) => {
   assert.deepEqual(result.issues, []);
   assert.match(await readFile(resolve(root, "cases.md"), "utf8"), /> 规则：RULE-DEMO-001/u);
 
-  await writeFile(resolve(root, "plan.md"), plan.replace("case-relation-projection-v3", "case-relation-projection-v2"), "utf8");
+  await writeFile(resolve(root, "plan.md"), plan.replace("case-relation-projection-v1", "unsupported-version"), "utf8");
   const rejected = synchronizeRequest(root);
   assert.equal(rejected.strict, false);
   assert.ok(rejected.issues.some((issue) => issue.name === "关系投影契约"));

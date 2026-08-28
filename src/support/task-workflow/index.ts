@@ -1,4 +1,5 @@
 export * from "./types.js";
+export * from "./currentVersion.js";
 export * from "./canonicalJson.js";
 export * from "./historyStore.js";
 export * from "./definition.js";

@@ -16,7 +16,7 @@ import type {
   FormalExecutionSummary
 } from "./formal-execution/types.js";
 import {
-  assertFormalBuildAuthorizationCompatibility,
+  assertFormalBuildAuthorization,
   verifyFrozenBuildIdentity
 } from "./formal-execution/selectorBuildIdentity.js";
 import {
@@ -24,6 +24,7 @@ import {
   parseFormalExecutionWorkflowEvidence
 } from "./task-workflow/formalCompletionEvidence.js";
 import type { FormalExecutionWorkflowEvidence } from "./task-workflow/types.js";
+import { candidateScriptManifestPath, candidateScriptsDirectoryPath } from "./task-workflow/runRoots.js";
 
 export interface FormalCompletionContext {
   snapshot: ExecutionAuthorizationSnapshot;
@@ -67,34 +68,30 @@ export async function loadFormalCompletionContext(
     [],
     workspaceRoot
   );
-  const entryPaths = snapshot.schemaVersion === "execution-authorization-v5"
+  const entryPaths = snapshot.mode === "stable_suite"
     ? snapshot.entryScriptPaths ?? []
     : await formalExecutionEntryPathsAtWorkspace(requestId, workspaceRoot);
   assertCurrentAuthorizedScripts(snapshot, entryPaths, workspaceRoot);
-  const manifest = snapshot.schemaVersion === "execution-authorization-v5"
+  const manifest = snapshot.mode === "stable_suite"
     ? await loadFormalExecutionManifestFromPath(snapshot.formalManifestPath!, {
         workspaceRoot,
         expectedSuiteId: snapshot.suiteId
       })
     : await loadFormalManifestAtWorkspace(requestId, workspaceRoot);
-  assertFormalBuildAuthorizationCompatibility({
+  assertFormalBuildAuthorization({
     manifest,
     authorizationSchemaVersion: snapshot.schemaVersion
   });
-  if (snapshot.schemaVersion === "execution-authorization-v5"
-    && manifest.schemaVersion === "formal-execution-manifest-v4"
+  if (snapshot.mode === "stable_suite"
+    && manifest.scope === "stable_suite"
     && manifest.suiteId !== snapshot.suiteId) {
-    throw new Error("Formal manifest suite identity differs from execution-authorization-v5.");
+    throw new Error("Formal manifest suite identity differs from execution-authorization-v1.");
   }
   const manifestDigest = digestFormalExecutionManifest(manifest);
   if (snapshot.environment !== manifest.environment) {
     throw new Error("Formal manifest environment differs from the accepted execution subject.");
   }
-  if (
-    snapshot.schemaVersion === "execution-authorization-v3"
-    || snapshot.schemaVersion === "execution-authorization-v4"
-    || snapshot.schemaVersion === "execution-authorization-v5"
-  ) {
+  {
     await verifyFrozenBuildIdentity({
       manifest,
       workspaceRoot,
@@ -221,14 +218,7 @@ async function loadFormalManifestAtWorkspace(
   requestId: string,
   workspaceRoot: string
 ): Promise<FormalExecutionManifest> {
-  const [type, ...requestParts] = requestId.split("/");
-  const path = resolve(
-    workspaceRoot,
-    "tests",
-    type!,
-    requestParts.join("/"),
-    "execution.manifest.ts"
-  );
+  const path = candidateScriptManifestPath(workspaceRoot, requestId);
   const imported = await import(pathToFileURL(path).href) as {
     formalExecutionManifest?: FormalExecutionManifest;
   };
@@ -246,13 +236,7 @@ async function formalExecutionEntryPathsAtWorkspace(
   requestId: string,
   workspaceRoot: string
 ): Promise<string[]> {
-  const [type, ...requestParts] = requestId.split("/");
-  const requestDirectory = resolve(
-    workspaceRoot,
-    "tests",
-    type!,
-    requestParts.join("/")
-  );
+  const requestDirectory = candidateScriptsDirectoryPath(workspaceRoot, requestId);
   const formalSpecPaths = (await readdir(requestDirectory))
     .filter((name) => name.endsWith(".formal.spec.ts"))
     .sort()
@@ -260,7 +244,7 @@ async function formalExecutionEntryPathsAtWorkspace(
   if (!formalSpecPaths.length) {
     throw new Error(`Formal completion found no *.formal.spec.ts files for ${requestId}.`);
   }
-  return [resolve(requestDirectory, "execution.manifest.ts"), ...formalSpecPaths];
+  return [candidateScriptManifestPath(workspaceRoot, requestId), ...formalSpecPaths];
 }
 
 function workflowEvidence(

@@ -9,6 +9,7 @@ import {
   materializeAffectedDesignSuiteWorkspace,
   parseRuleLedger,
   parseSourceRegistry,
+  refreshStableDesignSuite,
   registerStableDesignSuite,
   validateStableDesignSuite,
   type StableDesignSuiteManifest
@@ -68,7 +69,7 @@ async function createHarness(): Promise<Harness> {
     ""
   ].join("\n"));
   await writeFile(casesPath, [
-    "> 结构版本：testcase-v6-layered。",
+    "> 结构版本：testcase-v1-layered。",
     "",
     "# 用例集：演示登录",
     "",
@@ -161,7 +162,7 @@ test("registered design suite with zero drift selects design_reconfirm", async (
     workspaceRoot: harness.root
   });
   assert.equal(result.created, true);
-  assert.equal(result.manifest.schemaVersion, "stable-test-suite-manifest-v2");
+  assert.equal(result.manifest.schemaVersion, "stable-test-suite-manifest-v1");
   const assessment = await assessStableTestSuite({
     suiteId,
     environment: "test",
@@ -194,7 +195,67 @@ test("source drift with a complete rule map selects affected_rebuild with the ma
   assert.ok(assessment.reasons.some((reason) => reason.startsWith("source_digest_drift:")));
 });
 
-test("out-of-band suite asset drift fails closed to full_replan", async () => {
+test("a bounded existing case semantic change selects affected rebuild", async () => {
+  const harness = await createHarness();
+  await registerStableDesignSuite({
+    suiteId,
+    requestId: "web/demo/accepted-run",
+    workspaceRoot: harness.root
+  });
+  const cases = await readFile(harness.casesPath, "utf8");
+  await writeFile(
+    harness.casesPath,
+    cases.replace("输入错误密码提交登录", "输入错误密码后提交登录")
+  );
+  const assessment = await assessStableTestSuite({
+    suiteId,
+    environment: "test",
+    workspaceRoot: harness.root
+  });
+  assert.equal(assessment.decision, "affected_rebuild");
+  assert.deepEqual(assessment.affectedCaseIds, ["OPEN-LOGIN-002"]);
+  assert.ok(assessment.reasons.includes("bounded_case_semantic_drift"));
+});
+
+test("combined source and bounded case semantic drift reuses the proven affected closure", async () => {
+  const harness = await createHarness();
+  await registerStableDesignSuite({
+    suiteId,
+    requestId: "web/demo/accepted-run",
+    workspaceRoot: harness.root
+  });
+  await writeFile(harness.sourcePath, "requirement body v2 with changed rules\n");
+  const cases = await readFile(harness.casesPath, "utf8");
+  await writeFile(harness.casesPath, cases.replace("输入错误密码提交登录", "输入错误密码后提交登录"));
+  const assessment = await assessStableTestSuite({ suiteId, environment: "test", workspaceRoot: harness.root });
+  assert.equal(assessment.decision, "affected_rebuild");
+  assert.deepEqual(assessment.affectedCaseIds, ["OPEN-LOGIN-001", "OPEN-LOGIN-002"]);
+  assert.ok(assessment.reasons.includes("combined_source_and_case_semantic_drift"));
+});
+
+test("a case execution-boundary change fails closed to full replan", async () => {
+  const harness = await createHarness();
+  await registerStableDesignSuite({
+    suiteId,
+    requestId: "web/demo/accepted-run",
+    workspaceRoot: harness.root
+  });
+  const cases = await readFile(harness.casesPath, "utf8");
+  await writeFile(
+    harness.casesPath,
+    cases.replace("数据策略=no_write", "数据策略=ephemeral_cleanup")
+  );
+  const assessment = await assessStableTestSuite({
+    suiteId,
+    environment: "test",
+    workspaceRoot: harness.root
+  });
+  assert.equal(assessment.decision, "full_replan");
+  assert.ok(assessment.reasons.includes("suite_design_drift_out_of_band"));
+  assert.ok(assessment.reasons.includes("case_execution_boundary_drift:OPEN-LOGIN-001"));
+});
+
+test("an invalid out-of-band case package still fails closed to full replan", async () => {
   const harness = await createHarness();
   await registerStableDesignSuite({
     suiteId,
@@ -262,6 +323,41 @@ test("design tier assessment routes through the shared assessment entry point", 
   assert.equal(manifest.profiles.smoke.length, 1);
 });
 
+test("an explicitly supplied new source fails closed to full replan", async () => {
+  const harness = await createHarness();
+  await registerStableDesignSuite({
+    suiteId,
+    requestId: "web/demo/accepted-run",
+    workspaceRoot: harness.root
+  });
+  const addedSource = "sources/requirements/demo/protocol.md";
+  await writeFile(resolve(harness.root, addedSource), "protocol values\n");
+
+  const assessment = await assessStableTestSuite({
+    suiteId,
+    environment: "test",
+    additionalSourcePaths: [addedSource],
+    workspaceRoot: harness.root
+  });
+
+  assert.equal(assessment.decision, "full_replan");
+  assert.deepEqual(assessment.selectedCaseIds, []);
+  assert.deepEqual(assessment.reasons, [`new_request_source:${addedSource}`]);
+});
+
+test("additional sources reject paths outside controlled sources", async () => {
+  const harness = await createHarness();
+  await assert.rejects(
+    assessStableTestSuite({
+      suiteId,
+      environment: "test",
+      additionalSourcePaths: ["testcases/web/demo/suites/registration/design.md"],
+      workspaceRoot: harness.root
+    }),
+    /must be workspace-contained files under sources/u
+  );
+});
+
 test("ledger digest matching none of the referenced files refuses registration", async () => {
   const harness = await createHarness();
   const forged = createHash("sha256").update("forged").digest("hex");
@@ -315,4 +411,43 @@ test("affected design rebuild materializes case packages into the request archiv
   const copied = await readFile(materialized.casePackagePaths[0]!, "utf8");
   assert.equal(copied, stableCases);
   assert.equal(await readFile(harness.casesPath, "utf8"), stableCases);
+});
+
+test("refresh-design updates only formatting-level design ledger drift", async () => {
+  const harness = await createHarness();
+  await registerStableDesignSuite({ suiteId, requestId: "web/demo/accepted-run", workspaceRoot: harness.root });
+  await writeFile(harness.designPath, `> 结构版本：test-design-index-v1\n\n${await readFile(harness.designPath, "utf8")}`);
+  const dryRun = await refreshStableDesignSuite({ suiteId, workspaceRoot: harness.root });
+  assert.equal(dryRun.status, "refreshable_nonsemantic");
+  const applied = await refreshStableDesignSuite({ suiteId, apply: true, workspaceRoot: harness.root });
+  assert.equal(applied.status, "refreshable_nonsemantic");
+  assert.deepEqual((await validateStableDesignSuite(suiteId, harness.root)).driftedSuitePaths, []);
+});
+
+test("refresh-design rejects semantic drift and requires an explicit baseline seed", async () => {
+  const harness = await createHarness();
+  await registerStableDesignSuite({ suiteId, requestId: "web/demo/accepted-run", workspaceRoot: harness.root });
+  await writeFile(harness.designPath, (await readFile(harness.designPath, "utf8")).replace("提示凭据错误", "显示未知错误"));
+  const semantic = await refreshStableDesignSuite({ suiteId, workspaceRoot: harness.root });
+  assert.equal(semantic.status, "semantic_drift");
+
+  await registerStableDesignSuite({ suiteId, requestId: "web/demo/accepted-run", workspaceRoot: harness.root });
+  const manifestPath = resolve(harness.root, "testcases/web/demo/suites/registration/suite.manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+  delete manifest.designLedgerSemanticDigest;
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  assert.equal((await refreshStableDesignSuite({ suiteId, workspaceRoot: harness.root })).status, "missing_semantic_baseline");
+  await assert.rejects(
+    refreshStableDesignSuite({ suiteId, apply: true, seedDesignBaseline: true, workspaceRoot: harness.root }),
+    /confirm-current-design/u
+  );
+  const seeded = await refreshStableDesignSuite({
+    suiteId,
+    apply: true,
+    seedDesignBaseline: true,
+    confirmCurrentDesign: true,
+    workspaceRoot: harness.root
+  });
+  assert.equal(seeded.status, "refreshable_nonsemantic");
+  assert.deepEqual((await validateStableDesignSuite(suiteId, harness.root)).driftedSuitePaths, []);
 });

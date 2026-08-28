@@ -5,7 +5,7 @@ export interface ProcessLockRecord {
 
 /**
  * A timeout alone never fences a lock owner whose process is still alive.
- * Expiry is only a fallback for malformed or legacy records without a
+ * Expiry is only a fallback for malformed records without a
  * verifiable PID.
  */
 export function processLockCanBeRecovered(

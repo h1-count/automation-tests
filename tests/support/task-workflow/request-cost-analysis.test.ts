@@ -38,6 +38,59 @@ test("parseJsonl 跳过空行与坏行", () => {
   assert.equal(parsed[0]?.type, "A");
 });
 
+test("v11 成本报告区分 compiler、确定性分片、模型分片与 clause/case 归属", () => {
+  const timeline = deriveRequestTimeline([
+    event("ActivityAttemptStarted", "2026-08-25T00:00:00.000Z", { activityId: "candidate-compiler", attempt: 1 }),
+    event("CandidateGenerationStarted", "2026-08-25T00:00:05.000Z", { activityId: "candidate-compiler", attempt: 1 }),
+    event("ActivitySucceeded", "2026-08-25T00:01:00.000Z", { activityId: "candidate-compiler", attempt: 1 }),
+    event("CandidateGraphExpanded", "2026-08-25T00:01:01.000Z", { activities: [
+      {
+        id: "candidate-fragment-fixed", kind: "candidate_fragment", metadata: {
+          generationMode: "deterministic",
+          deterministicCaseIds: ["OPEN-PROD-001"],
+          modelCaseIds: [],
+          deterministicClauseIds: ["CLAUSE-PROD-001"],
+          modelClauseIds: []
+        }
+      },
+      {
+        id: "candidate-fragment-unknown", kind: "candidate_fragment", metadata: {
+          generationMode: "model",
+          deterministicCaseIds: [],
+          modelCaseIds: ["OPEN-PROD-002", "OPEN-PROD-003"],
+          deterministicClauseIds: [],
+          modelClauseIds: ["CLAUSE-PROD-002", "CLAUSE-PROD-003"]
+        }
+      }
+    ] }),
+    event("ActivityAttemptStarted", "2026-08-25T00:01:02.000Z", { activityId: "candidate-fragment-fixed", attempt: 1 }),
+    event("ActivitySucceeded", "2026-08-25T00:01:03.000Z", { activityId: "candidate-fragment-fixed", attempt: 1 }),
+    event("ActivityAttemptStarted", "2026-08-25T00:01:02.000Z", { activityId: "candidate-fragment-unknown", attempt: 1 }),
+    event("CandidateGenerationStarted", "2026-08-25T00:01:04.000Z", { activityId: "candidate-fragment-unknown", attempt: 1 }),
+    event("ActivitySucceeded", "2026-08-25T00:03:02.000Z", { activityId: "candidate-fragment-unknown", attempt: 1 })
+  ]);
+  assert.equal(timeline.candidateGeneration.compilerModelSeconds, 55);
+  assert.equal(timeline.candidateGeneration.deterministicFragmentCount, 1);
+  assert.equal(timeline.candidateGeneration.modelFragmentCount, 1);
+  assert.equal(timeline.candidateGeneration.modelTimingExpectedActivities, 2);
+  assert.equal(timeline.modelCalls.candidateCalls, 2);
+  assert.equal(timeline.candidateGeneration.modelTimingCapturedCalls, 2);
+  assert.deepEqual({
+    deterministicCases: timeline.candidateGeneration.deterministicCaseCount,
+    modelCases: timeline.candidateGeneration.modelCaseCount,
+    deterministicClauses: timeline.candidateGeneration.deterministicClauseCount,
+    modelClauses: timeline.candidateGeneration.modelClauseCount
+  }, {
+    deterministicCases: 1,
+    modelCases: 2,
+    deterministicClauses: 1,
+    modelClauses: 2
+  });
+  assert.match(buildCostReport({
+    timeline, sessions: [], degradations: [], window: { startMs: 0, endMs: 0, preSlackMinutes: 0, postSlackMinutes: 0 }
+  }), /v11 子约束归属：确定性 case 1 \/ 模型 case 2；确定性 clause 1 \/ 模型 clause 2/u);
+});
+
 test("deriveRequestTimeline 仅把 RetryScheduled 到重试领取计入重试空闲", () => {
   const timeline = deriveRequestTimeline(events);
   assert.equal(timeline.requestId, "web/demo/request-1");
@@ -54,12 +107,34 @@ test("deriveRequestTimeline 仅把 RetryScheduled 到重试领取计入重试空
   assert.equal(candidate.driftEvents, 1);
   assert.equal(candidate.outcome, "ActivitySucceeded");
   assert.deepEqual(candidate.attemptDetails, [
-    { attempt: 1, seconds: 895, outcome: "failed", attemptInferred: false },
-    { attempt: 2, seconds: 154, outcome: "succeeded", attemptInferred: false }
+    { attempt: 1, seconds: 895, outcome: "failed" },
+    { attempt: 2, seconds: 154, outcome: "succeeded" }
   ]);
 });
 
-test("v9 run intent reports zero design model calls without treating old data as zero", () => {
+test("成本报告区分 readiness 输入阻断、宿主失联与环境延期", () => {
+  const timeline = deriveRequestTimeline([
+    event("ActivityFailed", "2026-08-26T00:00:00.000Z", {
+      activityId: "readiness-preflight", summary: "immutable_input_incompatible: 缺少来源证据"
+    }),
+    event("ArtifactDriftDetected", "2026-08-26T00:01:00.000Z", {
+      activityId: "readiness", recovery: "reconcile_before_retry"
+    }),
+    event("ActivityFailed", "2026-08-26T00:02:00.000Z", {
+      activityId: "readiness", summary: "No runnable cases; 1 case(s) are deferred by checked capabilities."
+    })
+  ]);
+  assert.deepEqual(timeline.readinessDiagnostics, {
+    immutableInputBlocks: 1,
+    hostOrphans: 1,
+    environmentDeferred: 1
+  });
+  assert.match(buildCostReport({
+    timeline, sessions: [], degradations: [], window: { startMs: 0, endMs: 0, preSlackMinutes: 0, postSlackMinutes: 0 }
+  }), /Readiness 诊断 \| 不可变输入阻断 1 · 宿主失联对账 1 · 环境延期 1/u);
+});
+
+test("design reuse reports zero design model calls only when no model events exist", () => {
   const timeline = deriveRequestTimeline([
     event("WorkflowStarted", "2026-08-21T08:00:00.000Z"),
     event("RunIntentDerived", "2026-08-21T08:00:01.000Z", {
@@ -67,14 +142,44 @@ test("v9 run intent reports zero design model calls without treating old data as
     })
   ]);
   assert.deepEqual(timeline.runIntent, {
-    decision: "direct_execute", suiteId: "web/demo/login", digest: "a".repeat(64), designModelCalls: 0
+    decision: "direct_execute", suiteId: "web/demo/login", digest: "a".repeat(64)
   });
   assert.match(buildCostReport({
     timeline, sessions: [], degradations: [], window: { startMs: 0, endMs: 0, preSlackMinutes: 0, postSlackMinutes: 0 }
-  }), /设计侧 LLM 调用数 = 0/u);
+  }), /设计模型调用 0/u);
 });
 
-test("legacy success without attempt pairs with the latest open attempt", () => {
+test("cost report separates model events from uncollected token telemetry", () => {
+  const timeline = deriveRequestTimeline([
+    event("ActivityAttemptStarted", "2026-08-25T00:00:00.000Z", { activityId: "candidate-compiler", attempt: 1 }),
+    event("CandidateGenerationStarted", "2026-08-25T00:00:01.000Z", { activityId: "candidate-compiler", attempt: 1 }),
+    event("ActivitySucceeded", "2026-08-25T00:00:02.000Z", { activityId: "candidate-compiler", attempt: 1 }),
+    event("ReviewerModelCallStarted", "2026-08-25T00:00:03.000Z", { batchId: "r1", activityId: "case-review-combined", attempt: 1, supplemental: false }),
+    event("ReviewerModelCallCompleted", "2026-08-25T00:00:04.000Z", { batchId: "r1", activityId: "case-review-combined", attempt: 1 })
+  ]);
+  const report = buildCostReport({
+    timeline, sessions: [], degradations: [], window: { startMs: 0, endMs: 0, preSlackMinutes: 0, postSlackMinutes: 0 }
+  });
+  assert.equal(timeline.modelCalls.candidateCalls, 1);
+  assert.equal(timeline.modelCalls.reviewerCalls, 1);
+  assert.match(report, /模型调用事件 \| 候选 1 · reviewer 1 · 合计 2/u);
+  assert.match(report, /token 采集（窗口内） \| 未采集（模型调用事件 2）/u);
+  assert.doesNotMatch(report, /设计侧 LLM 调用数/u);
+});
+
+test("design reuse full_run is labelled as engineering build reuse", () => {
+  const timeline = deriveRequestTimeline([
+    event("RunIntentDerived", "2026-08-21T08:00:01.000Z", {
+      decision: "design_reconfirm", suiteId: "web/demo/login", digest: "a".repeat(64), deliveryTarget: "full_run"
+    })
+  ]);
+  assert.equal(timeline.runIntent?.designExecutionReuse, true);
+  assert.match(buildCostReport({
+    timeline, sessions: [], degradations: [], window: { startMs: 0, endMs: 0, preSlackMinutes: 0, postSlackMinutes: 0 }
+  }), /稳定设计复用→工程构建/u);
+});
+
+test("completion without an attempt is excluded from current workflow cost accounting", () => {
   const timeline = deriveRequestTimeline([
     event("ActivityAttemptStarted", "2026-08-21T08:00:00.000Z", { activityId: "candidate-generation", attempt: 1 }),
     event("ActivityFailed", "2026-08-21T08:01:00.000Z", { activityId: "candidate-generation", attempt: 1 }),
@@ -84,11 +189,10 @@ test("legacy success without attempt pairs with the latest open attempt", () => 
   ]);
   const candidate = timeline.activities.find((item) => item.activityId === "candidate-generation");
   assert.ok(candidate);
-  assert.equal(candidate.busySeconds, 240);
+  assert.equal(candidate.busySeconds, 60);
   assert.equal(candidate.retryIdleSeconds, 60);
   assert.deepEqual(candidate.attemptDetails, [
-    { attempt: 1, seconds: 60, outcome: "failed", attemptInferred: false },
-    { attempt: 2, seconds: 180, outcome: "succeeded", attemptInferred: true }
+    { attempt: 1, seconds: 60, outcome: "failed" }
   ]);
 });
 
@@ -105,7 +209,7 @@ test("reviewer 或 callback 等待不会被误归因为重试空闲", () => {
   assert.equal(timeline.humanWaitSeconds, 3600);
 });
 
-test("old v8 candidate events are reported as uncollected model timing", () => {
+test("current candidate events without model-call timing do not invent missing model-call events", () => {
   const timeline = deriveRequestTimeline([
     event("ActivityAttemptStarted", "2026-08-21T08:00:00.000Z", { activityId: "candidate-skeleton", attempt: 1 }),
     event("ActivitySucceeded", "2026-08-21T08:02:00.000Z", { activityId: "candidate-skeleton", attempt: 1 })
@@ -117,7 +221,7 @@ test("old v8 candidate events are reported as uncollected model timing", () => {
     sessions: [],
     degradations: [],
     window: { startMs: 0, endMs: 0, preSlackMinutes: 0, postSlackMinutes: 0 }
-  }), /0\/1（未采集不按 0 计）/u);
+  }), /模型调用事件 \| 候选 0 · reviewer 0 · 合计 0/u);
 });
 
 test("deriveRequestTimeline 配对 reviewer 派发与提交", () => {
@@ -147,6 +251,7 @@ test("deriveRequestTimeline reports re-review wall time and reused reviewer evid
   assert.deepEqual(timeline.reviewerBatches, [{
     batchId: "rev-r2",
     reReview: true,
+    mode: "unknown",
     dispatchedReviewers: 1,
     reusedReviewers: 1,
     wallSeconds: 180,
@@ -157,7 +262,8 @@ test("deriveRequestTimeline reports re-review wall time and reused reviewer evid
     modelCalls: 0,
     modelSeconds: 0,
     budgetHits: 0,
-    unclosedCalls: 0
+    unclosedCalls: 0,
+    roleModelSeconds: {}
   }]);
 });
 
@@ -184,6 +290,7 @@ test("deriveRequestTimeline reports reviewer packet bytes against full frozen in
   assert.deepEqual(timeline.reviewerBatches, [{
     batchId: "rev-sliced",
     reReview: false,
+    mode: "unknown",
     dispatchedReviewers: 0,
     reusedReviewers: 0,
     wallSeconds: 0,
@@ -194,7 +301,8 @@ test("deriveRequestTimeline reports reviewer packet bytes against full frozen in
     modelCalls: 0,
     modelSeconds: 0,
     budgetHits: 0,
-    unclosedCalls: 0
+    unclosedCalls: 0,
+    roleModelSeconds: {}
   }]);
   assert.match(buildCostReport({
     timeline,
@@ -206,18 +314,18 @@ test("deriveRequestTimeline reports reviewer packet bytes against full frozen in
 
 test("deriveRequestTimeline captures reviewer model wall time and supplemental budget hits", () => {
   const timeline = deriveRequestTimeline([
-    event("ReviewBatchStarted", "2026-08-21T08:00:00.000Z", { batchId: "rev-v8" }),
+    event("ReviewBatchStarted", "2026-08-21T08:00:00.000Z", { batchId: "rev-current" }),
     event("ReviewerModelCallStarted", "2026-08-21T08:01:00.000Z", {
-      batchId: "rev-v8", activityId: "case-review-combined", attempt: 1, supplemental: false
+      batchId: "rev-current", activityId: "case-review-combined", attempt: 1, supplemental: false
     }),
     event("ReviewerModelCallCompleted", "2026-08-21T08:04:00.000Z", {
-      batchId: "rev-v8", activityId: "case-review-combined", attempt: 1
+      batchId: "rev-current", activityId: "case-review-combined", attempt: 1
     }),
     event("ReviewerModelCallStarted", "2026-08-21T08:04:10.000Z", {
-      batchId: "rev-v8", activityId: "case-review-combined", attempt: 1, supplemental: true
+      batchId: "rev-current", activityId: "case-review-combined", attempt: 1, supplemental: true
     }),
     event("ReviewerModelCallCompleted", "2026-08-21T08:05:10.000Z", {
-      batchId: "rev-v8", activityId: "case-review-combined", attempt: 1
+      batchId: "rev-current", activityId: "case-review-combined", attempt: 1
     })
   ]);
   assert.equal(timeline.reviewerModelCalls.length, 2);
@@ -225,6 +333,50 @@ test("deriveRequestTimeline captures reviewer model wall time and supplemental b
   assert.equal(timeline.reviewerBatches[0]?.modelCalls, 2);
   assert.equal(timeline.reviewerBatches[0]?.modelSeconds, 240);
   assert.equal(timeline.reviewerBatches[0]?.budgetHits, 1);
+});
+
+test("deriveRequestTimeline keeps same-attempt reviewer calls isolated by batch", () => {
+  const timeline = deriveRequestTimeline([
+    event("ReviewerModelCallStarted", "2026-08-21T08:01:00.000Z", {
+      batchId: "rev-original", activityId: "script-review-quality", attempt: 1, supplemental: false
+    }),
+    event("ReviewerModelCallCompleted", "2026-08-21T08:02:00.000Z", {
+      batchId: "rev-original", activityId: "script-review-quality", attempt: 1
+    }),
+    event("ReviewerModelCallStarted", "2026-08-21T08:03:00.000Z", {
+      batchId: "rev-repaired", activityId: "script-review-quality", attempt: 1, supplemental: false
+    }),
+    event("ReviewerModelCallCompleted", "2026-08-21T08:05:00.000Z", {
+      batchId: "rev-repaired", activityId: "script-review-quality", attempt: 1
+    })
+  ]);
+  assert.deepEqual(timeline.reviewerModelCalls.map((call) => call.seconds), [60, 120]);
+  assert.ok(timeline.reviewerModelCalls.every((call) => call.completed));
+});
+
+test("deriveRequestTimeline reports v10 rereview reuse, role wall time, and human escalation", () => {
+  const scope = {
+    schemaVersion: "review-batch-scope-v1",
+    mode: "targeted",
+    baseBatchId: "rev-initial",
+    semanticEvolutionCycle: 1,
+    reusedReviewerEvidence: [{}]
+  };
+  const timeline = deriveRequestTimeline([
+    event("ReviewBatchStarted", "2026-08-21T08:00:00.000Z", { batchId: "rev-initial", scope: { mode: "full" } }),
+    event("ReviewBatchStarted", "2026-08-21T08:01:00.000Z", { batchId: "rev-rereview", scope }),
+    event("ReviewerDispatched", "2026-08-21T08:02:00.000Z", { batchId: "rev-rereview", activityId: "case-review-impact", role: "impact" }),
+    event("ReviewerModelCallStarted", "2026-08-21T08:02:00.000Z", { batchId: "rev-rereview", activityId: "case-review-impact", attempt: 1, supplemental: false }),
+    event("ReviewerModelCallCompleted", "2026-08-21T08:05:00.000Z", { batchId: "rev-rereview", activityId: "case-review-impact", attempt: 1 }),
+    event("ActivitySucceeded", "2026-08-21T08:06:00.000Z", { activityId: "case-review-resolution", outcome: "human_conflict" })
+  ]);
+  const rereview = timeline.reviewerBatches.find((batch) => batch.batchId === "rev-rereview");
+  assert.equal(rereview?.mode, "targeted");
+  assert.equal(rereview?.semanticEvolutionCycle, 1);
+  assert.deepEqual(rereview?.roleModelSeconds, { impact: 180 });
+  assert.equal(timeline.reviewerOptimization.rereviewBatches, 1);
+  assert.equal(timeline.reviewerOptimization.fullRereviewFallbacks, 0);
+  assert.equal(timeline.reviewerOptimization.humanConflictEscalations, 1);
 });
 
 test("deriveRequestTimeline 统计人工等待", () => {
@@ -284,10 +436,12 @@ test("buildCostReport 渲染双口径且不含会话标识原文", () => {
   assert.match(report, /# 请求成本报告：web\/demo\/request-1/);
   assert.match(report, /candidate-generation \| 2 \|/);
   assert.match(report, /时间口径（按尝试）/);
-  assert.match(report, /rev-r1 \| 首轮 \| 1 \| 0 \| 6\.9 min/);
+  assert.match(report, /rev-r1 \| 首轮\/unknown \| 1 \| 0 \| 6\.9 min/);
   assert.match(report, /rev-r1 \| combined \| 6.9 min \| findings_present/);
   assert.match(report, /\| 总计 \| — \| 45 \| 93420 \| 25818 \| 274448 \|/);
   assert.match(report, /assistant\/message/);
   assert.match(report, /人工等待（callback） \| 4\.5 min/);
+  assert.match(report, /活动累计工作量 \|/);
+  assert.match(report, /重复尝试 \| 1 次/);
   assert.ok(!report.includes("a1b2c3d4-e5f6"), "不得包含会话标识原文");
 });

@@ -1,7 +1,7 @@
 import { defineFormalExecutionManifest } from "../../../../src/support/formal-execution/manifest.js";
 
 export const formalExecutionManifest = defineFormalExecutionManifest({
-  schemaVersion: "formal-execution-manifest-v3",
+  schemaVersion: "formal-execution-manifest-v1",
   requestId: "${TYPE}/${PROJECT}/${REQUEST}",
   projectId: "${PROJECT}",
   environment: "${ENVIRONMENT}",

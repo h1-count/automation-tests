@@ -3,7 +3,7 @@ import {
   ruleLedgerContractIssues
 } from "../src/support/testcase/relationContract.ts";
 
-export const RULE_DESIGN_LEDGER_MARKER_V3 = CURRENT_RULE_LEDGER_MARKER;
+export const CURRENT_RULE_DESIGN_LEDGER_MARKER = CURRENT_RULE_LEDGER_MARKER;
 
 type CaseRecord = { caseId: string; ruleIds: string[]; source: string };
 export type RuleRecord = {

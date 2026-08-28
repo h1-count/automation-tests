@@ -5,8 +5,8 @@ import { evaluateReviewReadiness } from "../../../src/support/task-workflow/revi
 const sha = "a".repeat(64);
 
 function plan(): string {
-  return `> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
-> 用例格式：testcase-v6-layered。
+  return `> 结构版本：test-design-index-v1 / rule-design-ledger-v1 / case-relation-projection-v1。
+> 用例格式：testcase-v1-layered。
 
 ## 请求默认值
 
@@ -55,7 +55,7 @@ function plan(): string {
 }
 
 function cases(strategy = "no_write", details = ""): string {
-  return `> 结构版本：testcase-v6-layered。
+  return `> 结构版本：testcase-v1-layered。
 
 # 用例集：Demo
 
@@ -97,15 +97,25 @@ test("review readiness closes current structure, relation and completeness check
   assert.match(report.digest, /^[a-f0-9]{64}$/u);
 });
 
-test("review readiness hard-fails archived testcase and rule formats", () => {
+test("review readiness accepts a stable suite design without request-local review records", () => {
+  const stableDesign = plan().replace(/\n## 评审与正式决定[\s\S]*?\n\| --- \| --- \| --- \| --- \|\n$/u, "\n");
   const report = evaluateReviewReadiness({
-    plan: plan().replace("rule-design-ledger-v3", "rule-design-ledger-v2"),
-    packages: { "cases.md": cases().replace("testcase-v6-layered", "testcase-v4") },
+    plan: stableDesign,
+    packages: { "cases.md": cases() },
+    writesData: false
+  });
+  assert.equal(report.complete, true, report.issues.join("\n"));
+});
+
+test("review readiness hard-fails unsupported testcase and rule formats", () => {
+  const report = evaluateReviewReadiness({
+    plan: plan().replace("rule-design-ledger-v1", "unsupported-version"),
+    packages: { "cases.md": cases().replace("testcase-v1-layered", "testcase-v1") },
     writesData: false
   });
   assert.equal(report.complete, false);
-  assert.ok(report.issues.some((issue) => issue.includes("rule-design-ledger-v2")));
-  assert.ok(report.issues.some((issue) => issue.includes("archived formats")));
+  assert.ok(report.issues.some((issue) => issue.includes("rule-design-ledger-v1")));
+  assert.ok(report.issues.some((issue) => issue.includes("unsupported formats")));
 });
 
 test("write readiness reports all safety warnings together", () => {

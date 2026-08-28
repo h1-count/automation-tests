@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 import {
-  LEGACY_SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION,
   SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION,
   assessScriptReview,
   scriptReviewVerification,
@@ -12,22 +11,9 @@ import {
   type ScriptReviewAssessmentInput,
   type ScriptReviewRole
 } from "../../../src/support/formal-execution/scriptReviewPolicy.js";
-import type { ReviewPolicy } from "../../../src/support/task-workflow/types.js";
 
 const requestId = "web/project/script-review";
 const caseId = "DEMO-CASE-001";
-
-function reviewPolicy(riskProfile: "light" | "standard" | "strict"): ReviewPolicy {
-  return {
-    schemaVersion: "review-policy-v1",
-    requiredRoles: riskProfile === "light" ? ["combined"] : ["requirements", "design"],
-    riskProfile,
-    selectionReasons: [`fixture:${riskProfile}`],
-    maxConcurrentReviewers: 3,
-    maxAttemptsPerRole: 3,
-    maxUnchangedRevisionCycles: 2
-  };
-}
 
 async function fixture() {
   const root = await mkdtemp(resolve(tmpdir(), "script-review-policy-"));
@@ -62,7 +48,6 @@ function baseInput(
     dataWritePolicy: "no_write",
     residualTtlHours: 72,
     capabilities: ["web"],
-    caseReviewPolicy: reviewPolicy("light"),
     executionHasCleanupActivity: false,
     ...overrides
   };
@@ -76,6 +61,19 @@ test("script review selects levels from case and engineering risk without a requ
   assert.equal(light.level, "light");
   assert.deepEqual(light.requiredReviewerRoles, []);
   assert.equal(light.publishable, true);
+  assert.deepEqual(
+    light.staticCheckResults.map((result) => result.check).sort(),
+    [
+      "formal_source_gate",
+      "local_dependency_closure",
+      "operation_outcome_evidence",
+      "playwright_discovery",
+      "project_typescript_compile",
+      "sensitive_literal_scan"
+    ]
+  );
+  assert.ok(light.staticCheckResults.every((result) => result.durationMilliseconds >= 0));
+  assert.ok(light.staticCheckResults.every((result) => result.issues.length === 0));
 
   const standard = await assessScriptReview(baseInput(paths, {
     scriptPaths: [paths.specPath, paths.utilityPath]
@@ -122,13 +120,11 @@ test("script review selects levels from case and engineering risk without a requ
   assert.equal(ordinaryWrite.publishable, true);
 
   const ignoredRequestFloor = await assessScriptReview(baseInput(paths, {
-    caseReviewPolicy: reviewPolicy("strict")
   }));
   assert.equal(ignoredRequestFloor.level, "light");
   assert.ok(!ignoredRequestFloor.reasons.some((reason) => reason.startsWith("case_review_floor:")));
 
   const strictCase = await assessScriptReview(baseInput(paths, {
-    caseReviewPolicy: reviewPolicy("light"),
     caseRiskAssessments: [{
       caseId,
       level: "strict",
@@ -267,7 +263,6 @@ test("light-only script changes do not invalidate strict reviewer evidence", asy
   const input = baseInput(paths, {
     scriptPaths: [strictSpec, lightSpec],
     caseIds: [strictCaseId, lightCaseId],
-    caseReviewPolicy: reviewPolicy("strict"),
     caseRiskAssessments: [
       { caseId: strictCaseId, level: "strict", reasons: ["case_operation:submit"] },
       { caseId: lightCaseId, level: "light", reasons: ["case_operation:navigate"] }
@@ -307,7 +302,6 @@ test("review evidence is role-complete, digest-bound and runtime-only", async (c
   const paths = await fixture();
   context.after(() => rm(paths.root, { recursive: true, force: true }));
   const assessment = await assessScriptReview(baseInput(paths, {
-    caseReviewPolicy: reviewPolicy("strict"),
     caseRiskAssessments: [{ caseId, level: "strict", reasons: ["case_operation:submit"] }]
   }));
   const runtimeRoot = resolve(
@@ -324,9 +318,7 @@ test("review evidence is role-complete, digest-bound and runtime-only", async (c
         path,
         role,
         assessment.reviewerInputDigests[role]!,
-        role === "execution_safety"
-          ? LEGACY_SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION
-          : SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION
+        SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION
       );
       return path;
     })
@@ -382,9 +374,7 @@ async function writeEvidence(
   path: string,
   role: ScriptReviewRole,
   inputDigest: string,
-  schemaVersion:
-    | typeof SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION
-    | typeof LEGACY_SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION = SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION
+  schemaVersion: typeof SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION = SCRIPT_REVIEW_EVIDENCE_SCHEMA_VERSION
 ): Promise<void> {
   await writeFile(path, `${JSON.stringify({
     schemaVersion,

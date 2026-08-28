@@ -48,9 +48,19 @@ function gate(input: {
     runId: "run-1",
     requestId: "web/demo/request",
     definitionId: "durable-test-workflow",
-    definitionVersion: "v4",
+    definitionVersion: "v1",
     graphDigest: "a".repeat(64),
     planDigest: "b".repeat(64),
+    requestPolicy: {
+      schemaVersion: "request-policy-v1",
+      reuseDecision: "full_replan",
+      deliveryTarget: "testcase_only",
+      reviewSpeed: "strict",
+      reviewMode: "combined",
+      riskProfile: "strict",
+      writesData: false,
+      selectedCaseIds: []
+    },
     head: { seq: 1, digest: "c".repeat(64) },
     workflowState: input.workflowState ?? "RUNNING",
     phase: input.phase,
@@ -175,17 +185,18 @@ test("projects reconciliation as waiting with its durable continuation", () => {
   });
 });
 
-test("projects failed and terminally cancelled activities as failed", () => {
+test("projects recoverable failures as waiting and cancelled activities as failed", () => {
   const failed = projectSimplifiedPhases(gate({
     phase: "engineering",
-    workflowState: "FAILED",
+    workflowState: "BLOCKED",
     activities: [
       activity("engineering-web", "engineering", "FAILED"),
       activity("execute", "execution", "PENDING")
     ],
-    continuation: { kind: "stop", reason: "workflow_terminal" }
+    waits: [{ kind: "recovery", activityId: "engineering-web", referenceId: "engineering-web" }],
+    continuation: { kind: "wait_user", reason: "blocked", referenceId: "engineering-web" }
   }));
-  assert.equal(failed[3]?.status, "failed");
+  assert.equal(failed[3]?.status, "waiting");
 
   const cancelled = projectSimplifiedPhases(gate({
     phase: "execution",

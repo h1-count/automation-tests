@@ -11,7 +11,7 @@ import {
 import {
   FormalExecutionStore,
   digestBusinessOracleContracts,
-  validateV3BusinessOracleDefinitions
+  validateBusinessOracleDefinitions
 } from "../formal-execution/formalExecutionStore.js";
 import {
   digestFormalExecutionManifest,
@@ -31,7 +31,16 @@ import {
   isStructuredTestcaseDocumentVersion,
   parseTestcaseDocument
 } from "../testcase/testcaseDocument.js";
-import { assessStableDesignSuite, readStableSuiteTier } from "./designSuite.js";
+import {
+  assessStableDesignSuite,
+  normalizeControlledSourcePaths,
+  readStableSuiteTier
+} from "./designSuite.js";
+import {
+  digestStableScriptClosure,
+  scriptAssetCoverage,
+  type StableScriptCaseBinding
+} from "./scriptAssets.js";
 
 export const STABLE_TEST_SUITE_SCHEMA_VERSION = "stable-test-suite-manifest-v1" as const;
 export const TEST_SUITE_REUSE_ASSESSMENT_SCHEMA_VERSION = "test-suite-reuse-assessment-v1" as const;
@@ -71,6 +80,8 @@ export interface StableTestSuiteManifest {
   };
   entryScripts: StableTestSuiteFileIdentity[];
   scriptClosure: StableTestSuiteFileIdentity[];
+  /** Every executable case is bound to an independently auditable verified script. */
+  caseScriptBindings: StableScriptCaseBinding[];
   impactMap: Array<{
     path: string;
     kind: "file" | "json_contract_object" | "json_contract_array" | "json_contract_remainder";
@@ -312,7 +323,7 @@ export async function materializeAffectedSuiteWorkspace(input: {
   }
   const formalManifestPath = affectedWorkspaceAssetPath(suite.formalManifest.path, paths);
   const formalManifest = await importFormalManifest(root, formalManifestPath);
-  if (formalManifest.schemaVersion !== "formal-execution-manifest-v3"
+  if (formalManifest.scope !== "request"
     || formalManifest.requestId !== input.runRequestId
     || canonicalJson(formalManifest.cases.map((item) => item.caseId).sort())
       !== canonicalJson([...suite.caseIds].sort())) {
@@ -329,9 +340,12 @@ export async function assessStableTestSuite(input: {
   suiteId: string;
   environment: string;
   profile?: StableTestSuiteProfile;
+  /** Controlled sources explicitly supplied for this new request. */
+  additionalSourcePaths?: string[];
   workspaceRoot?: string;
 }): Promise<TestSuiteReuseAssessment> {
   const root = resolve(input.workspaceRoot ?? process.cwd());
+  const additionalSourcePaths = normalizeControlledSourcePaths(input.additionalSourcePaths, root);
   assertSuiteId(input.suiteId);
   const requestedProfile = input.profile ?? "full_feature";
   assertProfile(requestedProfile);
@@ -363,24 +377,46 @@ export async function assessStableTestSuite(input: {
     });
   }
   if (readStableSuiteTier(input.suiteId, root) === "design") {
-    const design = await assessStableDesignSuite({
-      suiteId: input.suiteId,
-      environment: input.environment,
-      workspaceRoot: root
-    });
+    let design;
+    try {
+      design = await assessStableDesignSuite({
+        suiteId: input.suiteId,
+        environment: input.environment,
+        additionalSourcePaths,
+        workspaceRoot: root
+      });
+    } catch {
+      return assessment({
+        suiteId: input.suiteId,
+        environment: input.environment,
+        requestedProfile,
+        effectiveProfile: requestedProfile,
+        decision: "full_replan",
+        selectedCaseIds: [],
+        affectedCaseIds: [],
+        reasons: ["stable_script_assets_invalid"]
+      });
+    }
     const effectiveProfile = design.decision === "affected_rebuild"
       ? "affected"
       : requestedProfile;
+    const coverage = scriptAssetCoverage(design.manifest.scriptAssets, design.selectedCaseIds);
+    // The design tier can retain reviewed scripts, but only an execution-tier
+    // manifest with sealed per-case verification may enter direct_execute.
+    const decision = design.decision;
     return assessment({
       suiteId: design.manifest.suiteId,
       suiteVersion: design.manifest.suiteVersion,
       environment: input.environment,
       requestedProfile,
       effectiveProfile,
-      decision: design.decision,
-      selectedCaseIds: design.decision === "full_replan" ? [] : design.selectedCaseIds,
+      decision,
+      selectedCaseIds: decision === "full_replan" ? [] : design.selectedCaseIds,
       affectedCaseIds: design.affectedCaseIds,
-      reasons: design.reasons
+      reasons: [
+        ...design.reasons,
+        ...(design.manifest.scriptAssets && coverage.reason ? [coverage.reason] : [])
+      ]
     });
   }
   let validation: SuiteValidationResult;
@@ -396,6 +432,18 @@ export async function assessStableTestSuite(input: {
       selectedCaseIds: [],
       affectedCaseIds: [],
       reasons: ["suite_manifest_invalid"]
+    });
+  }
+  if (additionalSourcePaths.length) {
+    return assessment({
+      suiteId: input.suiteId,
+      environment: input.environment,
+      requestedProfile,
+      effectiveProfile: requestedProfile,
+      decision: "full_replan",
+      selectedCaseIds: [],
+      affectedCaseIds: [],
+      reasons: additionalSourcePaths.map((path) => `new_request_source:${path}`)
     });
   }
   const { manifest, driftedPaths, closureDrift } = validation;
@@ -414,19 +462,27 @@ export async function assessStableTestSuite(input: {
   }
   if (!driftedPaths.length && !closureDrift) {
     const effectiveProfile = requestedProfile === "affected" ? "full_feature" : requestedProfile;
+    const selectedCaseIds = selectProfileCases(manifest, effectiveProfile);
+    const coverage = scriptAssetCoverage({
+      schemaVersion: "stable-script-assets-v1",
+      formalManifest: manifest.formalManifest,
+      scriptClosure: manifest.scriptClosure,
+      caseBindings: manifest.caseScriptBindings
+    }, selectedCaseIds);
     return assessment({
       suiteId: manifest.suiteId,
       suiteVersion: manifest.suiteVersion,
       environment: input.environment,
       requestedProfile,
       effectiveProfile,
-      decision: "direct_execute",
-      selectedCaseIds: selectProfileCases(manifest, effectiveProfile),
+      decision: coverage.directlyExecutable ? "direct_execute" : "design_reconfirm",
+      selectedCaseIds,
       affectedCaseIds: [],
       reasons: [
         ...(requestedProfile === "affected"
           ? ["affected_profile_without_change_map_falls_back_to_full_feature"]
           : []),
+        ...(coverage.directlyExecutable ? ["stable_scripts_verified"] : [coverage.reason ?? "stable_scripts_unverified"]),
         ...(validation.refreshedBuildPaths.length
           ? ["target_build_changed_contract_semantics_unchanged"]
           : ["suite_assets_exact"])
@@ -512,7 +568,7 @@ export async function promoteStableTestSuite(input: {
   if (!authorization.targetBuildDigest || !authorization.scriptReview) {
     throw new Error("Stable suite promotion requires readiness and frozen script-review evidence.");
   }
-  const authorizedSuite = authorization.schemaVersion === "execution-authorization-v5"
+  const authorizedSuite = authorization.mode === "stable_suite"
     ? await loadStableTestSuite(authorization.suiteId!, root)
     : undefined;
   if (authorizedSuite
@@ -545,6 +601,10 @@ export async function promoteStableTestSuite(input: {
     || !["clean", "reusable", "retained"].includes(report.summary.dataHygieneStatus)) {
     throw new Error("Stable suite promotion requires settled cases and accepted cleanup.");
   }
+  if ((authorization.deferredCases ?? []).length > 0
+    || report.summary.cases.some((item) => item.status !== "passed")) {
+    throw new Error("Verified script promotion requires every authorized case to pass without deferral.");
+  }
   const requestRoot = workflow.requestRoot;
   const sourceCasePackagePaths = authorizedSuite
     ? authorizedSuite.casePackages.map((item) => item.path)
@@ -562,11 +622,10 @@ export async function promoteStableTestSuite(input: {
     throw new Error("Stable suite promotion requires an authorized execution.manifest.ts.");
   }
   const formalManifest = await importFormalManifest(root, formalManifestIdentity.path);
-  if (!["formal-execution-manifest-v3", "formal-execution-manifest-v4"]
-    .includes(formalManifest.schemaVersion)) {
-    throw new Error("Stable suite promotion requires a v3 or v4 formal execution manifest.");
+  if (formalManifest.scope !== "request" && formalManifest.scope !== "stable_suite") {
+    throw new Error("Stable suite promotion requires a v1 formal execution manifest.");
   }
-  if (formalManifest.schemaVersion === "formal-execution-manifest-v4"
+  if (formalManifest.scope === "stable_suite"
     && formalManifest.suiteId !== input.suiteId) {
     throw new Error("A v4 formal manifest may only update its own stable suite.");
   }
@@ -661,7 +720,7 @@ export async function promoteStableTestSuite(input: {
       suiteAssetPaths.stableTestPrefix
     );
     if (identity.path === formalManifestIdentity.path
-      && formalManifest.schemaVersion === "formal-execution-manifest-v3") {
+      && formalManifest.scope === "request") {
       relocatedSource = upgradeFormalManifestSource(
         relocatedSource,
         input.suiteId,
@@ -697,11 +756,11 @@ export async function promoteStableTestSuite(input: {
     ) as FormalExecutionManifest,
     pathRelocatedManifest
   );
-  const expectedStableManifest: FormalExecutionManifest = formalManifest.schemaVersion
-    === "formal-execution-manifest-v3"
+  const expectedStableManifest: FormalExecutionManifest = formalManifest.scope === "request"
     ? {
         ...relocatedManifest,
-        schemaVersion: "formal-execution-manifest-v4",
+        schemaVersion: "formal-execution-manifest-v1",
+        scope: "stable_suite",
         suiteId: input.suiteId,
         sourceRequestId: formalManifest.requestId
       }
@@ -751,13 +810,41 @@ export async function promoteStableTestSuite(input: {
     caseIds: suiteCaseIds,
     workspaceRoot: root
   });
+  const closureDigest = digestStableScriptClosure(scriptClosure);
+  const scriptReviewDigest = sha256Canonical({
+    level: authorization.scriptReview.level,
+    evidenceDigests: [...authorization.scriptReview.evidenceDigests].sort()
+  } as unknown as SafeJsonValue);
+  const priorBindings = new Map((baseSuite?.caseScriptBindings ?? []).map((binding) => [binding.caseId, binding]));
+  const caseScriptBindings = suiteCaseIds.map((caseId) => {
+    if (!selectedRunCaseIds.includes(caseId)) {
+      const prior = priorBindings.get(caseId);
+      if (!prior) {
+        throw new Error(`Affected rebuild cannot preserve verified binding for untouched ${caseId}.`);
+      }
+      return prior;
+    }
+    const candidates = entryScripts.filter((entry) => entry.path.endsWith(".formal.spec.ts")
+      && impactMap.some((item) => item.path === entry.path
+        && item.kind === "file"
+        && item.caseIds.includes(caseId)));
+    if (candidates.length !== 1) {
+      throw new Error(`Stable suite promotion cannot bind ${caseId} to exactly one formal spec.`);
+    }
+    return {
+      caseId,
+      entryScript: candidates[0]!,
+      closureDigest,
+      reviewDigest: scriptReviewDigest,
+      level: "verified" as const,
+      verificationDigest: record.completionSeal!.resultDigest
+    };
+  }).sort((left, right) => left.caseId.localeCompare(right.caseId));
   const plan = identityForFile(root, suiteAssetPaths.plan);
   const casePackages = sourceCasePackagePaths.map((path) =>
     identityForFile(root, stableSuiteAssetPath(path, suiteAssetPaths))
   );
-  const policies = [...new Set(formalManifest.cases.map((item) =>
-    item.dataWritePolicy === "managed_cleanup" ? "ephemeral_cleanup" : item.dataWritePolicy
-  ))];
+  const policies = [...new Set(formalManifest.cases.map((item) => item.dataWritePolicy))];
   if (policies.some((item) => item === undefined)) {
     throw new Error("Stable suite promotion requires explicit per-case data-write policies.");
   }
@@ -802,10 +889,11 @@ export async function promoteStableTestSuite(input: {
     },
     entryScripts,
     scriptClosure,
+    caseScriptBindings,
     impactMap,
     buildContracts,
     oracleContractDigest: digestBusinessOracleContracts(
-      validateV3BusinessOracleDefinitions(formalManifest, suiteCaseIds)
+      validateBusinessOracleDefinitions(formalManifest, suiteCaseIds)
     ),
     dataWritePolicy,
     resourceBudgets: [...(baseSuite?.resourceBudgets ?? authorization.resourceBudgets)]
@@ -876,9 +964,8 @@ function validateAffectedFormalManifestEvolution(input: {
   selectedCaseIds: string[];
   paths: StableSuiteAssetPaths;
 }): void {
-  if (input.baseManifest.schemaVersion !== "formal-execution-manifest-v4"
-    || input.candidateManifest.schemaVersion !== "formal-execution-manifest-v3") {
-    throw new Error("Affected rebuild must evolve a stable v4 manifest through a request-scoped v3 candidate.");
+  if (input.baseManifest.scope !== "stable_suite" || input.candidateManifest.scope !== "request") {
+    throw new Error("Affected rebuild must evolve a stable_suite v1 manifest through a request v1 candidate.");
   }
   let relocatedBase = replaceStringPrefixDeep(
     replaceStringPrefixDeep(
@@ -963,7 +1050,8 @@ function validateAffectedFormalManifestEvolution(input: {
   } = relocatedBase;
   const expected: FormalExecutionManifest = {
     ...baseWithoutSuiteIdentity,
-    schemaVersion: "formal-execution-manifest-v3",
+    schemaVersion: "formal-execution-manifest-v1",
+    scope: "request",
     requestId: input.candidateManifest.requestId,
     buildEvidence: input.candidateManifest.buildEvidence,
     cases: expectedCases
@@ -1280,7 +1368,7 @@ function affectedWorkspacePaths(suiteId: string, runRequestId: string): Affected
     stableCasePrefix: `testcases/${type}/${project}/suites/${feature}/`,
     runCasePrefix: `.local/test-runs/${runRequestId}/`,
     stableTestPrefix: `tests/${type}/${project}/suites/${feature}/`,
-    runTestPrefix: `tests/${runRequestId}/`
+    runTestPrefix: `.local/test-runs/${runRequestId}/candidate-scripts/`
   };
 }
 
@@ -1340,8 +1428,8 @@ function downgradeFormalManifestSource(
   rawBuildDigests: Map<string, string>
 ): string {
   let downgraded = source.replace(
-    /["']?schemaVersion["']?\s*:\s*["']formal-execution-manifest-v4["']/u,
-    'schemaVersion: "formal-execution-manifest-v3"'
+    /["']?schemaVersion["']?\s*:\s*["']formal-execution-manifest-v1["']/u,
+    'schemaVersion: "formal-execution-manifest-v1"'
   );
   if (downgraded === source) {
     throw new Error("Affected rebuild could not locate the stable v4 manifest schema field.");
@@ -1370,7 +1458,7 @@ function stableSuiteAssetPaths(suiteId: string, requestId: string): StableSuiteA
     plan: `${stableCasePrefix}plan.md`,
     sourceCasePrefix: `testcases/${requestId}/`,
     stableCasePrefix,
-    sourceTestPrefix: `tests/${requestId}/`,
+    sourceTestPrefix: `.local/test-runs/${requestId}/candidate-scripts/`,
     stableTestPrefix: `tests/${type}/${project}/suites/${feature}/`
   };
 }
@@ -1428,8 +1516,8 @@ function upgradeFormalManifestSource(
   buildContracts: StableTestSuiteManifest["buildContracts"]
 ): string {
   const upgradedSchema = source.replace(
-    /["']?schemaVersion["']?\s*:\s*["']formal-execution-manifest-v3["']/u,
-    'schemaVersion: "formal-execution-manifest-v4"'
+    /["']?schemaVersion["']?\s*:\s*["']formal-execution-manifest-v1["']/u,
+    'schemaVersion: "formal-execution-manifest-v1"'
   );
   if (upgradedSchema === source) {
     throw new Error("Stable suite promotion could not locate the v3 formal manifest schema field.");
@@ -1479,8 +1567,8 @@ function parseStableTestSuiteManifest(value: unknown, expectedSuiteId: string): 
     || manifest.casePackages.some((item) => !item.path.startsWith(stableCasePrefix))) {
     throw new Error("Stable suite plan and case packages must live in its no-date suite directory.");
   }
-  if (manifest.formalManifest?.schemaVersion !== "formal-execution-manifest-v4") {
-    throw new Error("Stable test suites require a suite-scoped formal-execution-manifest-v4.");
+  if (manifest.formalManifest?.schemaVersion !== "formal-execution-manifest-v1") {
+    throw new Error("Stable test suites require a suite-scoped formal-execution-manifest-v1.");
   }
   if (!manifest.formalManifest.path.startsWith(stableTestPrefix)
     || manifest.entryScripts?.some((item) => !item.path.startsWith(stableTestPrefix))) {
@@ -1582,6 +1670,19 @@ function parseStableTestSuiteManifest(value: unknown, expectedSuiteId: string): 
     || entryPaths.some((path) => !closurePaths.has(path))
     || !entryPaths.includes(manifest.formalManifest.path)) {
     throw new Error("Stable test suite entry scripts and exact dependency closure are inconsistent.");
+  }
+  const closureDigest = digestStableScriptClosure(manifest.scriptClosure);
+  if (!Array.isArray(manifest.caseScriptBindings)
+    || manifest.caseScriptBindings.length !== manifest.caseIds.length
+    || new Set(manifest.caseScriptBindings.map((binding) => binding.caseId)).size !== manifest.caseIds.length
+    || manifest.caseScriptBindings.some((binding) => !manifest.caseIds.includes(binding.caseId)
+      || binding.level !== "verified"
+      || !entryPaths.includes(binding.entryScript.path)
+      || !binding.entryScript.path.endsWith(".formal.spec.ts")
+      || binding.closureDigest !== closureDigest
+      || !digestPattern.test(binding.reviewDigest)
+      || !digestPattern.test(binding.verificationDigest ?? ""))) {
+    throw new Error("Stable test suite requires verified per-case script bindings.");
   }
   const impactPaths = new Set([
     ...manifest.scriptClosure.map((item) => item.path),
@@ -1697,7 +1798,7 @@ async function priorityCaseIds(
     const content = await readFile(resolve(workspaceRoot, path), "utf8");
     const document = parseTestcaseDocument(content);
     if (!isStructuredTestcaseDocumentVersion(document.version)) {
-      throw new Error(`Stable suite testcase package must use testcase-v6-layered: ${path}.`);
+      throw new Error(`Stable suite testcase package must use testcase-v1-layered: ${path}.`);
     }
     for (const testcase of document.cases) {
       if (testcase.priority === priority) selected.add(testcase.caseId);

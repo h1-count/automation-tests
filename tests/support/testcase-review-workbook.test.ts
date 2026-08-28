@@ -16,6 +16,8 @@ import {
 
 const digest = "a".repeat(64);
 const semanticDigest = "b".repeat(64);
+const contentDigest = "d".repeat(64);
+const bindingDigest = "e".repeat(64);
 const workbookSha256 = "c".repeat(64);
 const builderPath = resolve(
   process.cwd(),
@@ -54,9 +56,12 @@ function reviewModel(caseCount: number, firstCaseRows = 1): TestcaseReviewModel 
     schema: "testcase-review-model-v1",
     requestId: "web/demo/review-workbook",
     title: "通用评审用例",
-    formatVersion: "testcase-v6-layered",
+    formatVersion: "testcase-v1-layered",
     callbackSubjectDigest: digest,
+    selectedCaseIds: cases.map((item) => item.caseId),
     semanticDigest,
+    contentDigest,
+    bindingDigest,
     defaults: { testType: "Web", environment: "test", dataStrategy: "no_write" },
     statistics: {
       caseCount,
@@ -99,6 +104,8 @@ test("workbook receipt must match digests, counts, sheets, previews, and workboo
     modelDigest: exported.modelDigest,
     callbackSubjectDigest: exported.callbackSubjectDigest,
     semanticDigest: exported.semanticDigest,
+    contentDigest: exported.contentDigest,
+    bindingDigest: exported.bindingDigest,
     workbookSha256,
     sheets: ["说明", "用例索引", "用例详情"],
     statistics: { moduleCount: 1, caseCount: 2, executionRowCount: 2 },
@@ -166,9 +173,19 @@ test("workbook builder generates a publishable workbook end to end without a hos
     }
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(outputPath);
-    assert.equal(workbook.getWorksheet("说明")!.rowCount, 18);
+    assert.equal(workbook.getWorksheet("说明")!.rowCount, 20);
     assert.equal(workbook.getWorksheet("用例索引")!.rowCount, 4);
     assert.equal(workbook.getWorksheet("用例详情")!.rowCount, 5);
+    const reusedOutputPath = resolve(root, "reused-cases-review.xlsx");
+    const reused = spawnSync(process.execPath, [
+      builderPath,
+      "--model", modelPath,
+      "--output", reusedOutputPath,
+      "--preview-dir", resolve(root, "reused-previews"),
+      "--receipt", resolve(root, "reused-receipt.json"),
+      "--reuse-workbook", outputPath
+    ], { encoding: "utf8" });
+    assert.equal(reused.status, 0, reused.stderr);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

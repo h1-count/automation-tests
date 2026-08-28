@@ -1,4 +1,4 @@
-export const TESTCASE_V6_LAYERED_MARKER = "testcase-v6-layered" as const;
+export const TESTCASE_V6_LAYERED_MARKER = "testcase-v1-layered" as const;
 export const CURRENT_TESTCASE_DOCUMENT_VERSION = TESTCASE_V6_LAYERED_MARKER;
 export const UNSUPPORTED_TESTCASE_DOCUMENT_VERSION = "unsupported" as const;
 
@@ -293,7 +293,7 @@ function parseCases(value: string): { cases: ParsedTestcase[]; issues: string[] 
 }
 
 export function parseTestcaseDocument(value: string): ParsedTestcaseDocument {
-  if (!/结构版本[：:]\s*testcase-v6-layered\b/u.test(value)) {
+  if (!/结构版本[：:]\s*testcase-v1-layered\b/u.test(value)) {
     return {
       version: UNSUPPORTED_TESTCASE_DOCUMENT_VERSION,
       defaults: {},
@@ -397,12 +397,12 @@ export function validateTestcaseV6Layered(value: string): string[] {
     if (!field || placeholder(field)) issues.push(`用例集${label}缺失。`);
   }
   if (!/^>\s*本文档仅用于确认测试设计，不代表授权执行或业务写入。\s*$/mu.test(value)) {
-    issues.push("testcase-v6-layered 缺少文件级执行授权声明。");
+    issues.push("testcase-v1-layered 缺少文件级执行授权声明。");
   }
   if ((value.match(/<details(?:\s+open)?>/gu) ?? []).length !== (value.match(/<\/details>/gu) ?? []).length) {
-    issues.push("testcase-v6-layered 存在未闭合的折叠用例详情。");
+    issues.push("testcase-v1-layered 存在未闭合的折叠用例详情。");
   }
-  if (!document.cases.length) issues.push("testcase-v6-layered 至少需要一条用例。");
+  if (!document.cases.length) issues.push("testcase-v1-layered 至少需要一条用例。");
   const indexRows = tableRows(section(value, /^##\s+快速索引\s*$/mu, /^##\s+/mu));
   if (indexRows[0]?.join("|") !== indexHeader.join("|")) {
     issues.push("快速索引必须固定为模块、用例编号、用例标题、优先级、风险五列。");

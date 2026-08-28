@@ -1,4 +1,4 @@
-import type { ReviewBatchScopeV3 } from "./reviewBatchScope.js";
+import type { CompleteReviewBatchScope } from "./reviewBatchScope.js";
 
 export interface SemanticReviewRoute {
   requiredActivityIds: string[];
@@ -11,7 +11,7 @@ export interface SemanticReviewRoute {
  * text matching or model judgment participates in this decision.
  */
 export function routeSemanticReview(input: {
-  scope: ReviewBatchScopeV3;
+  scope: CompleteReviewBatchScope;
   allActivityIds: string[];
   baselineRoleInputDigests: Record<string, string>;
   currentRoleInputDigests: Record<string, string>;
