@@ -17,8 +17,7 @@ import {
   PUBLIC_TASK_COMMANDS
 } from "../../scripts/public-task-command-contract.js";
 import {
-  inspectContractRegistry,
-  inspectCurrentContractUsage
+  inspectContractRegistry
 } from "../../scripts/contract-registry-contract.js";
 import {
   inspectRootRuleBoundary,
@@ -62,8 +61,8 @@ const formalRunner = read("scripts/run-formal-tests.ts");
 const formalManifestTemplate = read(
   "skills/iot-automation-testing/templates/formal-execution-manifest.template.ts"
 );
-const hook = read("scripts/codex-stop-stage-envelope.mjs");
-const hookPath = resolve(root, "scripts/codex-stop-stage-envelope.mjs");
+const hook = read("scripts/harness-stop-stage-envelope.mjs");
+const hookPath = resolve(root, "scripts/harness-stop-stage-envelope.mjs");
 const hookConfigText = read(".codex/hooks.json");
 const hookConfig = JSON.parse(hookConfigText) as {
   hooks?: { Stop?: Array<{ hooks?: Array<{ command?: string }> }> };
@@ -81,7 +80,7 @@ test("stable suite reuse is deterministic and cannot reuse run facts", () => {
   assert.match(stableSuite, /resolveLocalScriptDependencyClosure/);
   assert.match(stableSuite, /impactMap/);
   assert.match(stableSuite, /completionSeal/);
-  assert.match(workflowDefinition, /definitionVersion: "v7"/);
+  assert.match(workflowDefinition, /definitionVersion: CURRENT_WORKFLOW_VERSION/);
   assert.match(workflowDefinition, /policy_auto_no_write/);
   assert.match(taskManage, /suite-readiness-publish/);
   assert.match(taskManage, /suite-promote/);
@@ -205,7 +204,7 @@ process.exitCode = ${options.gateExitCode ?? 0};
 
   const runtimePath = resolve(runtimeDirectory, "runtime.json");
   writeFileSync(runtimePath, JSON.stringify({
-    schemaVersion: "test-workflow-runtime-v2",
+    schemaVersion: "test-workflow-runtime-v1",
     revision: 1,
     requestId: options.requestId ?? "web/project/request",
     sessionBinding: {
@@ -481,34 +480,21 @@ test("rule responsibility markers have exactly one owner and delegated rules sta
 test("proprietary contract identifiers have one version registry", () => {
   const current = inspectContractRegistry(contractRegistry, [{
     path: "sample.ts",
-    content: 'const schema = "candidate-gate-v1"; const authorization = "execution-authorization-v5";'
+    content: 'const schema = "candidate-gate-v1"; const authorization = "execution-authorization-v1";'
   }]);
   assert.deepEqual(current.violations, []);
   assert.ok(current.activeIds.includes("testcase-review-export-v1"));
-  assert.ok(current.activeIds.includes("formal-execution-manifest-v3"));
-  assert.ok(current.activeIds.includes("formal-execution-manifest-v4"));
-  assert.ok(current.replayOnlyIds.includes("execution-authorization-v3"));
-  assert.ok(current.archivedIds.includes("testcase-v4"));
+  assert.ok(current.activeIds.includes("formal-execution-manifest-v1"));
+  assert.ok(current.activeIds.includes("execution-authorization-v1"));
+  assert.deepEqual(current.retiredIds, []);
 
   const unknown = inspectContractRegistry(contractRegistry, [{
     path: "sample.ts",
-    content: 'const schema = "candidate-gate-v99";'
+    content: 'const schema = "unregistered-contract-v1";'
   }]);
   assert.ok(unknown.violations.some((violation) =>
-    violation.includes("unregistered contract identifier candidate-gate-v99")
+    violation.includes("unregistered contract identifier unregistered-contract-v1")
   ));
-  assert.deepEqual(inspectCurrentContractUsage(contractRegistry, [{
-    path: "template.ts",
-    content: 'const schema = "formal-execution-manifest-v3";'
-  }]), []);
-  assert.ok(inspectCurrentContractUsage(contractRegistry, [{
-    path: "template.ts",
-    content: 'const schema = "formal-execution-manifest-v2";'
-  }]).some((violation) => violation.includes("replay-only contract formal-execution-manifest-v2")));
-  assert.ok(inspectCurrentContractUsage(contractRegistry, [{
-    path: "template.ts",
-    content: 'const schema = "testcase-v4";'
-  }]).some((violation) => violation.includes("archived contract testcase-v4")));
 });
 
 test("public task commands are an exact allowlist", () => {
@@ -529,34 +515,27 @@ test("public task commands are an exact allowlist", () => {
   assert.deepEqual(
     inspectPublicTaskCommands({
       ...scripts,
-      "task:legacy": "tsx src/support/task-state/legacy.ts"
-    }).unexpected,
-    ["task:legacy"]
-  );
-  assert.deepEqual(
-    inspectPublicTaskCommands({
-      ...scripts,
       "task:gate": "tsx scripts/other-gate.ts"
     }).mismatches,
     ["task:gate must be tsx src/support/task-workflow/cli/gate.ts"]
   );
 });
 
-test("v7 lifecycle exposes one design confirmation and risk-adaptive execution authorization", () => {
+test("current lifecycle exposes one design confirmation and risk-adaptive execution authorization", () => {
   lineContainingAll(
     automationGuideline,
     [
-      "v7 固定只有一次用例确认",
-      "`policy_auto_no_write_v2`",
+      "v1 固定只有一次用例确认",
+      "`policy_auto_no_write_v1`",
       "自动授权",
       "执行清单确认"
     ],
-    "risk-adaptive v7 confirmation lifecycle"
+    "risk-adaptive v1 confirmation lifecycle"
   );
   lineContainingAll(
     automationGuideline,
     [
-      "`case-confirmation-subject-v2`",
+      "`case-confirmation-subject-v1`",
       "有序 `caseIds`",
       "全局边界",
       "关联 `REQ/RULE`",
@@ -588,7 +567,7 @@ test("v7 lifecycle exposes one design confirmation and risk-adaptive execution a
     automationGuideline,
     /用例确认与执行授权保持独立 subject/
   );
-  assert.match(testcaseGuideline, /`rejected` 仅供旧定义回放/);
+  assert.doesNotMatch(testcaseGuideline, /`rejected` 仅供旧定义回放/);
   assert.doesNotMatch(
     planTemplate,
     /覆盖基准与拆分清单|独立覆盖矩阵|规则设计矩阵|规则邻域复核表|用例集评审汇总/
@@ -599,7 +578,7 @@ test("v7 lifecycle exposes one design confirmation and risk-adaptive execution a
   );
 });
 
-test("v7 selects and pins one delivery endpoint before initialization", () => {
+test("current workflow selects and pins one delivery endpoint before initialization", () => {
   lineContainingAll(
     automationGuideline,
     [
@@ -656,7 +635,7 @@ test("complete automation requests adapt to optional host lifecycle capabilities
   }
 });
 
-test("v7 build/readiness risk-grades script review without extra callbacks or activities", () => {
+test("current build/readiness risk-grades script review without extra callbacks or activities", () => {
   lineContainingAll(
     automationGuideline,
     [
@@ -673,9 +652,9 @@ test("v7 build/readiness risk-grades script review without extra callbacks or ac
     [
       "风险分级只调整自动评审强度",
       "不增加用户 callback",
-      "v7",
-      "确认用例",
-      "不可变执行清单"
+      "v1",
+      "用例确认",
+      "不可变执行清单确认"
     ],
     "fixed callback count"
   );
@@ -694,37 +673,36 @@ test("v7 build/readiness risk-grades script review without extra callbacks or ac
   );
   assert.match(
     taskManage,
-    /validateScriptReviewEvidenceFiles[\s\S]*scriptReviewVerification/
+    /scriptReviewVerification\([\s\S]*assessment: scriptAssessment[\s\S]*evidence: reviewEvidence/
   );
   assert.match(
     workflowDefinition,
-    /id: "build"[\s\S]*scriptReviewPolicyVersion: "script-review-policy-v3"[\s\S]*id: "readiness"[\s\S]*readinessPolicyVersion: "execution-readiness-v1"/
+    /id: "build"[\s\S]*scriptReviewPolicyVersion: "script-review-policy-v1"[\s\S]*id: "readiness"[\s\S]*readinessPolicyVersion: "execution-readiness-v1"/
   );
-  assert.doesNotMatch(
-    workflowDefinition,
-    /id: "script-review(?:-(?:quality|safety|resolution))?"/
-  );
+  assert.match(workflowDefinition, /id: "script-review-quality"/);
+  assert.match(workflowDefinition, /id: "script-review-safety"/);
+  assert.match(workflowDefinition, /id: "script-review"/);
 });
 
-test("v7 case review keeps its bounded policy in the lifecycle implementation", () => {
+test("current case review keeps its bounded policy in the lifecycle implementation", () => {
   lineContainingAll(
     automationGuideline,
     ["`deterministic_only`", "不创建 reviewer 事件", "适用角色", "只由[用例规范]"],
     "lifecycle deterministic light review"
   );
-  assert.match(reviewPolicy, /schemaVersion: "review-policy-v2"/);
+  assert.match(reviewPolicy, /schemaVersion: "review-policy-v1"/);
   assert.match(reviewPolicy, /maxConcurrentReviewers: 2/);
   assert.match(reviewPolicy, /maxSemanticEvolutionCycles: 2/);
-  assert.match(caseReviewRisk, /CASE_REVIEW_RISK_SCHEMA_VERSION = "case-review-risk-v2"/);
-  assert.match(reviewBatchScope, /REVIEW_BATCH_SCOPE_V3_SCHEMA_VERSION = "review-batch-scope-v3"/);
-  assert.match(reviewInputSnapshot, /REVIEW_INPUT_SNAPSHOT_V2_SCHEMA_VERSION = "review-input-snapshot-v2"/);
+  assert.match(caseReviewRisk, /CASE_REVIEW_RISK_SCHEMA_VERSION = "case-review-risk-v1"/);
+  assert.match(reviewBatchScope, /REVIEW_BATCH_SCOPE_SCHEMA_VERSION = "review-batch-scope-v1"/);
+  assert.match(reviewInputSnapshot, /REVIEW_INPUT_SNAPSHOT_SCHEMA_VERSION = "review-input-snapshot-v1"/);
   assert.match(
     workflowDefinition,
     /reviewIds\.length \? reviewIds : \["completeness-validation"\]/
   );
 });
 
-test("v7 build delivers substantive candidates while readiness owns runtime availability", () => {
+test("current build delivers substantive candidates while readiness owns runtime availability", () => {
   lineContainingAll(
     automationGuideline,
     ["`build`", "完整、可审查", "`readiness`", "runnable/deferred"],
@@ -937,8 +915,8 @@ test("optional host lifecycle follows workflow gate without replacing it", () =>
   );
   lineContainingAll(
     automationGuideline,
-    ["| 不可恢复的 workflow `FAILED`", "不得标记完成", "宿主自己的阻塞语义", "不得用宿主状态改写 workflow history"],
-    "FAILED host action"
+    ["| workflow `BLOCKED` / blocker 或失败 Activity", "task:manage activity-retry", "同一 request 恢复", "不把 workflow blocker 等同于宿主任务终态"],
+    "failed activity host action"
   );
   lineContainingAll(
     automationGuideline,
@@ -953,7 +931,7 @@ test("host lifecycle remains external and unavailable capability degrades honest
     automationGuideline,
     /宿主长期任务能力缺失或调用失败时[\s\S]*不得声称能力已启用[\s\S]*显式 `task:resume` 推进/
   );
-  assert.match(docsIndex, /v7 复用分支与生命周期（含交付目标首轮确认）、Activity、callback、恢复、Gate/);
+  assert.match(docsIndex, /v1 复用分支与生命周期（含交付目标首轮确认）、Activity、callback、恢复、Gate/);
 
   for (const [name, document] of [
     ["AGENTS", agents],
@@ -973,24 +951,23 @@ test("host lifecycle remains external and unavailable capability degrades honest
   );
 });
 
-test("core rules and session binding are provider-neutral with an explicit legacy fallback", () => {
+test("core rules and session binding are provider-neutral", () => {
   for (const document of [agents, automationGuideline, docsIndex, skill]) {
     assert.doesNotMatch(document, /Codex|CODEX_|\.codex/);
   }
 
   const genericSession = taskManage.indexOf("process.env.TEST_WORKFLOW_HOST_SESSION_ID");
-  const legacySession = taskManage.indexOf("process.env.CODEX_THREAD_ID");
   assert.ok(genericSession >= 0, "generic host session environment variable must exist");
-  assert.ok(legacySession > genericSession, "legacy provider session fallback must have lower priority");
+  assert.doesNotMatch(taskManage, /CODEX_THREAD_ID/);
   assert.match(taskManage, /process\.env\.TEST_WORKFLOW_HOST_CONTEXT_ID/);
 });
 
-test("Stop Hook is a thin session-to-gate adapter", () => {
+test("Harness lifecycle adapter is a thin session-to-gate adapter", () => {
   const configuredCommand = hookConfig.hooks?.Stop?.[0]?.hooks?.[0]?.command ?? "";
-  assert.match(configuredCommand, /scripts\/codex-stop-stage-envelope\.mjs/);
+  assert.match(configuredCommand, /scripts\/harness-stop-stage-envelope\.mjs/);
   assert.match(hook, /src\/support\/task-workflow\/cli\/gate\.ts/);
-  assert.match(hook, /"--hook"/);
-  assert.match(hook, /"--stop-hook-active"/);
+  assert.match(hook, /"--host-continuation"/);
+  assert.match(hook, /"--host-continuation-active"/);
   assert.match(hook, /process\.execPath/);
   assert.match(hook, /node_modules\/tsx\/dist\/loader\.mjs/);
   assert.match(hook, /sessionBinding\?\.sessionId/);
@@ -1016,8 +993,8 @@ test("Stop Hook forwards gate output without interpreting workflow fields", () =
       "--request",
       "web/project/request",
       "--json",
-      "--hook",
-      "--stop-hook-active",
+      "--host-continuation",
+      "--host-continuation-active",
       "false"
     ]);
   } finally {
@@ -1057,9 +1034,9 @@ test("Stop Hook ignores deleted or unrelated disposable bindings", () => {
   }
 });
 
-test("Stop Hook ignores v1 runtime bindings and does not call gate", () => {
+test("Harness lifecycle adapter ignores unsupported runtime bindings and does not call gate", () => {
   const harness = createStopHookHarness({
-    runtimeOverrides: { schemaVersion: "test-workflow-runtime-v1" }
+    runtimeOverrides: { schemaVersion: "unsupported-version" }
   });
   try {
     assert.match(
@@ -1093,7 +1070,7 @@ test("Stop Hook refuses continuation when gate output is unavailable or malforme
   }
 });
 
-test("Stop Hook does not promise continuation without a Codex session id", () => {
+test("Harness lifecycle adapter does not promise continuation without a session id", () => {
   const harness = createStopHookHarness();
   try {
     const before = readFileSync(harness.runtimePath, "utf8");
@@ -1107,7 +1084,7 @@ test("Stop Hook does not promise continuation without a Codex session id", () =>
   }
 });
 
-test("Stop Hook reports malformed input without changing workflow history", () => {
+test("Harness lifecycle adapter reports malformed input without changing workflow history", () => {
   const sandbox = mkdtempSync(resolve(tmpdir(), "stop-gate-invalid-input-"));
   try {
     const result = spawnSync(process.execPath, [hookPath], {
@@ -1116,7 +1093,7 @@ test("Stop Hook reports malformed input without changing workflow history", () =
       encoding: "utf8"
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /could not parse its Codex input/);
+    assert.match(result.stdout, /could not parse its Harness input/);
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
   }

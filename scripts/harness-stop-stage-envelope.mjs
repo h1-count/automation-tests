@@ -14,7 +14,7 @@ try {
   if (raw) hookInput = JSON.parse(raw);
 } catch {
   writeHookResult({
-    systemMessage: "Automation Stop Hook could not parse its Codex input; workflow history was not changed."
+    systemMessage: "Automation lifecycle adapter could not parse its Harness input; workflow history was not changed."
   });
   process.exit(0);
 }
@@ -29,7 +29,7 @@ const sessionId = typeof hookInput.session_id === "string" ? hookInput.session_i
 
 if (!sessionId) {
   writeHookResult({
-    systemMessage: "Automation Stop Hook did not receive a Codex session id; no continuation was requested and workflow history was not changed."
+    systemMessage: "Automation lifecycle adapter did not receive a Harness session id; no continuation was requested and workflow history was not changed."
   });
   process.exit(0);
 }
@@ -47,7 +47,7 @@ const matchingBindings = runtimeFiles(runtimeRoot).flatMap((path) => {
   try {
     const runtime = JSON.parse(readFileSync(path, "utf8"));
     if (
-      runtime.schemaVersion !== "test-workflow-runtime-v2"
+      runtime.schemaVersion !== "test-workflow-runtime-v1"
       || runtime.sessionBinding?.sessionId !== sessionId
       || typeof runtime.requestId !== "string"
       || runtime.requestId.trim().length === 0
@@ -75,7 +75,7 @@ const requestId = matchingBindings[0]?.requestId;
 
 if (!requestId) {
   writeHookResult({
-    systemMessage: "Automation Stop Hook found no matching disposable request binding; no continuation was requested and workflow history was not changed."
+    systemMessage: "Automation lifecycle adapter found no matching disposable request binding; no continuation was requested and workflow history was not changed."
   });
   process.exit(0);
 }
@@ -90,8 +90,8 @@ const gateResult = spawnSync(
     "--request",
     requestId,
     "--json",
-    "--hook",
-    "--stop-hook-active",
+    "--host-continuation",
+    "--host-continuation-active",
     String(hookInput.stop_hook_active === true)
   ],
   { cwd, encoding: "utf8" }
@@ -101,7 +101,7 @@ const output = gateResult.stdout.trim();
 if (![0, 2].includes(gateResult.status ?? -1) || output.length === 0) {
   writeHookResult({
     continue: false,
-    stopReason: `Workflow gate could not validate the Stop request for ${requestId}; no continuation was requested and workflow history was not changed.`
+    stopReason: `Workflow gate could not validate the lifecycle request for ${requestId}; no continuation was requested and workflow history was not changed.`
   });
   process.exit(0);
 }
@@ -111,7 +111,7 @@ try {
 } catch {
   writeHookResult({
     continue: false,
-    stopReason: `Workflow gate returned invalid Hook output for ${requestId}; no continuation was requested and workflow history was not changed.`
+    stopReason: `Workflow gate returned invalid lifecycle-adapter output for ${requestId}; no continuation was requested and workflow history was not changed.`
   });
   process.exit(0);
 }

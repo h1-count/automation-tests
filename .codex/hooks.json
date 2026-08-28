@@ -1,12 +1,12 @@
 {
-  "description": "Project-local adapter from a Codex Stop event to the request workflow gate.",
+  "description": "Optional Harness lifecycle adapter from a host Stop event to the request workflow gate.",
   "hooks": {
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/scripts/codex-stop-stage-envelope.mjs\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/scripts/harness-stop-stage-envelope.mjs\"",
             "timeout": 30,
             "statusMessage": "Checking workflow reply eligibility"
           }
