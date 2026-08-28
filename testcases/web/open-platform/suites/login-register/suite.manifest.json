@@ -1,15 +1,133 @@
 {
-  "schemaVersion": "stable-test-suite-manifest-v2",
+  "schemaVersion": "stable-test-suite-manifest-v1",
   "tier": "design",
   "suiteId": "web/open-platform/login-register",
   "designLedger": {
     "path": "testcases/web/open-platform/suites/login-register/design.md",
-    "digest": "d935d0c9d6e8da4a925f744520080b7ea955e1b3888d99ec95c271a98b30dafe"
+    "digest": "9336d04a925ff74548bc1d0ddeae3e7699d8df138800bbc0adac542e537fa745"
   },
   "casePackages": [
     {
       "path": "testcases/web/open-platform/suites/login-register/cases.md",
-      "digest": "31bbf619187a84e338a4b680463f2a527985a074d93a625557c7e61682ce7713"
+      "digest": "8ec7a21086bff58b7a5aaebfae608355efaa6b4607195b316ba6229ccdf58dda"
+    }
+  ],
+  "casePackageBaselines": [
+    {
+      "path": "testcases/web/open-platform/suites/login-register/cases.md",
+      "defaultsDigest": "a93b4fca1af83a91fccfeedc61a8094082644bfd57c06b1c4078745e725f3974",
+      "cases": [
+        {
+          "caseId": "OPEN-LOGIN-001",
+          "semanticDigest": "43268ea5096b1ba9d41dc2cf615b02e6aaca2aa48072c1f085a4620e02d418ae",
+          "executionBoundaryDigest": "a577198dd63e1806426ddf4eba8a58eae8dbdf3b0f67f038ca4b20b1cd42bfb6"
+        },
+        {
+          "caseId": "OPEN-LOGIN-002",
+          "semanticDigest": "066baba3edc0af7315bfd76962a8d7203891a0c1f77daadc7d9d3b4c4e3e43b6",
+          "executionBoundaryDigest": "f1d4c5c1793afa1b1bd97e1319235652b6289959101e33c0bce7e166d625d997"
+        },
+        {
+          "caseId": "OPEN-LOGIN-003",
+          "semanticDigest": "829abf972778292e9cc9927f6db62647fd78e2d6a8ccf6fb787dcce95d6a11cc",
+          "executionBoundaryDigest": "7b3995879fc316af3e94493a1b85d8b531151f5a22349accee2beeecfe989179"
+        },
+        {
+          "caseId": "OPEN-LOGIN-004",
+          "semanticDigest": "749b81530d73fb9765dbde6e016654e4cd315aac0c72637ebb1e26282dd67426",
+          "executionBoundaryDigest": "c8473d8f6430b1c60fcc05c728ac943082e3b14dd1d2ce40344f640b20ac383d"
+        },
+        {
+          "caseId": "OPEN-LOGIN-005",
+          "semanticDigest": "efa5f941c60288b76ecc381db640567c4f4b1421c4f0ce19e38be71c84b68765",
+          "executionBoundaryDigest": "76c8763b2b882564b01ee8638ee2de44e959a09e165d7eac72c8e919f24bd871"
+        },
+        {
+          "caseId": "OPEN-NAV-001",
+          "semanticDigest": "bf7e4c5fb43517564742d5ec467b315663a650e7d2e534538a7a0ee93ea0b015",
+          "executionBoundaryDigest": "f875a3c4fd1ea4dfe3d35e2459a6f180930077c9f34cab9f84822ab95be6eec6"
+        },
+        {
+          "caseId": "OPEN-NAV-002",
+          "semanticDigest": "f36b9eafa2b887b029c88b3856b93b95c968d09ddee884535dafcd7214cd5e17",
+          "executionBoundaryDigest": "f875a3c4fd1ea4dfe3d35e2459a6f180930077c9f34cab9f84822ab95be6eec6"
+        },
+        {
+          "caseId": "OPEN-REG-001",
+          "semanticDigest": "8b45037a3b3753e221365bfc69f3f021326da8b2fb69789ccefc657ef6fc1f52",
+          "executionBoundaryDigest": "f875a3c4fd1ea4dfe3d35e2459a6f180930077c9f34cab9f84822ab95be6eec6"
+        },
+        {
+          "caseId": "OPEN-REG-002",
+          "semanticDigest": "604c428d25c4918ad6d84991130d423fc317f21773a77330a147bdbe52f73cd9",
+          "executionBoundaryDigest": "f875a3c4fd1ea4dfe3d35e2459a6f180930077c9f34cab9f84822ab95be6eec6"
+        },
+        {
+          "caseId": "OPEN-REG-003",
+          "semanticDigest": "5cb0d02e685c03068f8296fcacd35edc501898e3b5f00e34b6d1966318428ded",
+          "executionBoundaryDigest": "f875a3c4fd1ea4dfe3d35e2459a6f180930077c9f34cab9f84822ab95be6eec6"
+        },
+        {
+          "caseId": "OPEN-REG-004",
+          "semanticDigest": "0933ae052e6b9c6ecb1da26e81f5f09457ea45f6c6d3a678859dc2c0774c368b",
+          "executionBoundaryDigest": "f875a3c4fd1ea4dfe3d35e2459a6f180930077c9f34cab9f84822ab95be6eec6"
+        },
+        {
+          "caseId": "OPEN-REG-005",
+          "semanticDigest": "39ae3ede48291d72a9dea36c02942cf59f44b4efba6d7000526285462d726b6c",
+          "executionBoundaryDigest": "c95388ebd8be24e2ee94f91e707ffe2bccc434d5db6cb52c5d1d08a4cb3d320a"
+        },
+        {
+          "caseId": "OPEN-REG-006",
+          "semanticDigest": "59eb68ab4fe6490140837d1face18356dbf9224a97f182701efedae565f73bbb",
+          "executionBoundaryDigest": "f875a3c4fd1ea4dfe3d35e2459a6f180930077c9f34cab9f84822ab95be6eec6"
+        },
+        {
+          "caseId": "OPEN-REG-007",
+          "semanticDigest": "0ec2d37c2343ab7af2194095ae6ad4b1b77bcbd23c0490a7732579a61c348eee",
+          "executionBoundaryDigest": "f875a3c4fd1ea4dfe3d35e2459a6f180930077c9f34cab9f84822ab95be6eec6"
+        },
+        {
+          "caseId": "OPEN-REG-008",
+          "semanticDigest": "740f942b8f78d38176baef0c8caa1c0508732ec33a6fca2cf51322ab6a1e007f",
+          "executionBoundaryDigest": "f875a3c4fd1ea4dfe3d35e2459a6f180930077c9f34cab9f84822ab95be6eec6"
+        },
+        {
+          "caseId": "OPEN-REG-009",
+          "semanticDigest": "4f2957052347ff4531368566ac8bd74f6ac3ce6df0c5a75e07688a2018b0a46f",
+          "executionBoundaryDigest": "f875a3c4fd1ea4dfe3d35e2459a6f180930077c9f34cab9f84822ab95be6eec6"
+        },
+        {
+          "caseId": "OPEN-REG-010",
+          "semanticDigest": "76cc735bf6da1c13eeaa94930cf819dea1c07d216418a51ebe78771e9d3a0ac6",
+          "executionBoundaryDigest": "ca590432bbe477bf09dc36a6f0677d91a207a631c297f78c96a265ae858a0fab"
+        },
+        {
+          "caseId": "OPEN-REG-011",
+          "semanticDigest": "71ba1eb1150ef9bc2b28dae6335c4c288326ac2e662b273496f93ec8c8dafb64",
+          "executionBoundaryDigest": "ca590432bbe477bf09dc36a6f0677d91a207a631c297f78c96a265ae858a0fab"
+        },
+        {
+          "caseId": "OPEN-REG-012",
+          "semanticDigest": "3438c11db4fbad556863913d05808e0f530030cc99b56ca1b1136ef179941c4d",
+          "executionBoundaryDigest": "f875a3c4fd1ea4dfe3d35e2459a6f180930077c9f34cab9f84822ab95be6eec6"
+        },
+        {
+          "caseId": "OPEN-REG-013",
+          "semanticDigest": "8b74be18f235422759657259ea12f5e15a346e66d38a070c2d6f99b8f5cb1306",
+          "executionBoundaryDigest": "8f918f00a0a2ff10001a2f0f6ffd45ca8affd1835ef04824e69f4f9253b3ebe3"
+        },
+        {
+          "caseId": "OPEN-REG-014",
+          "semanticDigest": "e4725ce92a4b11ded4afb1689fffa65768d90bccc33d0bad1101d44f61a9ac6f",
+          "executionBoundaryDigest": "891d8e83bc433972674420a0eb6d17429eae4b5e727e58c1a032ab06e424551d"
+        },
+        {
+          "caseId": "OPEN-REG-018",
+          "semanticDigest": "7bbac1e52362038675a9b9901eae0dbfaf14db8a1d932a0a2a8e6be8df63eaf9",
+          "executionBoundaryDigest": "f86e44a7da13572f6b62e071af6d6e3d9e0b833cf891df69589d9b5e48480d10"
+        }
+      ]
     }
   ],
   "caseIds": [
@@ -82,11 +200,11 @@
       "sourceId": "SRC-ACCESS-001",
       "digest": "64ed64b7e3c1c133d30c660ebb9eb5de5af1aed385d18e481ba18ee7b582d00b",
       "sourcePaths": [
-        "sources/requirements/open-platform/AIoT平台项目.docx"
+        "sources/open-platform/需求/AIoT平台项目.docx"
       ],
       "fileDigests": [
         {
-          "path": "sources/requirements/open-platform/AIoT平台项目.docx",
+          "path": "sources/open-platform/需求/AIoT平台项目.docx",
           "digest": "64ed64b7e3c1c133d30c660ebb9eb5de5af1aed385d18e481ba18ee7b582d00b"
         }
       ]
@@ -95,11 +213,11 @@
       "sourceId": "SRC-HELP-001",
       "digest": "4473657d25751ae2ac06b03c1abea533749cf07353dde1d0c2daa350423e038e",
       "sourcePaths": [
-        "sources/knowledge-base/open-platform/iot平台帮助文档.pdf"
+        "sources/open-platform/平台文档/iot平台帮助文档.pdf"
       ],
       "fileDigests": [
         {
-          "path": "sources/knowledge-base/open-platform/iot平台帮助文档.pdf",
+          "path": "sources/open-platform/平台文档/iot平台帮助文档.pdf",
           "digest": "4473657d25751ae2ac06b03c1abea533749cf07353dde1d0c2daa350423e038e"
         }
       ]
@@ -108,22 +226,22 @@
       "sourceId": "SRC-PROTOTYPE-001",
       "digest": "8ce1373f5a4e9d73c2156eec667e124a8d1421e48c2bdfb185c9fd8fa546e79c",
       "sourcePaths": [
-        "sources/prototypes/open-platform/files/登录页面/data.js",
-        "sources/prototypes/open-platform/images/注册页面/u235.png",
-        "sources/prototypes/open-platform/登录页面.html"
+        "sources/open-platform/原型包/files/登录页面/data.js",
+        "sources/open-platform/原型包/images/注册页面/u235.png",
+        "sources/open-platform/原型包/登录页面.html"
       ],
       "fileDigests": [
         {
-          "path": "sources/prototypes/open-platform/登录页面.html",
-          "digest": "8ce1373f5a4e9d73c2156eec667e124a8d1421e48c2bdfb185c9fd8fa546e79c"
-        },
-        {
-          "path": "sources/prototypes/open-platform/files/登录页面/data.js",
+          "path": "sources/open-platform/原型包/files/登录页面/data.js",
           "digest": "1d69294b8cc8741422c2dbb78838a72b99ffdd00cca5b02f90120d9d62f9abab"
         },
         {
-          "path": "sources/prototypes/open-platform/images/注册页面/u235.png",
+          "path": "sources/open-platform/原型包/images/注册页面/u235.png",
           "digest": "55282ebc7ab7932c25c0106163c05814d5fc99bee09cd5c5df89fdafac56f57e"
+        },
+        {
+          "path": "sources/open-platform/原型包/登录页面.html",
+          "digest": "8ce1373f5a4e9d73c2156eec667e124a8d1421e48c2bdfb185c9fd8fa546e79c"
         }
       ]
     },
@@ -131,17 +249,17 @@
       "sourceId": "SRC-PROTOTYPE-002",
       "digest": "b65ff8a0e437e4f979af719efc42bf4665c9d75eb5c2d72a391c5d19cce2cd52",
       "sourcePaths": [
-        "sources/prototypes/open-platform/files/注册页面/data.js",
-        "sources/prototypes/open-platform/注册页面.html"
+        "sources/open-platform/原型包/files/注册页面/data.js",
+        "sources/open-platform/原型包/注册页面.html"
       ],
       "fileDigests": [
         {
-          "path": "sources/prototypes/open-platform/注册页面.html",
-          "digest": "b65ff8a0e437e4f979af719efc42bf4665c9d75eb5c2d72a391c5d19cce2cd52"
+          "path": "sources/open-platform/原型包/files/注册页面/data.js",
+          "digest": "955dec6c44573247f9cbc75d136ab47e17db38bea2778496f681cc64abb3f1b2"
         },
         {
-          "path": "sources/prototypes/open-platform/files/注册页面/data.js",
-          "digest": "955dec6c44573247f9cbc75d136ab47e17db38bea2778496f681cc64abb3f1b2"
+          "path": "sources/open-platform/原型包/注册页面.html",
+          "digest": "b65ff8a0e437e4f979af719efc42bf4665c9d75eb5c2d72a391c5d19cce2cd52"
         }
       ]
     }
@@ -150,12 +268,13 @@
     "test",
     "pre"
   ],
-  "suiteVersion": "5cdbf32dc1e43300be32a375e5c1ed09f9db2e21ab78971dee0efc38e735f8b4",
+  "suiteVersion": "9a591cf7b99a438f76c8d4c661cf3216113f225616d8d0e523b6810edbeae1c9",
   "status": "stable",
-  "sourceRequestId": "web/open-platform/login-register-20260820-r3",
+  "sourceRequestId": "web/open-platform/login-register-20260824",
   "acceptance": {
-    "workflowHeadDigest": "62fecf677a2f93cefbd75f16f8d08fea4e99fc2d21a763583327b9303173eed6",
-    "confirmationDigest": "2b80821fb91594da8a8e340e845cb0f894df5e38853d0790af28303b509176c3",
-    "acceptedAt": "2026-08-21T02:28:43.791Z"
-  }
+    "workflowHeadDigest": "25225f794ed4145a172b6f83736be216f128625697811df153518ca6a20e04ec",
+    "confirmationDigest": "a60632543ee328a5f2b83db6600efcdd381d8791cb0b1540396e263da342b5ac",
+    "acceptedAt": "2026-08-24T08:14:59.133Z"
+  },
+  "designLedgerSemanticDigest": "3b51c66cf235f866f6d1b225a296c14df255ef168a41e8a9c5a587252d2e37f8"
 }

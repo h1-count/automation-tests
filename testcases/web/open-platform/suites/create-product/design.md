@@ -1,7 +1,7 @@
 # 套件设计台账：开放平台创建产品
 
-> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
-> 用例格式：testcase-v6-layered。
+> 结构版本：test-design-index-v1 / rule-design-ledger-v1 / case-relation-projection-v1。
+> 用例格式：testcase-v1-layered。
 > 默认采用 lean；只有流程规范定义的高风险事实才自动升级 strict。
 
 ## 请求默认值
@@ -25,8 +25,8 @@
 
 | 来源 ID | 可点击路径与精确定位 | 版本 / SHA-256 | 用途 |
 | --- | --- | --- | --- |
-| SRC-CP-001 | [产品接入系统功能需求说明](../../../../../sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md)「统一说明」（行 95-149）「产品开发首页P0·创建产品入口与数量上限」（行 185-200）「创建产品 P0」（行 246-311）「产品信息统一显示」（行 312-345） | 1.2（docx→md 换载体，manifest version_history superseded_in_commit de4f8fa）/ `b0a4adcff16e309794deb26990d31a9d52d1e589d0ed8d00312e1aa7198acefb` | 创建产品三步流程、字段规则、开发方式联动、PID/model 组成、统一展示要素 |
-| SRC-CP-API-001 | [开放平台接口文档](../../../../../sources/open-platform/接口/开放平台接口文档.docx) 创建产品接口请求参数 | docx 原件 / `56b7f5bbcd0d02f4283df910f434780dce9c76ab8c3b42d245ab98409a8dc0b3` | 创建产品请求 `protocol` 必填字段与 `ProtocolEnum` 十个 code |
+| SRC-CP-001 | [产品接入系统功能需求说明](../../../../../sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md)「统一说明」（行 95-149）「产品开发首页P0·创建产品入口与数量上限」（行 185-200）「创建产品 P0」（行 246-311）「产品信息统一显示」（行 312-345） | 1.2（docx→md 换载体，manifest version_history superseded_in_commit de4f8fa）/ md 文件 `b0a4adcff16e309794deb26990d31a9d52d1e589d0ed8d00312e1aa7198acefb` / 登记 material=product-access-system-requirement 目录 SHA-256 `19f0e6801735e60d7e864ff55136b8fefd0c4308516a5f60035b3551be97e681`，知识索引节 product-access-create（创建产品）、product-access-lifecycle（流程状态与操作限制）、product-access-basic-configuration | 创建产品三步流程、字段规则、开发方式联动、PID/model 组成、统一展示要素 |
+| SRC-CP-API-001 | [开放平台接口文档](../../../../../sources/open-platform/接口/开放平台接口文档.docx) 创建产品接口请求参数 | docx 原件 / `56b7f5bbcd0d02f4283df910f434780dce9c76ab8c3b42d245ab98409a8dc0b3` / 登记 material=open-platform-interface-document，知识索引节 product-development-api（产品开发接口） | 创建产品请求 `protocol` 必填字段与 `ProtocolEnum` 十个 code |
 
 ## 需求索引
 
@@ -58,7 +58,7 @@
 | RULE-CP-004 | REQ-CP-004 | SRC-CP-001 | 未选品类时查看智能化方式 | 智能化方式不可单选（前提未满足） | 边界值 | OPEN-SMART-001 | no_write | 已覆盖 |
 | RULE-CP-005 | REQ-CP-005 | SRC-CP-001 | 产品名称边界输入（59/60/61 字符、含标点、含空格、重复名称） | 60 内通过、超限/标点/空格/重复拒绝并提示 | 边界值+错误推测 | OPEN-NAME-001、OPEN-NAME-002、OPEN-NAME-003 | no_write | 已覆盖 |
 | RULE-CP-006 | REQ-CP-006 | SRC-CP-001 | 产品型号边界输入（5/6/7 字符、大写、符号、空值、同品类重复） | 合法通过、非法拒绝（含必填）；创建后不可更改 | 边界值+错误推测 | OPEN-MODEL-001、OPEN-MODEL-002、OPEN-PROD-001 | no_write | 已覆盖 |
-| RULE-CP-007 | REQ-CP-007 | SRC-CP-001 | 四种开发方式分别与三种设备类型组合（4×3 条件枚举） | 每种组合的设备类型可选集合严格符合来源定义 | 判定表 | OPEN-DEVTYPE-001 | no_write | 细化 |
+| RULE-CP-007 | REQ-CP-007 | SRC-CP-001 | 四种开发方式分别与三种设备类型组合（4×3 条件枚举） | 每种组合的设备类型可选集合严格符合来源定义 | 判定表 | OPEN-DEVTYPE-001 | no_write | 已覆盖 |
 | RULE-CP-008 | REQ-CP-008 | SRC-CP-001 | 产品描述 199/200/201 字符 | 200 内通过、超限拒绝 | 边界值 | OPEN-DESC-001 | no_write | 已覆盖 |
 | RULE-CP-009 | REQ-CP-009 | SRC-CP-001 | 三步合法完成后点击创建产品 | 创建成功并展示 PID 与 model | 场景法 | OPEN-CREATE-001 | ephemeral_cleanup / 执行需授权 | 已覆盖 |
 | RULE-CP-010 | REQ-CP-010 | SRC-CP-001 | 创建成功后核对 model 组成与品类段来源 | model 由企业标识、二级品类英文、产品型号顺序组成；品类段使用二级品类英文而非一级品类英文 | 校验法+观察法 | OPEN-CREATE-002、OPEN-CREATE-003 | ephemeral_cleanup / 执行需授权 | 已覆盖 |
@@ -69,7 +69,7 @@
 | RULE-CP-015 | REQ-CP-013 | SRC-CP-001（行 202、204） | 查看名称 15/16 字符、一级不等于二级品类 | 名称最多显示 15 个字符；展示二级品类名称 | 边界值+场景法 | OPEN-LIST-004、OPEN-LIST-005 | no_write；依赖合成企业C 合成产品登记（15/16 字符名称、可区分品类） | 已覆盖 |
 | RULE-CP-016 | REQ-CP-016 | SRC-CP-API-001 | protocol 未填写时触发字段级校验 | 显示通讯协议必填提示，且不提交创建产品 | 等价类 | OPEN-PROTOCOL-001 | no_write | 已覆盖 |
 | RULE-CP-017 | REQ-CP-017 | SRC-CP-API-001 | 分别选择 ProtocolEnum 十个 code 与一个非枚举值 | 十个 code 均可选择并保持一致；非枚举值不可作为有效协议 | 枚举 | OPEN-PROTOCOL-002 | no_write | 已覆盖 |
-| RULE-CP-018 | REQ-CP-003 | SRC-CP-001 | 使用覆盖各能力的受控品类分别查看开发方式 | 免代码开发、模组SDK接入、开放协议接入、云云接入均作为来源定义的可选方式；不将未经定义的方式列入集合 | 枚举 | OPEN-DEVMODE-001 | no_write | 新增 |
+| RULE-CP-018 | REQ-CP-003 | SRC-CP-001 | 使用覆盖各能力的受控品类分别查看开发方式 | 免代码开发、模组SDK接入、开放协议接入、云云接入均作为来源定义的可选方式；不将未经定义的方式列入集合 | 枚举 | OPEN-DEVMODE-001 | no_write | 已覆盖 |
 ## 需求歧义与未定义预期
 
 - 接口文档定义创建产品请求参数必传与 `ProtocolEnum` code，但未定义前端控件文案或无效 code 的页面反馈形态；用例仅断言字段级必填、可选择 code 与不接受非枚举 code，不补造 UI 文案。

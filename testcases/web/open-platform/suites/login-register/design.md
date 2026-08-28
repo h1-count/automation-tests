@@ -1,7 +1,7 @@
 # 套件设计台账：开放平台登录与注册
 
-> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
-> 用例格式：testcase-v6-layered。
+> 结构版本：test-design-index-v1 / rule-design-ledger-v1 / case-relation-projection-v1。
+> 用例格式：testcase-v1-layered。
 > 默认采用 lean；只有流程规范定义的高风险事实才自动升级 strict。
 
 ## 请求默认值
@@ -81,7 +81,7 @@
 | RULE-LOGIN-004 | REQ-LOGIN-004 | SRC-HELP-001 | 已登录状态下查看右上角账号入口并点击下拉菜单「退出」 | 下拉菜单提供「退出」项；退出后被引导至登录页，原会话无法访问受保护内容；退出落地页资料未定义，断言中性 | 场景法 | OPEN-LOGIN-004 | 会话级 ephemeral_cleanup（退出即清理）；需隔离账号与独立执行授权；本请求不执行 | 受控执行 |
 | RULE-LOGIN-005 | REQ-LOGIN-005 | SRC-HELP-001 | 以金云智居 App 侧占位账号凭据发起开放平台登录（占位账号须为 11 位手机号格式且未在平台注册） | 登录不成功；以本次会话访问需登录的控制台页面被引导至登录页（无控制台会话建立）；账号体系独立语义保留在台账；失败提示形态资料未定义，采用通用失败语义 | 场景法 | OPEN-LOGIN-005 | no_write；App 侧凭据为环境占位数据；不使用真实用户凭据 | 已覆盖 |
 | RULE-REG-014 | REQ-REG-SUBMIT-001、REQ-REG-SUBMIT-002、REQ-REG-SUBMIT-003、REQ-REG-SUBMIT-004、REQ-REG-FIELD-007、REQ-REG-ACCOUNT-001 | SRC-HELP-001；SRC-PROTOTYPE-002；SRC-ACCESS-001 行 71-74 | 以合成数据满足全部必填项并完成协议勾选后点击【同意条款并注册】 | 注册申请提交流程被受理且页面离开可编辑提交态（呈现以真实页面为准）；字段校验与协议勾选分步断言；审核流转语义（1-2 个工作日、结果短信通知、通过后短信下发账号密码、不通过可依反馈重新发起；申请人即该企业唯一企业管理员账号且申请人姓名为平台账号名称，REQ-REG-ACCOUNT-001；企业名称与企业地址提交后不可修改，REQ-REG-FIELD-007）保留在台账不在用例窗口内等待；提交后页面反馈资料未定义，断言中性 | 场景法 | OPEN-REG-014 | tracked_residual（审核中申请无法自助清理，按台账跟踪）；需独立执行授权；本请求不执行 | 受控执行 |
-| RULE-REG-018 | REQ-REG-FIELD-008 | SRC-HELP-001 | 在营业执照选择区域分别选定格式越界（<10MB）、大小越界、合规 PNG、恰为 10MB 的 PNG、合规 JPEG 与合规 JPG 合成文件并触发字段级校验 | 格式越界显示仅允许 PNG/JPEG/JPG 提示；大小越界显示不超过 10MB 提示；合规 PNG/JPEG/JPG 与恰为 10MB 样本通过字段校验；若文件选择即触发服务端上传则停止执行并升级数据策略与授权 | 等价类/边界值 | OPEN-REG-018 | no_write；校验限定字段级触发；测试文件均为合成样本；上传入口存在性与必填断言见 RULE-REG-010 | 已覆盖 |
+| RULE-REG-018 | REQ-REG-FIELD-008 | SRC-HELP-001 | 在营业执照选择区域分别选定格式越界（<10MB）、大小越界、合规 PNG、恰为 10MB 的 PNG、合规 JPEG 与合规 JPG 合成文件并触发字段级校验 | 格式越界显示仅允许 PNG/JPEG/JPG 提示；大小越界显示不超过 10MB 提示；合规 PNG/JPEG/JPG 与恰为 10MB 样本通过字段校验；文件选择会调用受控上传端点时，记录响应或 UI 拒绝结果，不把未知结果记录为成功 | 等价类/边界值 | OPEN-REG-018 | tracked_residual；仅限本地确定性生成的合成文件；每次执行均需上传操作预算、响应证据、正式执行授权与测试数据台账登记；不进入注册提交；上传入口存在性与必填断言见 RULE-REG-010 | 受控执行 |
 
 
 ## 需求歧义与未定义预期

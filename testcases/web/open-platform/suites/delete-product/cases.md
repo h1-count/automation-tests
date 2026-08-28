@@ -1,4 +1,4 @@
-> 结构版本：testcase-v6-layered。
+> 结构版本：testcase-v1-layered。
 
 # 用例集：开放平台删除产品
 

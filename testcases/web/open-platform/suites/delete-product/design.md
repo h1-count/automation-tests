@@ -1,7 +1,7 @@
 # 套件设计台账：开放平台删除产品
 
-> 结构版本：test-design-index-v3 / rule-design-ledger-v3 / case-relation-projection-v3。
-> 用例格式：testcase-v6-layered。
+> 结构版本：test-design-index-v1 / rule-design-ledger-v1 / case-relation-projection-v1。
+> 用例格式：testcase-v1-layered。
 > 默认采用 lean；只有流程规范定义的高风险事实才自动升级 strict。
 
 ## 请求默认值

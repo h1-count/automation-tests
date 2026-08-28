@@ -1,15 +1,168 @@
 {
-  "schemaVersion": "stable-test-suite-manifest-v2",
+  "schemaVersion": "stable-test-suite-manifest-v1",
   "tier": "design",
   "suiteId": "web/open-platform/create-product",
   "designLedger": {
     "path": "testcases/web/open-platform/suites/create-product/design.md",
-    "digest": "6b651c486de5ff1196ae7c9353a2c89e036fc5ef70e436450d2be4b942e4650f"
+    "digest": "475625887992b382aa175595e5c58361c6c0cf489bed447ff02ded05faac23fb"
   },
   "casePackages": [
     {
       "path": "testcases/web/open-platform/suites/create-product/cases.md",
-      "digest": "d336229898452cc36bd4be2c2af1055d22713560994a2bc3bb280f93c24950b5"
+      "digest": "59dd051a65ec63a8b252135343b7d8710d7532f0b3bdf1f4076f35ddc7334e09"
+    }
+  ],
+  "casePackageBaselines": [
+    {
+      "path": "testcases/web/open-platform/suites/create-product/cases.md",
+      "defaultsDigest": "a93b4fca1af83a91fccfeedc61a8094082644bfd57c06b1c4078745e725f3974",
+      "cases": [
+        {
+          "caseId": "OPEN-CAT-001",
+          "semanticDigest": "1951828b536c3d0b536f6486492da444a5d588549b418e494e5a256983a5d141",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-CAT-002",
+          "semanticDigest": "637b38402167c93238739015212904996b7f329baa46f031b0ee1bd47140211e",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-CREATE-001",
+          "semanticDigest": "74ce35a062f52215e2362b18d92a6f04c049b7f99073caca30f634127645ec57",
+          "executionBoundaryDigest": "910b86421009186b75b66666c040302893b89cd6e0a9dbbac2c9497b4bf97100"
+        },
+        {
+          "caseId": "OPEN-CREATE-002",
+          "semanticDigest": "f8ee4d186432f719a2e2085dedba7e0215e910c9375317bf235fa197dde3218e",
+          "executionBoundaryDigest": "910b86421009186b75b66666c040302893b89cd6e0a9dbbac2c9497b4bf97100"
+        },
+        {
+          "caseId": "OPEN-CREATE-003",
+          "semanticDigest": "cfe208ae2ef455b9d360e331a7f587e4947a63a22f195b691ea686acf318ba68",
+          "executionBoundaryDigest": "910b86421009186b75b66666c040302893b89cd6e0a9dbbac2c9497b4bf97100"
+        },
+        {
+          "caseId": "OPEN-DESC-001",
+          "semanticDigest": "1a56846b1c1466322cf0106c2ac8ff3df9bac0523690a42e2ab10b88ac2815e1",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-DEVMODE-001",
+          "semanticDigest": "b08fa0737eeea7351cdd8d1422afbfe73619cd4ba46710bcc17213de15934d17",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-DEVTYPE-001",
+          "semanticDigest": "c8f2b65bd9f4721299931905d1b54bf058517af93e38cbeeb989cc4f83b5afd6",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-LIST-001",
+          "semanticDigest": "7781bae58e17aa4d99fb23166941a5feae285bd2c52cb5039241d1f86544d904",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-LIST-002",
+          "semanticDigest": "aa452cb4412e8a1613d2065c96c6509e7e4137948e22f10762f6f735023294bd",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-LIST-003",
+          "semanticDigest": "4be8f07669d97b27860cd1cb75f7d574b7f78fe5537e80f9a0b2b00c00384668",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-LIST-004",
+          "semanticDigest": "e04700cb4633b0420a44728700386362eac0f956ca2913cf5f7e3de9d2a5faf5",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-LIST-005",
+          "semanticDigest": "0e6f5894eff07d65d942c5006b3b6ddaba883ddb1dba4f2d4da7b02387bde8b6",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-LIST-006",
+          "semanticDigest": "d31d73c8baed12b280d9fa4864e7a58d9033b338b7e66786df6b2b20f913c8a2",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-MODEL-001",
+          "semanticDigest": "870497ef94562c347c377434da617d545f989604cc8bd15188672189821b547a",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-MODEL-002",
+          "semanticDigest": "ff5857d95f69b4790e0d09728f5f39cfc09dd83a34ccbcc435f98ef2eab7ba1d",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-NAME-001",
+          "semanticDigest": "8864e19546af96452337e3250e7b817dd4b9c66dc5f6fdda9ab3ff7a3e500e2e",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-NAME-002",
+          "semanticDigest": "641634bd7c97cd08096a656d8fdda2cf41cb7c77c2941cffdd384f98d255ea4a",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-NAME-003",
+          "semanticDigest": "8e1d1785a2ad315dd31d2cb36a2e7431ff503b629d05adb66ecb54d24233dd9e",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-PROD-001",
+          "semanticDigest": "b5fa05c0612b3a1fe1e302a7e70aea3ce62f4a445ef56700588b9155b1b56e16",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-PROD-002",
+          "semanticDigest": "00f2b8653c3d0916407ce0b9bd4945d0d2228d0eac26a3a4e437ad47adf5d870",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-PROD-003",
+          "semanticDigest": "eb3dd0300d0191a50c56d2a2abdca6703db2c67ae4cbbe035afb36a312fb4c6a",
+          "executionBoundaryDigest": "910b86421009186b75b66666c040302893b89cd6e0a9dbbac2c9497b4bf97100"
+        },
+        {
+          "caseId": "OPEN-PROTOCOL-001",
+          "semanticDigest": "55f65e89d154d85fe0f8558711e7ff45c71984901d16e3dabaf4e819e0f5c4ab",
+          "executionBoundaryDigest": "9ab809c2fdb861488b8c187654bcadb3ab3a85f00a8c463f9f81a79a389d2e5d"
+        },
+        {
+          "caseId": "OPEN-PROTOCOL-002",
+          "semanticDigest": "23cdab34c87f86f5c0cf945b15656e47175be79a9359f10bba2b3f33afae1661",
+          "executionBoundaryDigest": "9ab809c2fdb861488b8c187654bcadb3ab3a85f00a8c463f9f81a79a389d2e5d"
+        },
+        {
+          "caseId": "OPEN-QUOTA-001",
+          "semanticDigest": "5a1022bf809195c7482278aab4fd86440e92853ecc61ab163efb5b05703944cc",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-QUOTA-002",
+          "semanticDigest": "60a7e8ef6a140c31f0a537e3f494581e0a40f1da9e007b41720ce763478e796e",
+          "executionBoundaryDigest": "910b86421009186b75b66666c040302893b89cd6e0a9dbbac2c9497b4bf97100"
+        },
+        {
+          "caseId": "OPEN-QUOTA-003",
+          "semanticDigest": "b7d679daed22c7219395614f7d855cc2ae67e6540732270bfdf701f2636c3ddb",
+          "executionBoundaryDigest": "910b86421009186b75b66666c040302893b89cd6e0a9dbbac2c9497b4bf97100"
+        },
+        {
+          "caseId": "OPEN-SMART-001",
+          "semanticDigest": "d8ad884226a71718b5722aab33e817ebb047a49ff1644e0b236b9d39569d0223",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        },
+        {
+          "caseId": "OPEN-WIZ-001",
+          "semanticDigest": "25504287df3542ae1a4de187cbb6d40a7ef4b4b871ef505011013353c0426ee8",
+          "executionBoundaryDigest": "afd1ee92abe7ecb2e72680fa3ab2427841a19cb2b9634bde17f5c3880093cb79"
+        }
+      ]
     }
   ],
   "caseIds": [
@@ -124,12 +277,13 @@
     "test",
     "pre"
   ],
-  "suiteVersion": "976087a35c435d2ce29292c2c825df3e7801239b3a19cd4cb555237c0a7a9483",
+  "suiteVersion": "643171b2eab68a593b00abce6926815cc7cebc699e720f7d6f9b23db382d9921",
   "status": "stable",
   "sourceRequestId": "web/open-platform/create-product-20260825-r7",
   "acceptance": {
     "workflowHeadDigest": "66732de4cb6c6a5b3c6b4ee64092280ede25e55de1f0aa677217a80a7a8b2f98",
     "confirmationDigest": "7fa350dcb275e0dc34fc7bdcdd70727b50c6ad1ac2b58916cc11ee71133c7799",
     "acceptedAt": "2026-08-25T08:33:18.786Z"
-  }
+  },
+  "designLedgerSemanticDigest": "dacc528945577eee8deb32dd79f74b70abc9391901a690499514ee34fca965d0"
 }
