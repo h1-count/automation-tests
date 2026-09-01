@@ -1,68 +1,17 @@
-# Dependencies and build metadata
 node_modules/
-*.tsbuildinfo
-
-# Local package-manager cache and host vision artifacts must never enter Git.
-.pnpm-store/
-.dsh-vision-toolkit/
-
-# IDE and execution-host metadata. Keep only the reviewed project adapters.
-.idea/
-.codex/*
-!.codex/hooks.json
-.vscode/*
-!.vscode/extensions.json
-*.iml
-.fleet/
-
-# Local environment configuration and secrets
 .env
 .env.*
 !.env.example
-.auth/
-.local/
-
-# Local audit ledgers retained with archived testcase requests; never commit test resource IDs.
-testcases/archive/**/test-*/
-testcases/archive/**/task-state/
-testcases/archive/legacy-local-test-data/
-
-# Host session outputs (Excel review views, inspect logs, previews) must never be committed
-outputs/
-
-# Test execution artifacts: keep only placeholder files.
-# All Runner outputs (playwright/wdio outputDir) land under artifacts/ and are covered by artifacts/*.
-artifacts/*
-!artifacts/.gitkeep
-!artifacts/README.md
-!artifacts/**/.gitkeep
-tmp/
-
-# Generic caches and coverage (defensive)
-coverage/
-.cache/
-
-# Runtime logs
-*.log
-appium-logs/
-
-# Interrupted atomic writes and merge/patch leftovers must never become source artifacts.
-*.tmp
-*.orig
-*.rej
-*~
-
-# Editor swap files
-*.swp
-*.swo
-
-# App signing and secret key material must never be committed.
-*.p12
-*.p8
-*.jks
-*.mobileprovision
-
-# Operating-system files
-.DS_Store
-Thumbs.db
 .dsh-filess/
+experience/USER-PREFERENCES.md
+.auth/
+outputs/
+testpacks/**/review/
+testpacks/**/artifacts/
+testpacks/**/runtime/
+*.log
+.DS_Store
+.idea/
+
+# DSH 会话工具产物
+.dsh-vision-toolkit/

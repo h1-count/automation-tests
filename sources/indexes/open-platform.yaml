@@ -1,12 +1,8 @@
 version: 1
 project: open-platform
-index_status: reviewed
+purpose: 快速定位原始测试资料；不替代原始资料。
 documents:
-  - material_id: product-access-system-requirement
-    source_path: open-platform/需求/产品接入系统功能需求说明
-    source_sha256: 19f0e6801735e60d7e864ff55136b8fefd0c4308516a5f60035b3551be97e681
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/需求/产品接入系统功能需求说明
     sections:
       - section_id: product-access-lifecycle
         title: 产品接入开发流程与状态
@@ -23,8 +19,6 @@ documents:
           - 产品测试
           - 上线
         summary: 产品接入流程、开发状态、模块完成条件与操作限制。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: product-access-create
         title: 创建产品
         locator:
@@ -39,8 +33,6 @@ documents:
           - 产品型号
           - product model
         summary: 创建产品的三步流程、字段规则、开发方式和产品 model 组成。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: product-access-basic-configuration
         title: 基础配置
         locator:
@@ -54,13 +46,7 @@ documents:
           - 拟物图
           - 配网文案
         summary: 产品基础配置的固定字段、可编辑范围与图片要求。
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: aiot-platform-project-document
-    source_path: open-platform/需求/AIoT平台项目.docx
-    source_sha256: 64ed64b7e3c1c133d30c660ebb9eb5de5af1aed385d18e481ba18ee7b582d00b
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/需求/AIoT平台项目.docx
     sections:
       - section_id: platform-home-and-registration
         title: 官网、注册与登录
@@ -78,8 +64,6 @@ documents:
           - 企业标识
           - 营业执照
         summary: 官网导航、企业注册字段校验、唯一性提示和手机号密码登录。
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: console-account-and-enterprise
         title: 控制台、账号中心与企业成员
         locator:
@@ -95,8 +79,6 @@ documents:
           - 管理员
           - 系统权限
         summary: 控制台入口、账号资料、企业成员、管理员移交和菜单级系统权限。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: platform-work-order
         title: 文档中心与工单支持
         locator:
@@ -110,13 +92,7 @@ documents:
           - 新增工单
           - 附件
         summary: 工单状态、筛选、分页、新建字段和附件约束。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: open-platform-technical-solution
-    source_path: open-platform/需求/开放平台技术方案.docx
-    source_sha256: 60788b0e59dbc00680533c1ddc5ae5f108afc8d26ee901e8a73ace0b4d8a1ed0
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/需求/开放平台技术方案.docx
     sections:
       - section_id: gateway-routing-architecture
         title: 网关路由与服务拆分
@@ -132,8 +108,6 @@ documents:
           - 设备接入
           - 运营平台
         summary: 开放平台网关路由、服务拆分和路径边界设计。
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: service-platform-authorization
         title: 服务平台授权与云云服务
         locator:
@@ -147,13 +121,7 @@ documents:
           - 消息回调
           - 云云接入
         summary: 服务平台 API 授权、调用额度、回调与云云服务流程；凭据字段仅可脱敏引用。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: open-platform-interface-document
-    source_path: open-platform/接口/开放平台接口文档.docx
-    source_sha256: 56b7f5bbcd0d02f4283df910f434780dce9c76ab8c3b42d245ab98409a8dc0b3
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/接口/开放平台接口文档.docx
     sections:
       - section_id: product-development-api
         title: 产品开发接口
@@ -170,8 +138,6 @@ documents:
           - 通讯协议
           - 配网方式
         summary: 产品分类、产品创建和产品开发列表接口及字段约束。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: product-module-api-catalog
         title: 产品模块接口目录
         locator:
@@ -188,13 +154,7 @@ documents:
           - 高级配置
           - 产品测试
         summary: 产品开发模块接口的责任目录与覆盖范围。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: centralized-interaction-management-platform
-    source_path: open-platform/需求/集中交互管理平台.docx
-    source_sha256: 1150ad24284308c21ccc3c77e25057b019e7a1c9bc4ed9aa558bb7eeb96b9c02
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/需求/集中交互管理平台.docx
     sections:
       - section_id: backend-module-procurement
         title: 后台模组采购管理
@@ -210,8 +170,6 @@ documents:
           - 发货
           - 订单
         summary: 开放平台后台的模组采购列表、发货、删除、统计和订单详情接口。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: backend-audit-management
         title: 后台审核管理
         locator:
@@ -225,13 +183,7 @@ documents:
           - 审核状态
           - 审批
         summary: 开放平台后台的授权码申请和设备测试审核流程与接口。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: open-platform-axure-prototype
-    source_path: open-platform/原型包
-    source_sha256: 0c21f0f7c472d2fd0cf712201c46cfd584ec5607cfe6a4b01d778c5243bc08e6
-    extraction: structured-html
-    visual_review: on-demand
+  - source_path: open-platform/原型包
     sections:
       - section_id: prototype-platform-home
         title: 官网首页
@@ -248,8 +200,6 @@ documents:
           - 登录
           - 注册
         summary: 开放平台官网首页及主要导航入口原型。
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: prototype-account-login
         title: 登录页面
         locator:
@@ -263,8 +213,6 @@ documents:
           - 忘记密码
           - 验证码
         summary: 账号登录、密码找回与错误提示相关原型。
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: prototype-account-registration
         title: 注册页面
         locator:
@@ -278,8 +226,6 @@ documents:
           - 营业执照
           - 验证码
         summary: 企业账号注册字段、协议确认与提交入口原型。
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: prototype-console
         title: 控制台
         locator:
@@ -294,8 +240,6 @@ documents:
           - 导航
           - 快捷入口
         summary: 开放平台控制台首页与产品开发等业务入口原型。
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: prototype-user-center
         title: 用户中心
         locator:
@@ -309,8 +253,6 @@ documents:
           - 修改密码
           - 实名认证
         summary: 用户资料、安全设置与账号相关操作原型。
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: prototype-enterprise-center
         title: 企业中心
         locator:
@@ -325,8 +267,6 @@ documents:
           - 所属企业
           - 权限
         summary: 企业资料、成员管理、管理员和权限相关原型。
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: prototype-service-support
         title: 服务支持与技术工单
         locator:
@@ -341,8 +281,6 @@ documents:
           - 工单状态
           - 工单详情
         summary: 技术工单列表、新建、详情和状态展示原型。
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: prototype-document-center
         title: 文档中心
         locator:
@@ -356,8 +294,6 @@ documents:
           - 搜索
           - 分类
         summary: 开放平台文档浏览、分类与检索入口原型。
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: prototype-consultation
         title: 立即咨询
         locator:
@@ -371,13 +307,7 @@ documents:
           - 留言
           - 咨询
         summary: 用户提交咨询信息的页面原型。
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: openapi-document
-    source_path: open-platform/接口/OpenAPI.docx
-    source_sha256: 01a571f996cab6b00f143a8ecc7a8a88bc961553a4998600fccd53a3f6f99758
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/接口/OpenAPI.docx
     sections:
       - section_id: openapi-overview
         title: OpenAPI 接口总览
@@ -392,13 +322,7 @@ documents:
           - 响应
           - 鉴权
         summary: 开放平台接口总览与通用调用约定。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: cloud-cloud-api-document
-    source_path: open-platform/接口/云云api.docx
-    source_sha256: 7702208236d1c9993c0482d75c87a1727f4e0c76c7bf3a08dc0a59b86774d5f0
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/接口/云云api.docx
     sections:
       - section_id: cloud-device-command
         title: 云云设备下行指令
@@ -415,8 +339,6 @@ documents:
           - 属性控制
           - 执行方法
         summary: 云云设备绑定、解绑、属性控制和方法执行的统一消息接口。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: cloud-scene-command
         title: 云云场景控制
         locator:
@@ -431,13 +353,7 @@ documents:
           - 场景修改
           - 多控
         summary: 云云场景及多控操作的控制类型和请求约定。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: smart-lock-api-document
-    source_path: open-platform/接口/智能门锁 API.docx
-    source_sha256: c6a1f87d60c54d97d324062e96e45f1067139225ca9f7116f50e9925f50044f5
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/接口/智能门锁 API.docx
     sections:
       - section_id: smart-lock-api-overview
         title: 智能门锁接口
@@ -451,13 +367,7 @@ documents:
           - 设备控制
           - 接口
         summary: 智能门锁相关平台接口资料。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: industry-saas-api-document
-    source_path: open-platform/接口/行业saas api.docx
-    source_sha256: aeaad2572b863f15a6f06e4ab8d51e9f7207af83ba23816ccb7a710c7d39095a
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/接口/行业saas api.docx
     sections:
       - section_id: saas-api-overview
         title: 行业 SaaS 接口
@@ -471,13 +381,7 @@ documents:
           - 行业接口
           - 服务调用
         summary: 行业 SaaS 服务接口资料。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: iot-platform-help
-    source_path: open-platform/平台文档/iot平台帮助文档.pdf
-    source_sha256: 4473657d25751ae2ac06b03c1abea533749cf07353dde1d0c2daa350423e038e
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/iot平台帮助文档.pdf
     sections:
       - section_id: platform-overview
         title: 平台介绍与服务范围
@@ -491,8 +395,6 @@ documents:
           - 合作方式
           - 私有化部署
         summary: 平台定位、服务能力与合作方式说明。
-        content_type: text-and-image
-        visual_read_required: false
       - section_id: account-registration-faq
         title: 平台账号注册与登录 FAQ
         locator:
@@ -507,8 +409,6 @@ documents:
           - 账号
           - 验证码
         summary: 企业账号注册入口、已注册企业提示和账号体系常见问题。
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: enterprise-membership-faq
         title: 企业成员与授权账号 FAQ
         locator:
@@ -523,8 +423,6 @@ documents:
           - 授权账号
           - 管理员
         summary: 企业成员加入、退出、管理员移交和授权账号数量规则。
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: product-development-faq
         title: 产品开发与产品 model FAQ
         locator:
@@ -538,8 +436,6 @@ documents:
           - 产品创建
           - 品类
         summary: 产品 model 含义和产品开发常见问题。
-        content_type: text-and-image
-        visual_read_required: false
       - section_id: product-configuration-faq
         title: 创建产品、基础配置与功能定义
         locator:
@@ -555,13 +451,7 @@ documents:
           - 功能定义
           - 物模型
         summary: 产品创建、基础配置和功能定义的流程入口与常见问题。
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: cloud-bridge-protocol-conversion-guide
-    source_path: open-platform/平台文档/云云接入bridge协议转换操作指南
-    source_sha256: 29de38359dee6321b0060c4f1a8f7b49d7ee9cc124bb4382ceefbde6bdac7b1b
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/云云接入bridge协议转换操作指南
     sections:
       - section_id: bridge-guide-product-intro
         title: 产品介绍与基本概念
@@ -577,8 +467,6 @@ documents:
           - 协议
           - 碎片化
         summary: 云云接入 bridge 协议转换的产品定位、协议概念与解决的碎片化问题。
-        content_type: text-and-image
-        visual_read_required: false
       - section_id: bridge-guide-architecture
         title: 技术架构
         locator:
@@ -592,8 +480,6 @@ documents:
           - 标准协议
           - 自定义协议
         summary: bridge 协议转换的整体技术架构与数据流。
-        content_type: text-and-image
-        visual_read_required: false
       - section_id: bridge-guide-scenarios
         title: 功能优势、应用场景与适用范围
         locator:
@@ -607,8 +493,6 @@ documents:
           - 适用范围
           - 第三方云云设备
         summary: bridge 协议转换的功能优势、应用场景与适用产品范围。
-        content_type: text-and-image
-        visual_read_required: false
       - section_id: bridge-guide-create
         title: 新增云云接入 Bridge 协议
         locator:
@@ -622,8 +506,6 @@ documents:
           - 协议管理入口
           - 云云开发入口
         summary: 新增云云接入 Bridge 协议的准备工作与协议管理、云云开发两个入口路径。
-        content_type: text-and-image
-        visual_read_required: false
       - section_id: bridge-guide-protocol-info
         title: 协议信息配置
         locator:
@@ -636,8 +518,6 @@ documents:
           - 协议配置
           - 基本信息
         summary: 云云接入 Bridge 协议的基础信息配置项与规则。
-        content_type: text-and-image
-        visual_read_required: false
       - section_id: bridge-guide-uplink-parse
         title: 上行数据解析配置
         locator:
@@ -651,8 +531,6 @@ documents:
           - 脚本
           - 转换规则
         summary: 设备上行数据的解析脚本与转换规则配置。
-        content_type: text-and-image
-        visual_read_required: false
       - section_id: bridge-guide-downlink-parse
         title: 下行数据解析配置
         locator:
@@ -666,13 +544,7 @@ documents:
           - 指令下发
           - 转换规则
         summary: 平台下行指令的解析脚本与转换规则配置。
-        content_type: text-and-image
-        visual_read_required: false
-  - material_id: iot-service-development-introduction
-    source_path: open-platform/平台文档/IoT服务开发介绍.docx
-    source_sha256: 292643946f697061c8defe0937d84d8e991631cc5bc2be9c2173506feda1baa1
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/IoT服务开发介绍.docx
     sections:
       - section_id: iot-service-overview
         title: IoT 服务开发介绍
@@ -686,13 +558,7 @@ documents:
           - API
           - SDK
         summary: IoT 服务系统定位与服务开发入口。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: product-development-detail
-    source_path: open-platform/平台文档/产品开发详解.docx
-    source_sha256: 01272848433fe5b7d8f10bef17446a2713a52d674e1e7fe45228efd8eb23703b
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/产品开发详解.docx
     sections:
       - section_id: product-development-flow
         title: 产品开发流程
@@ -705,13 +571,7 @@ documents:
           - 开发流程
           - 产品状态
         summary: 产品从创建、定义、开发到测试上线的流程说明。
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: product-test-and-launch
-    source_path: open-platform/平台文档/产品测试与上线.docx
-    source_sha256: 8cb9f8ea34ffedf6bf8bd1ee4b83e46a01bf39cfde9adb571c32e8a92a1e59f3
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/产品测试与上线.docx
     sections:
       - section_id: product-testing
         title: 产品测试
@@ -724,8 +584,6 @@ documents:
           - 自测
           - 实验室
         summary: 产品测试前置条件、测试流程与受控边界。
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: product-launch
         title: 产品上线
         locator:
@@ -737,13 +595,7 @@ documents:
           - 发布
           - 认证
         summary: 产品上线申请与状态要求。
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: function-definition-detail
-    source_path: open-platform/平台文档/功能定义详解.docx
-    source_sha256: 7396976fdbef79df9d2e804233087e5259ec639b3c99c077971965b25c8e3929
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/功能定义详解.docx
     sections:
       - section_id: function-model
         title: 功能模板与物模型
@@ -760,13 +612,7 @@ documents:
           - 事件
           - 方法
         summary: 功能模板选择与属性、事件、方法的定义规则。
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: product-development-center
-    source_path: open-platform/平台文档/平台文档中心-产品开发.docx
-    source_sha256: 33016ef04173d1abbc236b767406d42ae2b2579cb07db06b65bae41e7f035bbc
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/平台文档中心-产品开发.docx
     sections:
       - section_id: product-center-navigation
         title: 产品开发中心入口
@@ -779,13 +625,7 @@ documents:
           - 入口
           - 产品管理
         summary: 产品开发中心模块入口和导航说明。
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: authorization-code-management
-    source_path: open-platform/平台文档/授权码管理.docx
-    source_sha256: 5ae6b7ee7d7561aba1fcf39b15bbfbc465a723a5a6a6529612de510f577dc92a
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/授权码管理.docx
     sections:
       - section_id: authorization-code
         title: 产品授权码管理
@@ -798,13 +638,7 @@ documents:
           - 产品凭证
           - 设备开发
         summary: 产品授权码的可见入口、使用前置条件和安全边界。
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: hardware-module-introduction
-    source_path: open-platform/平台文档/硬件模组介绍.docx
-    source_sha256: ea20d64d7a1101a8a9ced839b5ec3d468114620d5511ff811103fc8ef662b86b
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/硬件模组介绍.docx
     sections:
       - section_id: hardware-module-selection
         title: 硬件模组选择
@@ -820,13 +654,7 @@ documents:
           - ESP32
           - 模组选型
         summary: 硬件模组类型、适用范围和选型信息。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: device-development-detail
-    source_path: open-platform/平台文档/设备开发详解.docx
-    source_sha256: bbe1d57e303d26f0902c49b89fceca8c57d0ec5a32be1d2f9c6716bb94a870f7
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/设备开发详解.docx
     sections:
       - section_id: device-development
         title: 设备开发
@@ -840,13 +668,7 @@ documents:
           - 设备注册
           - 固件
         summary: 设备开发资料、注册、调试与固件相关入口。
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: advanced-configuration
-    source_path: open-platform/平台文档/高级配置.docx
-    source_sha256: 58755d54805bf5dcbbca536777ac731ea9767a0991afc60e1e369298a2904955
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/高级配置.docx
     sections:
       - section_id: scene-automation
         title: 场景联动配置
@@ -861,8 +683,6 @@ documents:
           - 执行动作
           - 自动化
         summary: 标准与自定义自动化、触发条件、执行动作及上线状态。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: message-push
         title: 消息推送配置
         locator:
@@ -876,13 +696,7 @@ documents:
           - 推送间隔
           - 审核
         summary: 标准与自定义消息推送、触发条件和审核规则。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: operation-management
-    source_path: open-platform/平台文档/运营管理.docx
-    source_sha256: c7db2fad98c87b1f1676ab94012eb20afaf30e8eb21c095c35fd1bfe5ee3400f
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/运营管理.docx
     sections:
       - section_id: device-management
         title: 设备管理
@@ -897,8 +711,6 @@ documents:
           - 离线
           - 激活时间
         summary: 设备总览、状态监控、筛选字段和激活信息。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: firmware-upgrade
         title: 固件升级管理
         locator:
@@ -912,8 +724,6 @@ documents:
           - 升级任务
           - 重试
         summary: 固件版本、升级任务、执行条件和结果查看。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: device-log
         title: 设备日志查询
         locator:
@@ -927,13 +737,7 @@ documents:
           - 在离线日志
           - 操作日志
         summary: 设备数据交互、状态和操作日志的查询范围。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: value-added-services
-    source_path: open-platform/平台文档/增值服务.docx
-    source_sha256: d6d903367595bba6137fefebf2bade723d73a505c13bb2a1ad0fe379af3d7709
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/增值服务.docx
     sections:
       - section_id: control-panel-customization
         title: 中控屏定制服务
@@ -948,8 +752,6 @@ documents:
           - 语音
           - 大模型
         summary: 中控屏界面、语音和功能定制服务范围。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: hardware-integration-service
         title: 硬件代接入服务
         locator:
@@ -963,13 +765,7 @@ documents:
           - 认证测试
           - 量产
         summary: 硬件代开发服务内容、流程和适用场景。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: platform-overview-core-value
-    source_path: open-platform/平台文档/平台概览与核心价值.docx
-    source_sha256: d75db02468b9135586ae9c609b7b2ac586b3a91210bbe851905385f553b002c4
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/平台概览与核心价值.docx
     sections:
       - section_id: platform-core-value
         title: 平台概览与核心价值
@@ -983,8 +779,6 @@ documents:
           - 设备智能化
           - 生态互联
         summary: 平台定位、价值主张与设备智能化能力。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: platform-service-range
         title: 服务范围与目标客户
         locator:
@@ -998,13 +792,7 @@ documents:
           - 集成商
           - 硬件零售商
         summary: 目标客户和平台服务范围。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: pre-integration-preparation
-    source_path: open-platform/平台文档/接入前备.docx
-    source_sha256: 668466a5d6185706bbac2b32672ea59134037aa48edce9ba832360dfa982201c
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/接入前备.docx
     sections:
       - section_id: enterprise-registration
         title: 企业账号申请与注册
@@ -1018,8 +806,6 @@ documents:
           - 企业管理员
           - 审核
         summary: 企业账号注册字段、审核流程和成员加入前置条件。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: system-permission
         title: 系统权限说明
         locator:
@@ -1032,8 +818,6 @@ documents:
           - 产品运营系统
           - 产品服务系统
         summary: 三个子系统的独立权限、申请流程和变更规则。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: enterprise-member-management
         title: 企业成员管理
         locator:
@@ -1046,13 +830,7 @@ documents:
           - 管理员
           - 企业组
         summary: 企业成员邀请、角色与企业组管理规则。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: platform-access-authorization
-    source_path: open-platform/平台文档/平台获取接口授权方式.pdf
-    source_sha256: f41a7158c211b2791830c57430a3be7e5a070ea864eb02f53f6d6a436d9a8531
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/平台获取接口授权方式.pdf
     sections:
       - section_id: api-authorization-flow
         title: 接口授权流程
@@ -1066,13 +844,7 @@ documents:
           - token
           - 刷新
         summary: 接口签名、授权码获取、访问令牌获取与刷新流程。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: platform-development-guide
-    source_path: open-platform/平台文档/开发指南.docx
-    source_sha256: e176a96482617567111a8081eaad93ed84acf671aa4f84685b6f312c3c03da1e
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/开发指南.docx
     sections:
       - section_id: api-request-header
         title: API 公共请求头与请求结构
@@ -1088,8 +860,6 @@ documents:
           - nonce
           - timestamp
         summary: API 公共请求头和请求结构约定。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: api-authorization-guide
         title: API 授权方式
         locator:
@@ -1102,13 +872,7 @@ documents:
           - 签名
           - 访问令牌
         summary: 开发指南中的接口授权方式说明。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: device-callback-message-document
-    source_path: open-platform/平台文档/设备回调消息文档.docx
-    source_sha256: eb965fcf03d02a6fea463d20fd19eefb88912bfddd00146b8fb5b6baa186fe3c
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: open-platform/平台文档/设备回调消息文档.docx
     sections:
       - section_id: device-ack-callback
         title: 设备 ACK 回调
@@ -1123,8 +887,6 @@ documents:
           - 消息上报
           - 签名
         summary: 设备 ACK 消息的推送头和消息体字段。
-        content_type: text-and-table
-        visual_read_required: false
       - section_id: device-bind-callback
         title: 设备绑定回调
         locator:
@@ -1137,13 +899,7 @@ documents:
           - 回调
           - 消息上报
         summary: 设备绑定相关回调消息定义。
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: cloud-bridge-bug-verification
-    source_path: "open-platform/需求/云云bridgeBug"
-    source_sha256: 3da915b09dd833d1dd8aa6c7b8fd9d5940439d8f1e3bdef37b897635964d8650
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: "open-platform/需求/云云bridgeBug"
     sections:
       - section_id: bridge-bug-verification-list
         title: "云云bridge功能验证清单"
@@ -1159,13 +915,7 @@ documents:
           - "提取表达式"
           - "不通过"
         summary: "云云bridge 前端 18 项验证结论：第 8 项输入框与标题横线重合、第 9 项双重成功提示不通过，其余通过。"
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: cloud-bridge-optimization-requirement
-    source_path: "open-platform/需求/云云bridge优化"
-    source_sha256: 100cd70baa2e2a7e1a53472cd526ca74749e721cae88acfb1fd5e7b21432e4bf
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: "open-platform/需求/云云bridge优化"
     sections:
       - section_id: bridge-opt-uplink-parse
         title: "上行数据解析配置优化"
@@ -1181,8 +931,6 @@ documents:
           - "添加参数弹窗"
           - "值来源"
         summary: "可视化映射必填校验、响应处理小标题、上行参数表转只读并以弹窗完成增删改与转换类型动态表单。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: bridge-opt-downlink-parse
         title: "下行数据解析配置优化"
         locator:
@@ -1197,13 +945,7 @@ documents:
           - "query参数表"
           - "键值对模式"
         summary: "Get token 与获取节点不展示平台/body参数表与自定义body模版，body/query 参数表增加值来源等字段。"
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: cloud-bridge-frontend-config-requirement
-    source_path: "open-platform/需求/云云协议转换前端配置需求"
-    source_sha256: f74db873e58e0957cbecfee502cf35dadfa326cd464cfad776447469aaed1e95
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: "open-platform/需求/云云协议转换前端配置需求"
     sections:
       - section_id: bridge-config-protocol-management
         title: "协议管理模块"
@@ -1219,8 +961,6 @@ documents:
           - "启用状态"
           - "分页"
         summary: "协议管理列表字段、启用/不启用语义、新增协议弹窗跳转配置页与删除确认规则。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: bridge-config-entry
         title: "产品开发云云设备开发入口"
         locator:
@@ -1234,8 +974,6 @@ documents:
           - "协议关联"
           - "云云bridge"
         summary: "产品开发-云云开发作为创建云云bridge协议的第二入口及其与产品的关联关系。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: bridge-config-uplink
         title: "上行数据解析配置"
         locator:
@@ -1250,8 +988,6 @@ documents:
           - "解析规则"
           - "数据转换预览"
         summary: "上行通信认证（签名/Basic Auth/新增header）、上行数据解析列表与规则编辑、数据转换预览。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: bridge-config-downlink
         title: "下行数据解析"
         locator:
@@ -1266,13 +1002,7 @@ documents:
           - "下行规则管理"
           - "数据转换预览"
         summary: "下行通信认证四种模式、下行规则管理与编辑配置、数据转换预览。"
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: open-platform-launch-requirement
-    source_path: "open-platform/需求/上线需求"
-    source_sha256: 533b8faf1b83e667e2e51305d7e665aae6508e3d3e69f7f79c959c32fbc2ce96
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: "open-platform/需求/上线需求"
     sections:
       - section_id: launch-access-system
         title: "产品接入系统上线优化"
@@ -1288,8 +1018,6 @@ documents:
           - "配网方式"
           - "API列表"
         summary: "接入方式详情简要、类目其他置底、消息推送分组标签、固件首版本无升级按钮等上线优化。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: launch-console
         title: "控制台上线项"
         locator:
@@ -1301,13 +1029,7 @@ documents:
           - "常见问题"
           - "帮助文档"
         summary: "控制台新增文档中心与常见问题入口及iot平台帮助文档链接。"
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: open-platform-weekly-release-log
-    source_path: "open-platform/平台文档/开放平台每周发版日志"
-    source_sha256: c7b41ed7624be418635514e9ebf5d7e43150431e29b94228f7c665f5cd92b3f5
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: "open-platform/平台文档/开放平台每周发版日志"
     sections:
       - section_id: release-log-waves
         title: "发版波次台账"
@@ -1324,13 +1046,7 @@ documents:
           - "20250924"
           - "20250930"
         summary: "20250718 至 20250930 七个发版波次下各系统上线条目与对应飞书需求文档链接。"
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: open-platform-management-system-navigation
-    source_path: "open-platform/平台文档/开放平台管理系统.md"
-    source_sha256: 1c4b4e85750f4c7c4617ad223dc54dbdd6700e3478421cff2fd8ebc05230d2e1
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: "open-platform/平台文档/开放平台管理系统.md"
     sections:
       - section_id: mgmt-system-navigation
         title: "系统导航结构"
@@ -1346,13 +1062,7 @@ documents:
           - "审核管理"
           - "客户管理"
         summary: "开放平台管理系统九大导航模块与子功能清单，APP运营模块已划除。"
-        content_type: text-and-table
-        visual_read_required: false
-  - material_id: centralized-platform-launch-requirement-v2
-    source_path: "open-platform/需求/集中管理平台上线需求—2.0"
-    source_sha256: 8417456af69838d74abe392dd5f2a993e3b6c5edd8cbd92dbfc9c71cee604686
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: "open-platform/需求/集中管理平台上线需求—2.0"
     sections:
       - section_id: mgmt-v2-function-points
         title: "事件与方法功能点规则"
@@ -1368,8 +1078,6 @@ documents:
           - "唯一性校验"
           - "场景支持"
         summary: "功能库添加/编辑/删除事件与方法的字段规则、参数取值范围限定品类属性及模板关联删除约束。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: mgmt-v2-optimizations
         title: "需求优化清单"
         locator:
@@ -1383,13 +1091,7 @@ documents:
           - "模组配置"
           - "产品总览"
         summary: "功能库、功能模板、消息推送、模组配置、产品总览等模块的2.0优化条目。"
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: centralized-platform-launch-requirement-v3
-    source_path: "open-platform/需求/集中管理平台上线需求—3.0"
-    source_sha256: faa2b7b0171177835547b90e56988e6265eb545a7098c8f1df2cdc3c7cd63244
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: "open-platform/需求/集中管理平台上线需求—3.0"
     sections:
       - section_id: mgmt-v3-scene-review
         title: "场景联动审核"
@@ -1406,13 +1108,7 @@ documents:
           - "产品状态"
           - "筛选"
         summary: "场景联动上线申请的后台审核两态流程、同产品新申请覆盖展示、筛选与列表字段。"
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: centralized-platform-launch-requirement-v4
-    source_path: "open-platform/需求/集中管理平台上线需求—4.0"
-    source_sha256: 4a49017d1c3fcced122fb9d36776e057d3d832ad8710b6971e7360bf73154b6d
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: "open-platform/需求/集中管理平台上线需求—4.0"
     sections:
       - section_id: mgmt-v4-cockpit
         title: "AIoT驾驶舱"
@@ -1428,13 +1124,7 @@ documents:
           - "统计时区"
           - "更新时间"
         summary: "数据中心改名AIoT驾驶舱后的设备接入、设备分析、趋势图与统计口径及更新时间规则。"
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: centralized-platform-maintenance-module-requirement
-    source_path: "open-platform/需求/集中管理平台（运营平台）—开发者平台维护模块"
-    source_sha256: 3d67da228c4de3a29f76a8fe018e77d35064d456eb3fd76a40ea8c1a79e7e16b
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: "open-platform/需求/集中管理平台（运营平台）—开发者平台维护模块"
     sections:
       - section_id: mgmt-module-registration-review
         title: "注册审核"
@@ -1447,8 +1137,6 @@ documents:
           - "企业注册审核"
           - "注册管理"
         summary: "企业注册审核的处理流程、列表与操作要求。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: mgmt-module-enterprise
         title: "企业管理"
         locator:
@@ -1460,8 +1148,6 @@ documents:
           - "企业管理"
           - "企业权限"
         summary: "企业管理列表与企业权限分配需求。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: mgmt-module-procurement
         title: "采购管理"
         locator:
@@ -1473,8 +1159,6 @@ documents:
           - "模组采购"
           - "采购列表"
         summary: "模组采购管理列表与流程需求。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: mgmt-module-approval
         title: "审批管理"
         locator:
@@ -1488,8 +1172,6 @@ documents:
           - "产品上线"
           - "消息推送"
         summary: "申请授权码、设备测试、产品上线、消息推送四类审核管理需求。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: mgmt-module-module-config
         title: "模组配置"
         locator:
@@ -1501,8 +1183,6 @@ documents:
           - "固件"
           - "模组配置"
         summary: "模组配置P1的模组与固件维护需求。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: mgmt-module-template
         title: "模板配置"
         locator:
@@ -1514,8 +1194,6 @@ documents:
           - "产品功能模板"
           - "消息推送模板"
         summary: "功能点配置、产品功能模板与消息推送模板管理需求。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: mgmt-module-product
         title: "产品管理"
         locator:
@@ -1528,8 +1206,6 @@ documents:
           - "类目管理"
           - "品类管理"
         summary: "产品总览、产品配置与类目/品类管理需求。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: mgmt-module-cockpit
         title: "AIoT驾驶舱"
         locator:
@@ -1541,13 +1217,7 @@ documents:
           - "驾驶舱"
           - "数据中心"
         summary: "AIoT驾驶舱数据展示需求，与上线需求4.0对应。"
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: product-access-launch-requirement-v3
-    source_path: "open-platform/需求/产品接入系统上线需求—3.0"
-    source_sha256: 389b417dc2e6b135b9b879b589eeee7095155e9d237f28e4ba1147de88d0381d
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: "open-platform/需求/产品接入系统上线需求—3.0"
     sections:
       - section_id: access-v3-scene-linkage
         title: "场景联动"
@@ -1563,8 +1233,6 @@ documents:
           - "执行动作"
           - "发起上线"
         summary: "标准与自定义自动化场景的触发条件、执行动作功能构成与自动化发起上线流程。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: access-v3-custom-points
         title: "自定义功能点"
         locator:
@@ -1577,13 +1245,7 @@ documents:
           - "自定义事件"
           - "自定义方法"
         summary: "自定义属性、事件、方法三类功能点的配置规则与约束。"
-        content_type: text-and-image
-        visual_read_required: true
-  - material_id: open-platform-ticket-system-requirement
-    source_path: "open-platform/需求/开放平台+服务平台工单系统"
-    source_sha256: e2c297d8c670bf558cb3e8e6995f8c3bb37cb84c728cf01b6f526c02fb24f853
-    extraction: native-text
-    visual_review: on-demand
+  - source_path: "open-platform/需求/开放平台+服务平台工单系统"
     sections:
       - section_id: ticket-flow
         title: "工单填报与流转"
@@ -1598,8 +1260,6 @@ documents:
           - "状态流转"
           - "填报入口"
         summary: "工单填报入口、标签/运维组/等级体系与工单状态流转机。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: ticket-service-management
         title: "服务平台工单管理"
         locator:
@@ -1614,8 +1274,6 @@ documents:
           - "重启工单"
           - "飞书通知"
         summary: "服务平台侧工单标签与运维组配置、提交/分配/处理/重启工单流程及飞书通知。"
-        content_type: text-and-image
-        visual_read_required: true
       - section_id: ticket-open-platform
         title: "开放平台工单"
         locator:
@@ -1628,5 +1286,3 @@ documents:
           - "图片上传"
           - "200字符"
         summary: "开放平台侧新增工单与工单详情需求，含图片上传与描述字数限制。"
-        content_type: text-and-image
-        visual_read_required: true
