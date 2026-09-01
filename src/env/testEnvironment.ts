@@ -16,11 +16,7 @@ export interface TestEnvironmentConfig {
   centralAdminLoginUrl?: string;
 }
 
-/**
- * Resolves an already approved environment name to its configured endpoints.
- * Environment approval is governed by AGENTS.md; production additionally needs
- * an explicit runtime opt-in so it cannot be selected by accident.
- */
+/** Resolves the selected environment to its configured endpoint. */
 export function resolveTestEnvironment(requestedEnvironmentOverride?: string): TestEnvironmentConfig {
   const requestedEnvironment = (requestedEnvironmentOverride ?? process.env.TEST_ENV ?? process.env.DEFAULT_TEST_ENV ?? "test")
     .trim()

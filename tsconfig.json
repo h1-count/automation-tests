@@ -13,15 +13,14 @@
     ]
   },
   "include": [
-    "playwright*.ts",
-    "wdio.conf.ts",
-    "scripts/**/*.ts",
-    "src/**/*.ts",
-    "tests/**/*.ts"
+    "playwright.fast.config.ts",
+    "src/env/**/*.ts",
+    "src/support/**/*.ts",
+    "testpacks/**/*.ts"
   ],
   "exclude": [
-    ".local/**",
-    "artifacts/**",
+    "testpacks/**/artifacts/**",
+    "testpacks/**/runtime/**",
     "node_modules/**"
   ]
 }
