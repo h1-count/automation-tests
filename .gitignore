@@ -8,6 +8,7 @@ experience/USER-PREFERENCES.md
 outputs/
 testpacks/**/review/
 testpacks/**/artifacts/
+/artifacts/
 testpacks/**/runtime/
 *.log
 .DS_Store
