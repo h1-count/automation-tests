@@ -9,7 +9,7 @@
 
 ## 页面覆盖状态
 
-- 已完成：登录与注册（`testpacks/web/open-platform/login-register/`，21 条用例，含密码重置入口互跳 017~021 待实现）；创建产品已完成用例设计与审核归档，待用户确认后页面探索（`testpacks/web/open-platform/create-product/`）。
+- 已完成：登录与注册（`testpacks/web/open-platform/login-register/`，23 条用例全量通过；2026-09-02 按 testcase-designer 对象矩阵核对新增绕过直达 022、注册协议未勾选 023、002 补已登录回访登录页）；创建产品已完成用例设计与审核归档，待用户确认后页面探索（`testpacks/web/open-platform/create-product/`）。
 - 候补：官网首页、控制台、用户中心与企业中心。
 - 官网首页、控制台、用户中心与企业中心。
 - 产品开发、设备接入、授权码和运营管理相关平台文档。

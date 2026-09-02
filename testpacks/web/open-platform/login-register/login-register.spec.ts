@@ -243,7 +243,19 @@ test.describe("开放平台登录和注册", () => {
     await expect(page).toHaveURL(/\/console\/home/u, { timeout: 30_000 });
     await attachShot(page, "登录成功-控制台首页");
 
-    // OP-AUTH-002 步骤 5：退出登录，会话失效并返回登录页。
+    // OP-AUTH-002 步骤 5（2026-09-02 对象矩阵核对补充）：已登录状态直接访问 /login，
+    // 守卫对已登录访问公开路径放行（permission.ts getToken 分支 next()），登录页照常展示、会话不受影响。
+    await page.goto("/login");
+    await expect(page).toHaveURL(/\/login/u);
+    await expect(page.getByRole("tab", { name: "登录", exact: true })).toBeVisible();
+    await expect(page.getByRole("form", { name: "短信验证码登录表单" })).toBeVisible();
+    await attachShot(page, "已登录回访登录页-照常展示");
+
+    // 会话不受影响：回到受保护页仍为已登录状态（为步骤 6 退出做准备）。
+    await page.goto("/console/home");
+    await expect(page).toHaveURL(/\/console\/home/u, { timeout: 30_000 });
+
+    // OP-AUTH-002 步骤 6：退出登录，会话失效并返回登录页。
     await page.locator(".user-meta-list .btn-usermeta").click();
     const exitItem = page.locator(".user-action-list").getByText("退出", { exact: true });
     await expect(exitItem).toBeVisible();
@@ -1260,5 +1272,53 @@ test.describe("开放平台登录和注册", () => {
     await expect(page).toHaveURL(/\/reset-pw/u);
     await attachShot(page, "021 重置被拒停留重置页");
     console.log("[021] 重置被拒，停留重置页，密码未变更（.env 凭据持续有效，无需处置）");
+  });
+
+  // 覆盖用例 OP-AUTH-022（绕过入口直达的页面可达性行为；纯导航 no_write，2026-09-02 对象矩阵核对新增）。
+  // 实现事实（src/permission.ts、src/routes/common.ts，2026-09-02 探索复核一致）：
+  // 无 token 访问非公开路径时路由守卫 next({name:'login'}) 重定向；/reset-pw 经 meta.auth=false 公开放行。
+  test("绕过入口直达的页面可达性行为", async ({ page }) => {
+    // 步骤 1：未登录直达受保护页 /console/home——被重定向回登录页，不展示控制台内容。
+    await page.goto("/console/home");
+    await expect(page).toHaveURL(/\/login/u, { timeout: 30_000 });
+    await expect(page.getByRole("tab", { name: "登录", exact: true })).toBeVisible();
+    await expect(page.getByRole("form", { name: "短信验证码登录表单" })).toBeVisible();
+    await attachShot(page, "022 未登录直达受保护页-重定向登录页");
+
+    // 步骤 2：未登录直达密码重置页 /reset-pw——公开放行，重置表单可见，重定向不发生。
+    await page.goto("/reset-pw");
+    await expect(page).toHaveURL(/\/reset-pw/u);
+    await expect(page.getByRole("heading", { name: "密码重置" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "重置密码" })).toBeVisible();
+    await attachShot(page, "022 未登录直达重置页-公开放行");
+  });
+
+  // 覆盖用例 OP-AUTH-023（注册表单未勾选协议时提交被拦截；no_write，2026-09-02 对象矩阵核对新增）。
+  // 实现事实（RegisterForm.vue disableLogin 含 !agreementChk）：未勾选协议时提交按钮禁用；
+  // 与 OP-AUTH-007（登录表单）按"同一控件跨表单分别成行"覆盖。
+  test("注册表单未勾选协议时提交被拦截", async ({ page }) => {
+    test.setTimeout(120_000);
+    const testPhone = process.env.TEST_PHONE;
+    if (!testPhone) {
+      throw new Error("缺少 TEST_PHONE 环境变量");
+    }
+
+    await page.goto("/login?tab=register");
+    const registerPanel = page.locator('[role="tabpanel"][aria-labelledby="tab-register"]');
+    await expect(page.getByRole("tab", { name: "注册", exact: true })).toHaveAttribute("aria-selected", "true");
+
+    // 步骤 1：填写全部必填项（含执照、联系电话），保持未勾选协议——提交按钮保持禁用。
+    const runId = Date.now();
+    const data23 = buildRegisterData(runId, "g", testPhone);
+    const licensePath = await synthesizeLicenseScreenshot(page, `023-${runId}`);
+    await fillRegisterRequiredFields(registerPanel, data23, licensePath);
+    const submitButton = registerPanel.getByRole("button", { name: "同意条款并注册" });
+    await expect(submitButton, "023 未勾选协议时提交按钮应保持禁用").toBeDisabled();
+    await attachShot(page, "023 已填必填项但未勾选协议-提交禁用");
+
+    // 步骤 2：勾选用户协议（其余不变、验证码保持为空）——提交按钮变为可用；不点击提交（由 003 覆盖点击行为）。
+    await registerPanel.getByText("我已阅读并已同意", { exact: true }).click();
+    await expect(submitButton, "023 勾选协议后提交按钮应变为可用").toBeEnabled();
+    await attachShot(page, "023 勾选协议后提交可用");
   });
 });
