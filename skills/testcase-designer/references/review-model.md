@@ -1,4 +1,4 @@
-# 评审模型契约（testcase-review-export-v1）
+# 评审模型契约（testcase-review-export）
 
 `scripts/build-testcase-review-workbook.mjs` 只接受本契约的 JSON。三步用法：
 
@@ -7,46 +7,52 @@
 node testpacks/<type>/<project>/<feature>/runtime/review-model/build-<feature>-review-model.mjs
 
 # 2. 先校验结构、行数与摘要一致性
-node scripts/build-testcase-review-workbook.mjs --model testpacks/<type>/<project>/<feature>/runtime/review-model/<feature>-review-model.json --validate-only
+node scripts/build-testcase-review-workbook.mjs --model testpacks/<type>/<project>/<feature>/runtime/review-model/<feature>-review-model.json --scope testpacks/<type>/<project>/<feature>/scope.json --validate-only
 
 # 3. 导出工作簿（功能包 review/ 不入 Git）
 node scripts/build-testcase-review-workbook.mjs \
   --model testpacks/<type>/<project>/<feature>/runtime/review-model/<feature>-review-model.json \
+  --scope testpacks/<type>/<project>/<feature>/scope.json \
   --output "testpacks/<type>/<project>/<feature>/review/<review-id>/<功能>用例审核.xlsx" \
   --preview-dir testpacks/<type>/<project>/<feature>/review/<review-id>/previews \
   --receipt testpacks/<type>/<project>/<feature>/runtime/review-model/<feature>-review-receipt.json
 ```
 
-导出成功后同时得到回执 JSON 与逐表确定性预览（功能包 `review/<review-id>/previews/*.md`）。历史范例见功能包 `runtime/review-model/create-product-review-model.json`（本地保留，不入 Git）。
+导出成功后同时得到回执 JSON 与逐表确定性预览（功能包 `review/<review-id>/previews/*.md`）。重新审核同一功能时对既有工作簿覆盖更新：追加 `--reuse-workbook <既有工作簿路径>`（沿用工作簿结构与表头样式，仅重写内容）。历史范例见功能包 `runtime/review-model/create-product-review-model.json`（本地保留，不入 Git）。
 
 ## 顶层结构
 
 ```jsonc
 {
-  "schema": "testcase-review-export-v1",
+  "schema": "testcase-review-export",
   "modelDigest": "…",            // sha256(canonicalJson(model))，构建脚本收尾统一计算
   "callbackSubjectDigest": "…",  // 与 model 内同名字段相等
   "semanticDigest": "…",
   "contentDigest": "…",
   "bindingDigest": "…",
+  "scopeDigest": "…",            // sha256(canonicalJson(scope.json))
   "model": { /* 见下 */ }
 }
 ```
 
 校验规则（`validateExport`）：
 
-- 五个摘要都必须是 64 位小写十六进制 SHA-256；
+- 六个摘要都必须是 64 位小写十六进制 SHA-256；`scopeDigest` 必须与 `--scope` 一致；
 - `modelDigest` 必须等于 `sha256(canonicalJson(model))`；其余四个摘要必须与 model 内同名字段相等；
-- `indexRows` 非空；`modules` 非空；模块展开的 cases 总数 === `indexRows.length`；每个 case 的 `executionRows` 非空。
+- `indexRows` 非空；`modules` 非空；模块展开的 cases 总数 === `indexRows.length`；每个 case 的 `executionRows` 非空；
+- 导出前会以 `validateScope` 复核范围契约：功能包 `scope.json` 的对象缺 `combinationDesign`、策略选错或 pairwise 登记不全都会使导出失败。
+- `semanticDigest` / `contentDigest` 都包含 `scopeMatrix`，因此组合设计（`combinationDesign`）自动参与评审摘要绑定——修改 `scope.json`（含组合设计）后必须重建模型，避免模型与用例脱节。
 
 ## model 字段
 
 ```jsonc
 {
-  "schema": "testcase-review-model-v1",
+  "schema": "testcase-review-model",
   "requestId": "web/open-platform/<feature>-fast-<yyyymmdd>",  // digest 用、写入"说明"表
   "title": "开放平台<功能名>",
-  "formatVersion": "testcase-v1-layered",                       // 固定值
+  "formatVersion": "testcase-layered",                       // 固定值
+  "scopeDigest": "…",
+  "scopeMatrix": [ /* 与 scope.json.categories 完全一致的七类矩阵；combinationDesign 组合设计随对象一起进入 */ ],
   "callbackSubjectDigest": "…",
   "selectedCaseIds": ["OP-XXX-001", "…"],
   "semanticDigest": "…",
@@ -104,9 +110,10 @@ node scripts/build-testcase-review-workbook.mjs \
 
 | 摘要 | 口径 |
 | --- | --- |
-| `callbackSubjectDigest` | `sha256(cases.md 文件全文)` —— 审核对象就是这份用例表 |
-| `semanticDigest` | `sha256(canonicalJson({ selectedCaseIds, modules }))` |
-| `contentDigest` | `sha256(canonicalJson({ title, modules }))` |
+| `callbackSubjectDigest` | `sha256(cases.md 文件全文 + "\\n" + scopeDigest)` |
+| `semanticDigest` | `sha256(canonicalJson({ selectedCaseIds, modules, scopeMatrix }))` |
+| `contentDigest` | `sha256(canonicalJson({ title, modules, scopeMatrix }))` |
+| `scopeDigest` | `sha256(canonicalJson(scope.json))` |
 | `bindingDigest` | `sha256(requestId)` |
 | `modelDigest` | `sha256(canonicalJson(model))`，收尾统一计算并镜像到顶层 |
 
@@ -124,6 +131,7 @@ import path from "node:path";
 const packRoot = path.resolve(import.meta.dirname, "..", "..");
 const outputPath = path.join(import.meta.dirname, "<feature>-review-model.json");
 const caseFile = path.join(packRoot, "cases.md");
+const scopeFile = path.join(packRoot, "scope.json");
 
 const sha256 = (v) => createHash("sha256").update(v).digest("hex");
 const canonicalJson = (v) => v === null || ["boolean", "string", "number"].includes(typeof v)
@@ -153,13 +161,17 @@ const allCases = modules.flatMap((m) => m.cases);
 const selectedCaseIds = allCases.map((c) => c.caseId);
 const requestId = "web/<project>/<feature>-fast-<yyyymmdd>";
 const title = "<功能标题>";
+const caseText = await fs.readFile(caseFile, "utf8");
+const scope = JSON.parse(await fs.readFile(scopeFile, "utf8"));
+const scopeDigest = sha256(canonicalJson(scope));
 const model = {
-  schema: "testcase-review-model-v1", requestId, title,
-  formatVersion: "testcase-v1-layered",
-  callbackSubjectDigest: sha256(await fs.readFile(caseFile, "utf8")),
+  schema: "testcase-review-model", requestId, title,
+  formatVersion: "testcase-layered",
+  scopeDigest, scopeMatrix: scope.categories,
+  callbackSubjectDigest: sha256(`${caseText}\n${scopeDigest}`),
   selectedCaseIds,
-  semanticDigest: sha256(canonicalJson({ selectedCaseIds, modules })),
-  contentDigest: sha256(canonicalJson({ title, modules })),
+  semanticDigest: sha256(canonicalJson({ selectedCaseIds, modules, scopeMatrix: scope.categories })),
+  contentDigest: sha256(canonicalJson({ title, modules, scopeMatrix: scope.categories })),
   bindingDigest: sha256(requestId),
   defaults: { testType: "Web", environment: "test", dataStrategy: "no_write" },
   statistics: {
@@ -172,12 +184,13 @@ const model = {
   modules,
 };
 const exported = {
-  schema: "testcase-review-export-v1",
+  schema: "testcase-review-export",
   modelDigest: sha256(canonicalJson(model)),
   callbackSubjectDigest: model.callbackSubjectDigest,
   semanticDigest: model.semanticDigest,
   contentDigest: model.contentDigest,
   bindingDigest: model.bindingDigest,
+  scopeDigest: model.scopeDigest,
   model,
 };
 await fs.mkdir(path.dirname(outputPath), { recursive: true });
@@ -196,3 +209,4 @@ console.log(`model written: ${outputPath}`);
 | `module cases do not match index rows` | indexRows 与 modules 展开数量不一致（漏加/重复用例） |
 | `Every review model testcase must contain execution rows` | 某用例 `executionRows` 为空数组 |
 | `P0/高风险统计与模型不一致` | `statistics` 与实际 priority/risk 数量对不上（工作簿公式审计口径） |
+| `Scope completeness failed: … combinationDesign …` | `scope.json` 组合设计缺失或策略选错：先按「组合触发判定」修 `scope.json`，再重建模型并导出 |

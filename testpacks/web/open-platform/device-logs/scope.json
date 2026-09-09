@@ -1,0 +1,166 @@
+{
+  "schema": "testcase-scope",
+  "title": "device-logs",
+  "categories": [
+    {
+      "code": "C01",
+      "name": "可达性与主流程",
+      "objects": [
+        {
+          "id": "c01-existing-cases",
+          "name": "可达性与主流程（现有用例基线）",
+          "evidence": [
+            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「设备日志」相关章节）、前端源码 `web-open-platform/src/pages/device/Logs.vue`（22 行：标题/描述 + DeviceLogSearch，deviceId 取自 URL query）、`components/DeviceLogSearch.vue`（206 行：默认最近 7 天日期范围 + 设备信息条 + 日志分页表；**deviceId 输入框已注释**，入口仅 URL 参数与设备管理页「日志」链接）、`components/DeviceInfoBar.vue`、`api/device-mgt/device-mgt.ts`（queryDeviceById/queryDeviceLogPage）、`routes/device.ts`、`experience/general.md`、`experience/open-platform.md`；查重比对 device-management（「日志」链接入口在彼包操作列）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-DLOG-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C02",
+      "name": "字段与输入规则",
+      "objects": [
+        {
+          "id": "c02-existing-cases",
+          "name": "字段与输入规则（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-DLOG-002"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C03",
+      "name": "唯一性与重复操作",
+      "objects": [
+        {
+          "id": "c03-not-applicable",
+          "name": "唯一性与重复操作（当前包无独立对象）",
+          "evidence": [
+            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「设备日志」相关章节）、前端源码 `web-open-platform/src/pages/device/Logs.vue`（22 行：标题/描述 + DeviceLogSearch，deviceId 取自 URL query）、`components/DeviceLogSearch.vue`（206 行：默认最近 7 天日期范围 + 设备信息条 + 日志分页表；**deviceId 输入框已注释**，入口仅 URL 参数与设备管理页「日志」链接）、`components/DeviceInfoBar.vue`、`api/device-mgt/device-mgt.ts`（queryDeviceById/queryDeviceLogPage）、`routes/device.ts`、`experience/general.md`、`experience/open-platform.md`；查重比对 device-management（「日志」链接入口在彼包操作列）。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C04",
+      "name": "成功、异常与边界",
+      "objects": [
+        {
+          "id": "c04-not-applicable",
+          "name": "成功、异常与边界（当前包无独立对象）",
+          "evidence": [
+            "cases.md：上下文结论与范围外声明"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C05",
+      "name": "权限、状态与导航",
+      "objects": [
+        {
+          "id": "c05-not-applicable",
+          "name": "权限、状态与导航（当前包无独立对象）",
+          "evidence": [
+            "cases.md：上下文结论与范围外声明"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C06",
+      "name": "验证码、登录态与特殊能力",
+      "objects": [
+        {
+          "id": "c06-existing-cases",
+          "name": "验证码、登录态与特殊能力（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-DLOG-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C07",
+      "name": "数据写入与后续处理",
+      "objects": [
+        {
+          "id": "c07-not-applicable",
+          "name": "数据写入与后续处理（当前包无独立对象）",
+          "evidence": [
+            "cases.md：上下文结论与范围外声明"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    }
+  ]
+}

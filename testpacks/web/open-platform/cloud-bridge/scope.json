@@ -1,0 +1,382 @@
+{
+  "schema": "testcase-scope",
+  "title": "cloud-bridge",
+  "categories": [
+    {
+      "code": "C01",
+      "name": "可达性与主流程",
+      "objects": [
+        {
+          "id": "c01-existing-cases",
+          "name": "可达性与主流程（现有用例基线）",
+          "evidence": [
+            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「云云接入/协议管理」章节）、前端源码 `web-open-platform/src/pages/integration/cloud-bridge-protocol/CloudBridgeProtocol.vue`（列表 177 行：状态开关 before-change 写接口 + 删除 confirm）、`components/BtnEditCloudProtocol.vue`（新增/编辑协议表单 187 行：创建前强制 queryCloudAccessService，applicationId 为空报错不创建）、`CloudBridgeProtocolDetail.vue`（三步配置页 439 行：StepProgress 协议信息/上行解析/下行解析）、`CloudBridgeProtocolDetailS1/S2/S3.vue`（各步骤区块）、`api/bridge/bridge-basic.ts`、`api/integration/develop-cloud.ts`（queryCloudAccessService）、`experience/general.md`、`experience/open-platform.md`；查重比对 authcode（debugging 路由复用其组件，彼包处理）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-001",
+            "OP-CBP-003"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-service-activation-mainflow",
+          "name": "云云服务开通与协议创建主流程（写入链路，2026-09-07 扩展）",
+          "evidence": [
+            "前端源码（2026-09-07 勘察）：`web-open-platform/src/pages/integration/product/components/BtnOpenCloudService.vue`（开通云云服务弹窗：项目名称固定「云云接入服务」disabled、数据中心字典 AIOT_DATA_CENTER 默认第一项、联系人/联系方式预填当前账号 realName/phoneNumber 且 required，提交 POST `/open/internal/open/cloud/device/access/service`，成功 toast「云云接入服务开通成功」）；`DevelopMethodCloud.vue`（「云云接入服务集成开发」步骤卡：未开通显示开通服务按钮、已开通显示查看服务；宿主为云云设备产品的设备开发步骤页 `ProductPhaseDevelop.vue`，仅 developType==='cloud' 渲染）；`src/routes/integration.ts`（设备开发步骤路由 `/integration/product/:id/develop`）；`ProductCreate.vue`（云云接入方案含独有必填项 协议类型 cloudProtocolType：平台标准协议/自定义协议）；`api/integration/develop-cloud.ts`（openCloudAccessService 注释「授权开通云云接入服务」）；`components/BtnEditCloudProtocol.vue` 118 行（applicationId 非空时创建链路放行）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-005",
+            "OP-CBP-006"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "开通与创建均为单场景线性主流程（表单字段预填固定、无多参数交叉设计空间）；重复开通由按钮状态翻转天然防重（已开通不再展示入口）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-configpage-function-surface",
+          "name": "三步配置页功能面（映射/Header/上下行规则/认证/测试转换，2026-09-07 二次扩展）",
+          "evidence": [
+            "前端源码（2026-09-07 补全勘察）：`CloudBridgeProtocolDetailS1.vue`（Step1 三区块：协议信息配置[保存信息配置]；产品-协议映射[添加映射关系弹窗→确认，行内删除]；公共Header配置[BtnEditHeader 新增/编辑，行内删除]）；`CloudBridgeProtocolDetailS2.vue`（上行通信认证配置：认证方式 radio 平台标准认证方式 standard/自定义认证方式 custom，custom→上行认证方式 select 签名认证 signature/Basic Auth basicAuth，standard→平台标准认证信息[认证类型/项目ID/平台回调地址/App key/数据接收方式/App secret]，保存认证配置 saveAuthType；上行解析规则列表 UpParsingRulesList）；`UpParsingRulesList.vue`（列表列 规则名称/触发条件/回调地址/状态 switch/操作 编辑；进入页面调 initBridgeRuleList GET /bridge/cloud/third/rule/init 自动初始化标准规则；行内启停 updateRuleStatus）；`BtnEditUpRule.vue`（drawer-trigger 编辑抽屉 3 tab：1.规则基础信息[规则名称/回调地址+触发条件 消息类型标识符/消息类型值]、2.解析映射规则、3.响应处理；底部 上一步/下一步/完成配置 handleSave）；`CloudBridgeProtocolDetailS3.vue`（下行通讯认证配置[DownAuthConfig+保存认证配置 saveDownAuthConfig]；下行规则列表[BtnEditDownRule 添加下行规则：规则名称/规则描述/Control Type radio；行内 状态switch/编辑/删除 handleDeleteRule]；数据转换预览 DataTransformPreview[测试模板样例 select→输入→测试转换 testTransform→输出三方数据]）；`CloudBridgeProtocolDetail.vue`（三步 StepProgress + 上一步/下一步 + 第3步 保存 handleFinalSave；:id/detail 为 EditorMode.View 只读同构页）；`api/bridge/bridge-rule.ts`（updateRuleStatus/updateCBPThirdRuleStatus/testTransform）；`api/bridge/bridge-basic.ts`（createProtocolHeader/deleteProtocolHeader/updateCloudBridgeProtocol）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-010",
+            "OP-CBP-011",
+            "OP-CBP-012",
+            "OP-CBP-013",
+            "OP-CBP-014",
+            "OP-CBP-015",
+            "OP-CBP-016",
+            "OP-CBP-017",
+            "OP-CBP-018"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "各区块为独立线性 CRUD/配置保存流程：映射、Header、认证、规则启停、下行规则、测试转换彼此无参数交叉设计空间，分别单场景覆盖。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C02",
+      "name": "字段与输入规则",
+      "objects": [
+        {
+          "id": "c02-existing-cases",
+          "name": "字段与输入规则（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-001",
+            "OP-CBP-002",
+            "OP-CBP-003",
+            "OP-CBP-020",
+            "OP-CBP-021",
+            "OP-CBP-022",
+            "OP-CBP-023"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-edit-echo",
+          "name": "编辑回显与状态启停（写入链路，2026-09-07 扩展）",
+          "evidence": [
+            "前端源码（2026-09-07 勘察）：`web-open-platform/src/pages/integration/cloud-bridge-protocol/CloudBridgeProtocol.vue`（列表操作列 编辑/删除；状态列 switch 启用|禁用，before-change 调写接口）；`components/BtnEditCloudProtocol.vue`（编辑复用新增表单，回显协议规则名称/描述，maxlength=32/256 同新增）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-008"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "编辑回显与状态启停为单对象线性操作，无参数交叉组合空间；仅作用于本工程台账创建的合成协议。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C03",
+      "name": "唯一性与重复操作",
+      "objects": [
+        {
+          "id": "c03-not-applicable",
+          "name": "唯一性与重复操作（当前包无独立对象）",
+          "evidence": [
+            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「云云接入/协议管理」章节）、前端源码 `web-open-platform/src/pages/integration/cloud-bridge-protocol/CloudBridgeProtocol.vue`、`components/BtnEditCloudProtocol.vue`（2026-09-07 复核：源码未见协议名称唯一性校验）。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "源码未见协议名称唯一性校验入口，且刻意制造重复合成协议会污染协议列表；重复开通服务由按钮状态翻转天然防重（已开通不展示入口）。后续发现服务端唯一性约束或需求变更时重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "无独立可测对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C04",
+      "name": "成功、异常与边界",
+      "objects": [
+        {
+          "id": "c04-existing-cases",
+          "name": "成功、异常与边界（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-003",
+            "OP-CBP-004"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-write-boundary",
+          "name": "写入链路边界（幂等与删除确认，2026-09-07 扩展）",
+          "evidence": [
+            "前端源码（2026-09-07 勘察）：`DevelopMethodCloud.vue`（已开通状态不再渲染开通按钮——幂等由 UI 状态保证）；`CloudBridgeProtocol.vue`（删除为 confirm 危险确认交互，仅对本工程台账创建的合成协议执行）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-005",
+            "OP-CBP-009",
+            "OP-CBP-019"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "幂等分支与删除确认均为单场景行为断言，无参数交叉组合空间。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-rule-drawer-boundary",
+          "name": "上行规则编辑抽屉取消不落库（2026-09-07 二次扩展）",
+          "evidence": [
+            "前端源码（2026-09-07 补全勘察）：`BtnEditUpRule.vue` 242 行 handleCancel；抽屉底部完成配置 handleSave 仅在第 3 tab 出现；取消/关闭不触发 updateCBPThirdRule。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-014"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单场景（打开抽屉→切换 tab→取消关闭→列表数据不变），无参数交叉。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C05",
+      "name": "权限、状态与导航",
+      "objects": [
+        {
+          "id": "c05-existing-cases",
+          "name": "权限、状态与导航（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-configpage-nav",
+          "name": "三步配置页可达与结构（冒烟，2026-09-07 扩展）",
+          "evidence": [
+            "前端源码（2026-09-07 勘察）：`web-open-platform/src/pages/integration/cloud-bridge-protocol/CloudBridgeProtocolDetail.vue`（三步配置页 439 行：StepProgress 协议信息/上行解析/下行解析）、`CloudBridgeProtocolDetailS1/S2/S3.vue`（各步骤区块）；`BtnEditCloudProtocol.vue`（创建/授权成功后跳转 :id/edit）。",
+            "2026-09-07 用户要求补充：协议管理列表状态启用/禁用需独立状态流转用例（含刷新持久化验证）→ OP-CBP-019。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-007",
+            "OP-CBP-019"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单页结构冒烟，无参数交叉组合空间；三步配置的完整配置面按既有结论另行独立成包。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-detail-readonly-nav",
+          "name": "协议详情页只读导航与三步翻步（2026-09-07 二次扩展）",
+          "evidence": [
+            "前端源码（2026-09-07 补全勘察）：`src/routes/integration.ts`（:id/detail → CloudBridgeProtocolDetail.vue props mode=EditorMode.View）；`CloudBridgeProtocolDetail.vue`（StepProgress 三步、query.step 翻步、上一步/下一步、View 模式下 S1 保存/添加按钮 v-if=!isViewMode 隐藏、S2/S3 只读、第3步保存按钮 lastStep 才出现且 View 态为只读态）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-018"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单场景只读导航核对，无参数交叉。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C06",
+      "name": "验证码、登录态与特殊能力",
+      "objects": [
+        {
+          "id": "c06-not-applicable",
+          "name": "验证码、登录态与特殊能力（当前包无独立对象）",
+          "evidence": [
+            "cases.md：上下文结论与范围外声明；登录态复用共享 auth-state（login-register 包产出），本包不涉及验证码/特殊能力。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "无独立可测对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C07",
+      "name": "数据写入与后续处理",
+      "objects": [
+        {
+          "id": "c07-existing-cases",
+          "name": "数据写入与后续处理（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-004"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-CBP-004"
+            ]
+          }
+        },
+        {
+          "id": "c07-write-lifecycle",
+          "name": "云云服务与协议写入生命周期（开通→创建→编辑→删除，2026-09-07 扩展）",
+          "evidence": [
+            "前端源码（2026-09-07 勘察）：`BtnOpenCloudService.vue`（开通服务写入 POST /open/internal/open/cloud/device/access/service）、`BtnEditCloudProtocol.vue`（协议创建与授权写入，成功跳转三步配置页）、`CloudBridgeProtocol.vue`（状态 before-change 写接口、删除 confirm）、`api/bridge/bridge-basic.ts`（协议 CRUD 接口面）。写入数据全部为合成值并经 `src/support/recordGeneratedData.ts` 台账记录；删除仅限本工程台账创建的合成协议。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-005",
+            "OP-CBP-006",
+            "OP-CBP-008",
+            "OP-CBP-009"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "写入生命周期为线性链路（开通→创建→编辑→删除自清理），每步单场景断言；无多参数交叉设计空间。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-CBP-005",
+              "OP-CBP-006",
+              "OP-CBP-008",
+              "OP-CBP-009"
+            ]
+          }
+        },
+        {
+          "id": "c07-configpage-write-lifecycle",
+          "name": "配置页写入生命周期（映射/Header增删/认证保存/规则启停/下行规则增删/最终保存，2026-09-07 二次扩展）",
+          "evidence": [
+            "前端源码（2026-09-07 补全勘察）：`CloudBridgeProtocolDetailS1.vue`（handleAddProductMapping 添加映射、handleRemoveMapping 删除映射；BtnEditHeader createProtocolHeader、deleteProtocolHeader）；`CloudBridgeProtocolDetailS2.vue`（saveAuthType 认证配置保存）；`UpParsingRulesList.vue`（updateRuleStatus 规则启停）；`CloudBridgeProtocolDetailS3.vue`（saveDownAuthConfig 下行认证保存；handleDeleteRule 删除下行规则）；`CloudBridgeProtocolDetail.vue`（handleFinalSave 最终保存 updateCloudBridgeProtocol）；写入红线核对：映射/Header/规则/认证均作用于本工程台账合成的云云协议（OP-CBP-006 产出、009 删除前），不触碰真实数据。",
+            "组合设计人工补充：映射增删/Header增删/认证保存/规则启停/下行规则增删/最终保存均为对台账合成协议的高风险写入，显式补充为独立用例（OP-CBP-010~017）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-010",
+            "OP-CBP-011",
+            "OP-CBP-012",
+            "OP-CBP-013",
+            "OP-CBP-015",
+            "OP-CBP-016",
+            "OP-CBP-017"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "各写入动作为独立配置项保存（映射/Header/认证/启停/下行规则/最终保存），无多参数组合空间；写入对象全部限定为本工程台账合成协议。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-CBP-010",
+              "OP-CBP-011",
+              "OP-CBP-012",
+              "OP-CBP-013",
+              "OP-CBP-015",
+              "OP-CBP-016",
+              "OP-CBP-017",
+              "OP-CBP-019"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

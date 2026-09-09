@@ -1,0 +1,181 @@
+{
+  "schema": "testcase-scope",
+  "title": "device-ota",
+  "categories": [
+    {
+      "code": "C01",
+      "name": "可达性与主流程",
+      "objects": [
+        {
+          "id": "c01-existing-cases",
+          "name": "可达性与主流程（现有用例基线）",
+          "evidence": [
+            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「固件升级/OTA」章节）、前端源码 `web-open-platform/src/pages/device/Ota.vue`（461 行：产品卡片 + 切换产品弹窗 + 升级配置列表 + 下发/取消下发开关）、`components/addConfig.vue`（新增固件升级表单 158 行：升级包 FileUploader required+upload、固件版本号 required+version）、`api/device-mgt/device-mgt.ts`（queryOtaConfigList/addOtaConfig/updateOtaConfigStatus）、`experience/general.md`、`experience/open-platform.md`；硬边界：AGENTS.md「不做高风险设备动作（刷固件、控制硬件）」+ 目标约束「OTA/固件类只做只读与表单校验」。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-DOTA-001",
+            "OP-DOTA-002"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C02",
+      "name": "字段与输入规则",
+      "objects": [
+        {
+          "id": "c02-existing-cases",
+          "name": "字段与输入规则（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-DOTA-003"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C03",
+      "name": "唯一性与重复操作",
+      "objects": [
+        {
+          "id": "c03-not-applicable",
+          "name": "唯一性与重复操作（当前包无独立对象）",
+          "evidence": [
+            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「固件升级/OTA」章节）、前端源码 `web-open-platform/src/pages/device/Ota.vue`（461 行：产品卡片 + 切换产品弹窗 + 升级配置列表 + 下发/取消下发开关）、`components/addConfig.vue`（新增固件升级表单 158 行：升级包 FileUploader required+upload、固件版本号 required+version）、`api/device-mgt/device-mgt.ts`（queryOtaConfigList/addOtaConfig/updateOtaConfigStatus）、`experience/general.md`、`experience/open-platform.md`；硬边界：AGENTS.md「不做高风险设备动作（刷固件、控制硬件）」+ 目标约束「OTA/固件类只做只读与表单校验」。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C04",
+      "name": "成功、异常与边界",
+      "objects": [
+        {
+          "id": "c04-existing-cases",
+          "name": "成功、异常与边界（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-DOTA-003"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C05",
+      "name": "权限、状态与导航",
+      "objects": [
+        {
+          "id": "c05-existing-cases",
+          "name": "权限、状态与导航（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-DOTA-004"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C06",
+      "name": "验证码、登录态与特殊能力",
+      "objects": [
+        {
+          "id": "c06-existing-cases",
+          "name": "验证码、登录态与特殊能力（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-DOTA-001",
+            "OP-DOTA-003"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C07",
+      "name": "数据写入与后续处理",
+      "objects": [
+        {
+          "id": "c07-existing-cases",
+          "name": "数据写入与后续处理（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-DOTA-001",
+            "OP-DOTA-003",
+            "OP-DOTA-004"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-DOTA-001",
+              "OP-DOTA-003",
+              "OP-DOTA-004"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

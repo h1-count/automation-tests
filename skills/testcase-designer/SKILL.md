@@ -5,8 +5,17 @@ description: 快速通道测试用例设计器。为 automation-tests 工程生�
 
 # 测试用例设计器（快速通道）
 
-> 权威边界：AGENTS.md 是本工程唯一权威；本 skill 与其冲突时以 AGENTS.md 为准。
+> 边界关系：AGENTS.md 是工程规则与硬边界的最高约束；本 skill 只在用例设计方法域内做细化定义，两者冲突时以 AGENTS.md 为准。
 > 适用流程段：`加载上下文 → 划定范围（七类提取）→ 识别参数与取值 → 生成分层用例表 → 导出 Excel 审核工作簿 → 审核后交接`（对应用作流第 1~6 步）。
+
+## 硬前置（每次必须执行）
+
+0. 一次请求涉及 3 个及以上功能包时，先读取本次 `request-plan.json`：只加载计划分配给当前功能包的资料、上游摘要和项目经验；不得把其他包的详细用例带入本包设计。需求、源码、经验与既有台账可提出候选依赖，但候选需在请求计划确认后才是有效前置条件。
+1. 先运行 `node scripts/prepare-case-design.mjs --pack testpacks/<type>/<project>/<feature>`，加载本包 `runtime/design-card.md` 与实际资料；不得依赖长会话记忆续接范围。
+2. 先维护同包已提交的 `scope.json`（统一 `testcase-scope`），固定覆盖 C01…C07。每个对象必须提供源码/资料依据，并归为 `covered`（关联 cases.md 用例 ID）、`out_of_scope`（理由+依据）或 `pending`；每个对象还必须声明 `combinationDesign` 组合设计结论（触发规则见「识别参数、取值与约束」），缺失或策略选错会阻断审计、Excel 导出与 `npm run test:fast`。
+3. 写入/更新 `cases.md` 后，先运行 `node scripts/audit-case-completeness.mjs <功能包>`；有 pending 或其他缺口时不得导出 Excel、不得进入脚本和执行阶段。
+
+详细的七类提取、对象矩阵和参数化方法仍以下文为准。
 > 审核通过后的探索、脚本编写与执行不归本 skill，但「工作流——审核后的交接」给出交接要点。
 
 ## 概述
@@ -15,15 +24,15 @@ description: 快速通道测试用例设计器。为 automation-tests 工程生�
 
 1. **可追溯的上下文**：从 `sources/` 与 `experience/` 实际阅读资料，把来源路径和影响用例的结论写进用例文件顶部；
 2. **有依据的参数设计**：用等价类划分、边界值和成对组合（pairwise）识别参数、取值与业务约束，参数化数据落为 `D01`、`D02`；
-3. **可审核的标准产物**：分层用例表 `*.cases.md` + 由 `scripts/build-testcase-review-workbook.mjs` 导出的 Excel 审核工作簿。
+3. **可审核的标准产物**：分层用例表 `cases.md` + 由 `scripts/build-testcase-review-workbook.mjs` 导出的 Excel 审核工作簿。
 
 产物停留在"设计"层：不打开被测页面、不发验证码、不登录、不提交任何表单。
 
 ## 何时使用本 skill
 
 - 用户点名要为新功能、新页面或新接口"生成/设计/补充测试用例"；
-- 需求或原型资料更新，需要同步修订某个 `*.cases.md`；
-- 功能含 3 个以上输入参数、配置项或环境因子，需要压缩组合规模（pairwise）；
+- 需求或原型资料更新，需要同步修订某个功能包的 `cases.md`；
+- 参数对象需要做组合策略判定（不适用 / 直接枚举 / pairwise），并把结论登记进 `scope.json` 的 `combinationDesign`；
 - 用例审核通过后资料又发生变化，需要重新导出审核工作簿。
 
 不适用：直接写 Playwright 脚本、跑测试、排查失败——走 `docs/FAST-TRACK.md` 与 `experience/general.md`。
@@ -46,7 +55,7 @@ node scripts/load-test-context.mjs --project <project> --scope <feature>
 
 ### 2. 划定范围（七类提取，先于参数识别）
 
-生成或补全用例集时，按以下类别逐项提取核对，不得只写主流程（本清单是七类提取的权威定义，AGENTS.md 与 docs/FAST-TRACK.md 仅保留指针）：
+生成或补全用例集时，按以下类别逐项提取核对，不得只写主流程（本清单是七类提取的定义正本，AGENTS.md 与 docs/FAST-TRACK.md 仅保留指针）：
 
 ① 页面/接口可达性与核心主路径；② 必填、空值、长度上下限、字符集、格式、默认值；③ 唯一性、重复提交、幂等；④ 正常、异常、边界与错误提示；⑤ 权限、协议勾选、状态流转、跳转结果；⑥ 验证码、登录态、上传文件等特殊约束；⑦ 数据写入风险、成功判定信号和后续处置。
 
@@ -71,14 +80,19 @@ node scripts/load-test-context.mjs --project <project> --scope <feature>
 | 约束 | 参数间的业务依赖 | 短信登录时不出现密码框 |
 | 预期 | 每种组合的可观察结果 | 按钮可用、出现字段级提示、跳转 |
 
-**组合规模判断**：
+**组合触发判定（统一规则，先于写用例完成，结论逐对象登记进 `scope.json` 的 `combinationDesign`）**：
 
-- 参数 ≤ 2 个或全组合 ≤ 12 条：直接枚举，每个组合一条数据；
-- 其余情况（参数 ≥ 3 且全组合超 12 条，例如 4 参数 × 4 取值 = 256）：一律用 pairwise 压缩到 12~20 条，不留"不算明显膨胀"的中间地带。写模型 JSON，跑本 skill 自带脚本：
+- 有效组合数 = 参数取值的全组合**按业务约束过滤后**的剩余条数，不是全组合原始规模（4 参数 × 4 取值 = 256，约束剔除后可能只剩 20）；
+- 参数间无交叉影响（含纯展示、单状态对象）：`not_applicable`，不填参数、有效组合数为 0；
+- 参数 ≤ 2 个，或有效组合 ≤ 12 条：`direct_enumeration`，每个有效组合一条数据，逐行映射数据编号；
+- 参数 ≥ 3 个且有效组合 > 12 条：`pairwise`，压缩到 12~20 条，不留"不算明显膨胀"的中间地带。写模型 JSON，跑本 skill 自带脚本：
 
 ```bash
 node skills/testcase-designer/scripts/pict-pairwise.mjs --model testpacks/<type>/<project>/<feature>/runtime/pairwise/pict-model.json --format md
 ```
+
+- 判定结论必须登记 `combinationDesign`：参数、等价类取值与依据、业务约束、有效组合数、策略及理由；pairwise 另登记模型路径、模型摘要（sha256）、生成的 D 编号范围；模型存放在功能包 `runtime/pairwise/`（不入 Git），路径与摘要写入可提交的 `scope.json`，审计会重放模型核对摘要、组合数与 D 编号；
+- 判定缺失或选错（如 3 参数且有效组合超 12 条仍走直接枚举）会阻断完整性审计、Excel 导出与 `npm run test:fast`；pairwise 只覆盖两两交互，高风险、写入与多负向叠加组合必须用 `manualSupplementCaseIds` 显式补充（只读 pairwise 对象可给 `manualSupplementReason` 范围外理由），C07 写入对象一律要列人工补充用例。
 
 模型写法、约束语法与压缩策略见 `references/pairwise-design.md`。生成结果逐一映射为数据编号 `D01`、`D02`……写入步骤表的"测试数据"列。
 
@@ -89,7 +103,7 @@ node skills/testcase-designer/scripts/pict-pairwise.mjs --model testpacks/<type>
 
 - **表单前置校验（no_write）**：填全部必填 → 逐个字段喂非法值（超长、非法字符、空）→ 断言字段级提示与提交按钮状态，**不点击提交**（例外：按钮可用且由客户端表单校验拦截时允许点击，断言"提交被拦截且无网络写入"）；
 - **向导式流程（分步用例）**：每个向导步骤一条用例，前置条件链上一步，最后的"提交成功"单列高风险用例；
-- **参数化组合（pairwise）**：3+ 参数先跑 `pict-pairwise.mjs`，输出行映射为 `D01`~`Dnn`，在"是否写入数据"或折叠正文说明数据来源；脚本阶段用 `for...of` 遍历数据数组实现。详见 `references/pairwise-design.md`；
+- **参数化组合（pairwise）**：参数 ≥ 3 且有效组合 > 12 时先跑 `skills/testcase-designer/scripts/pict-pairwise.mjs`，输出行映射为 `D01`~`Dnn`，在"是否写入数据"或折叠正文说明数据来源，并同步登记 `scope.json` 的 `combinationDesign`（模型路径、摘要、D 编号范围）；脚本阶段用 `for...of` 遍历数据数组实现。详见 `references/pairwise-design.md`；
 - **跨包登录态复用**：登录功能已在某功能包覆盖（如 login-register）时，其他包不重复设计登录用例——前置条件写"已按 <包> 对应用例登录"，运行时复用该包 `runtime/auth-state.json` 登录态，失效时重新登录刷新；登录态文件仅存本地，不入 Git。
 
 ### 4. 生成分层用例表
@@ -103,7 +117,7 @@ node skills/testcase-designer/scripts/pict-pairwise.mjs --model testpacks/<type>
 - 测试数据列只允许：合成值描述、`D01` 式编号、`.env` 变量名（如 `TEST_PHONE`）。**禁止**出现真实密码、Token、密钥、Cookie 等可复用凭据的实际值（测试手机号、固定测试验证码属合成值，不受此限）；
 - 优先级刻度：P0 = 核心主路径、数据写入与不可逆动作；P1 = 重要补充（边界、异常、状态流转、唯一性）；P2 = 次要（低频入口、纯展示核对）。风险刻度：高 = 触发短信/登录态/提交/生产数据；中 = 校验与流程类；低 = 纯导航与只读核对。发短信、创建登录态、提交表单 = 写入，在"是否写入数据"里写明内容与记录去向；探索类、校验类用例尽量设计成 no_write（填表不提交、验证码不请求），把写入集中到最少的"提交成功"用例。验证码/登录态场景前置条件写明 `.env` 已配置 `TEST_PHONE`、`TEST_VERIFICATION_CODE`，步骤里测试数据只写变量名；图形验证码按 `experience/general.md` 的"人工协助点选"模式设计，预期写倒计时文案等同步信号；
 - 预期结果必须可观察、可断言（"出现字段级提示"、"跳转 URL 含 `register-pending`"、"按钮进入倒计时"），❌ "成功"、"报错"、"页面正常"；
-- 提示文案写进用例表时，语义是"该场景应出现的提示（需求参考文案）"而非逐字断言依据：脚本阶段按 `docs/FAST-TRACK.md`「提示类断言（权威定义）」断言"出现提示"这一行为，实际文案与用例表文案的差异以"文案差异"注解进报告，不阻断测试；捕获到的提示仍须与用例预期终态一致（与该字段/拒绝语义相关、跳转 URL 正确），无关提示不得作为通过依据。
+- 提示文案写进用例表时，语义是"该场景应出现的提示（需求参考文案）"而非逐字断言依据：脚本阶段按 `docs/FAST-TRACK.md`「提示类断言（规则正本）」断言"出现提示"这一行为，实际文案与用例表文案的差异以"文案差异"注解进报告，不阻断测试；捕获到的提示仍须与用例预期终态一致（与该字段/拒绝语义相关、跳转 URL 正确），无关提示不得作为通过依据。
 
 ### 5. 构建评审模型并导出 Excel 审核工作簿
 
@@ -113,9 +127,10 @@ Excel 必须由脚本生成，不得以对话 Markdown 表替代：
 2. 先校验再导出：
 
 ```bash
-node scripts/build-testcase-review-workbook.mjs --model testpacks/<type>/<project>/<feature>/runtime/review-model/<feature>-review-model.json --validate-only
+node scripts/build-testcase-review-workbook.mjs --model testpacks/<type>/<project>/<feature>/runtime/review-model/<feature>-review-model.json --scope testpacks/<type>/<project>/<feature>/scope.json --validate-only
 node scripts/build-testcase-review-workbook.mjs \
   --model testpacks/<type>/<project>/<feature>/runtime/review-model/<feature>-review-model.json \
+  --scope testpacks/<type>/<project>/<feature>/scope.json \
   --output testpacks/<type>/<project>/<feature>/review/<review-id>/<功能>用例审核.xlsx \
   --preview-dir testpacks/<type>/<project>/<feature>/review/<review-id>/previews \
   --receipt testpacks/<type>/<project>/<feature>/runtime/review-model/<feature>-review-receipt.json
@@ -127,7 +142,7 @@ node scripts/build-testcase-review-workbook.mjs \
 
 - 用户确认前：不发送验证码、不登录、不提交注册、不做任何外部写操作；
 - 用户确认后：先**重新运行第 1 步**的上下文加载，复核范围、环境、写入风险与已审核用例仍一致；资料或结论有变 → 回到第 4 步更新用例表并重新导出 Excel，不得以经验库替代审核；
-- 一致才交棒：Chrome DevTools MCP 按审核工作簿逐条探索 → 同功能包写 `<feature>.spec.ts` 并维护 `conclusion.md` → `npm run test:fast`。写入类用例的数据记录一律经 `src/support/recordGeneratedData.ts`，约定以 AGENTS.md 为准。
+- 一致才交棒：使用 MCP 按审核工作簿逐条探索真实页面——Chrome DevTools MCP 做只读探索、快照与排错，需要生成定位代码时辅以 Playwright MCP（工具分工以 `docs/FAST-TRACK.md`「MCP 接入」为正本）→ 同功能包写 `<feature>.spec.ts` 并维护 `conclusion.md` → `npm run test:fast`。写入类用例的数据记录一律经 `src/support/recordGeneratedData.ts`，约定以 AGENTS.md 为准。
 
 ## 输出格式（cases.md 模板）
 
@@ -173,6 +188,7 @@ node scripts/build-testcase-review-workbook.mjs \
 | 症状 | 处置 |
 | --- | --- |
 | `--validate-only` 报 digest/结构错误 | 模型与导出层的五个摘要必须一致；按 `references/review-model.md` 的构建模板重新生成，不要手改 JSON |
+| 审计/导出报「必须声明 combinationDesign」或策略错误 | 统一 `testcase-scope` 严格门禁：按「组合触发判定」补齐或修正 `scope.json` 后重跑审计 |
 | 上下文清单命中为空 | 检查 `--scope` 拼写与 `load-test-context.mjs` 里的 scopeAliases；用 `--query` 补检索词；确无资料则在用例顶部标"待确认"并只出 no_write 用例 |
 | pairwise 退出码为 2（"可覆盖取值对未被覆盖"） | 属模型或用法异常：核对参数、取值拼写与约束引用；"被约束整体排除（属预期）"的提示不是错误，是业务约束的如实反映 |
 | 全组合超脚本上限 | 先用等价类压缩取值；仍超限则按业务把参数拆成多个独立模型 |
@@ -183,5 +199,5 @@ node scripts/build-testcase-review-workbook.mjs \
 - `references/review-model.md` —— 评审模型 JSON 契约、摘要计算约定、构建脚本模板、workbook 命令；
 - `references/pairwise-design.md` —— 参数建模、约束语法、pairwise 策略与 D01 映射；
 - `scripts/pict-pairwise.mjs` —— 零依赖成对组合生成器（`--model` 必填，`--format md|json`）；
-- 工程级权威：`AGENTS.md`、`docs/FAST-TRACK.md`、`experience/general.md`、`experience/<project>.md`；
+- 工程级正本：`AGENTS.md`（硬边界与闸门）、`docs/FAST-TRACK.md`（流程与脚本规则正本）；`experience/` 为实践教训沉淀，供参考、不作规范依据；
 - 方法论源头：[microsoft/pict](https://github.com/microsoft/pict)、[pypict](https://github.com/kmaehashi/pypict)（本 skill 的组合设计写法借鉴 [pypict-claude-skill](https://github.com/omkamal/pypict-claude-skill)）。

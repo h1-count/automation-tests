@@ -1,0 +1,191 @@
+{
+  "schema": "testcase-scope",
+  "title": "account-center",
+  "categories": [
+    {
+      "code": "C01",
+      "name": "可达性与主流程",
+      "objects": [
+        {
+          "id": "c01-existing-cases",
+          "name": "可达性与主流程（现有用例基线）",
+          "evidence": [
+            "`sources/indexes/open-platform.yaml`、`sources/open-platform/需求/AIoT平台项目.docx`（「账号中心/账号管理/所属企业」章节）、前端源码 `web-open-platform/src/pages/console/account/AccountInfo.vue`、`src/pages/console/account/Company.vue`、`src/pages/console/components/BtnChangePhone.vue`、`BtnChangePassword.vue`、`PasswordResetForm.vue`、`BtnTransferCompany.vue`、`src/components/layouts/console/ConsoleLayout.vue`、`ConsoleHeader.vue`、`experience/general.md`、`experience/open-platform.md`；查重比对 console-home 包（头部入口跳转已覆盖）、login-register 包（登录/重置链路已覆盖）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-ACCT-001",
+            "OP-ACCT-006",
+            "OP-ACCT-008"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C02",
+      "name": "字段与输入规则",
+      "objects": [
+        {
+          "id": "c02-existing-cases",
+          "name": "字段与输入规则（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-ACCT-003",
+            "OP-ACCT-004"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C03",
+      "name": "唯一性与重复操作",
+      "objects": [
+        {
+          "id": "c03-existing-cases",
+          "name": "唯一性与重复操作（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-ACCT-005"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C04",
+      "name": "成功、异常与边界",
+      "objects": [
+        {
+          "id": "c04-existing-cases",
+          "name": "成功、异常与边界（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-ACCT-002",
+            "OP-ACCT-003",
+            "OP-ACCT-004",
+            "OP-ACCT-005",
+            "OP-ACCT-007"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C05",
+      "name": "权限、状态与导航",
+      "objects": [
+        {
+          "id": "c05-existing-cases",
+          "name": "权限、状态与导航（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-ACCT-007",
+            "OP-ACCT-008"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C06",
+      "name": "验证码、登录态与特殊能力",
+      "objects": [
+        {
+          "id": "c06-existing-cases",
+          "name": "验证码、登录态与特殊能力（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-ACCT-002",
+            "OP-ACCT-003",
+            "OP-ACCT-005"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        }
+      ]
+    },
+    {
+      "code": "C07",
+      "name": "数据写入与后续处理",
+      "objects": [
+        {
+          "id": "c07-existing-cases",
+          "name": "数据写入与后续处理（现有用例基线）",
+          "evidence": [
+            "cases.md：快速索引、对象矩阵与上下文来源"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-ACCT-002",
+            "OP-ACCT-004",
+            "OP-ACCT-006"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-ACCT-002",
+              "OP-ACCT-004",
+              "OP-ACCT-006"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

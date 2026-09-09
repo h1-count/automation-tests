@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { auditPack, validateScope } from "./audit-case-completeness.mjs";
 
-const exportSchema = "testcase-review-export-v1";
-const modelSchema = "testcase-review-model-v1";
-const receiptSchema = "testcase-review-workbook-receipt-v1";
-const sheetNames = ["说明", "用例索引", "用例详情"];
+const exportSchema = "testcase-review-export";
+const modelSchema = "testcase-review-model";
+const receiptSchema = "testcase-review-workbook-receipt";
+const sheetNames = ["说明", "范围矩阵", "用例索引", "用例详情"];
 const digestPattern = /^[a-f0-9]{64}$/u;
 
 function option(args, name) {
@@ -18,6 +19,40 @@ function required(args, name) {
   const value = option(args, name);
   if (!value) throw new Error(`Missing ${name}.`);
   return value;
+}
+
+function textOf(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+const combinationStrategyLabels = {
+  not_applicable: "不适用",
+  direct_enumeration: "直接枚举",
+  pairwise: "Pairwise",
+};
+
+/** scope.json combinationDesign 中的 D 编号数组渲染为连续区间（如 D01~D16），不连续则逐个列出。 */
+function renderDataIdRange(dataIds) {
+  const ids = dataIds.map(textOf).filter(Boolean);
+  if (ids.length === 0) return "—";
+  const numbers = ids.map((id) => (/^D(\d{2,})$/u.exec(id)?.[1] ? Number(/^D(\d{2,})$/u.exec(id)[1]) : Number.NaN));
+  const contiguous = numbers.every((number, index) => Number.isInteger(number) && (index === 0 || number === numbers[index - 1] + 1));
+  return contiguous ? `${ids[0]}~${ids[ids.length - 1]}` : ids.join("、");
+}
+
+/** 组合策略摘要：审核者在「范围矩阵」即可看到每个对象的策略、组合数、模型来源、D 编号与人工补充。 */
+function combinationSummaryCells(object) {
+  const design = object?.combinationDesign;
+  if (!design || typeof design !== "object" || Array.isArray(design)) return ["—", "—", "—", "—", "—"];
+  const strategy = combinationStrategyLabels[design.strategy] ?? (textOf(design.strategy) || "—");
+  const validCount = Number.isInteger(design.validCombinationCount) ? String(design.validCombinationCount) : "—";
+  const model = design.strategy === "pairwise" && textOf(design.modelPath) ? design.modelPath : "—";
+  const dataIds = Array.isArray(design.dataIds) && design.dataIds.length > 0 ? renderDataIdRange(design.dataIds) : "—";
+  const manualIds = Array.isArray(design.manualSupplementCaseIds) ? design.manualSupplementCaseIds.map(textOf).filter(Boolean) : [];
+  const manual = manualIds.length > 0
+    ? manualIds.join("、")
+    : textOf(design.manualSupplementReason) ? `范围外：${textOf(design.manualSupplementReason)}` : "—";
+  return [strategy, validCount, model, dataIds, manual];
 }
 
 function sha256(value) {
@@ -41,13 +76,13 @@ function canonicalJson(value) {
   throw new Error(`Canonical JSON does not support ${typeof value}.`);
 }
 
-function validateExport(value) {
+function validateExport(value, scope) {
   if (!value || typeof value !== "object" || value.schema !== exportSchema) {
     throw new Error(`Review export schema must be ${exportSchema}.`);
   }
   const { model } = value;
-  if (!model || model.schema !== modelSchema || model.formatVersion !== "testcase-v1-layered") {
-    throw new Error("Review export must contain a testcase-v1-layered review model.");
+  if (!model || model.schema !== modelSchema || model.formatVersion !== "testcase-layered") {
+    throw new Error("Review export must contain a testcase-layered review model.");
   }
   for (const [label, digest] of [
     ["modelDigest", value.modelDigest],
@@ -82,11 +117,29 @@ function validateExport(value) {
   if (cases.some((testcase) => !testcase.executionRows?.length)) {
     throw new Error("Every review model testcase must contain execution rows.");
   }
+  if (!digestPattern.test(value.scopeDigest ?? "") || value.scopeDigest !== model.scopeDigest) {
+    throw new Error("Review export must contain a matching scopeDigest.");
+  }
+  if (!Array.isArray(model.scopeMatrix) || model.scopeMatrix.length !== 7) {
+    throw new Error("Review model must contain the seven-category scopeMatrix.");
+  }
+  if (scope) {
+    const scopeDigest = sha256(canonicalJson(scope));
+    if (scopeDigest !== value.scopeDigest) throw new Error("Review export scopeDigest does not match --scope.");
+    if (JSON.stringify(model.scopeMatrix) !== JSON.stringify(scope.categories)) {
+      throw new Error("Review model scopeMatrix does not match --scope.");
+    }
+    const scopeProblems = validateScope(scope, new Set(model.indexRows.map((row) => row.caseId)));
+    if (scopeProblems.problems.length) {
+      throw new Error(`Scope completeness failed: ${scopeProblems.problems.map((item) => `[${item.category}] ${item.message}`).join("；")}`);
+    }
+  }
   return value;
 }
 
 export function buildWorkbookLayout(exported) {
   const { model } = validateExport(exported);
+  const scopeRowCount = model.scopeMatrix.reduce((total, category) => total + category.objects.length, 0);
   const indexLastRow = model.indexRows.length + 1;
   let detailRow = 2;
   const merges = [];
@@ -123,6 +176,7 @@ export function buildWorkbookLayout(exported) {
   }
   return {
     title: model.title,
+    scopeLastRow: scopeRowCount + 1,
     indexLastRow,
     detailLastRow: detailRow - 1,
     statisticsFormulas: [
@@ -224,9 +278,10 @@ function renderSheetPreview(sheet) {
 }
 
 function assertCachedWorkbookBody(workbook, exported, layout) {
+  const scope = workbook.getWorksheet("范围矩阵");
   const index = workbook.getWorksheet("用例索引");
   const detail = workbook.getWorksheet("用例详情");
-  if (index.rowCount !== layout.indexLastRow || detail.rowCount !== layout.detailLastRow) {
+  if (scope.rowCount !== layout.scopeLastRow || index.rowCount !== layout.indexLastRow || detail.rowCount !== layout.detailLastRow) {
     throw new Error("Cached workbook body does not match the current review content.");
   }
   exported.model.indexRows.forEach((expected, offset) => {
@@ -313,8 +368,9 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
   };
 
   const infoSheet = workbook.addWorksheet(sheetNames[0]);
-  const indexSheet = workbook.addWorksheet(sheetNames[1]);
-  const detailSheet = workbook.addWorksheet(sheetNames[2]);
+  const scopeSheet = workbook.addWorksheet(sheetNames[1]);
+  const indexSheet = workbook.addWorksheet(sheetNames[2]);
+  const detailSheet = workbook.addWorksheet(sheetNames[3]);
 
   // 说明
   infoSheet.columns = [{ width: 18 }, { width: 76 }, { width: 16 }, { width: 16 }, { width: 16 }];
@@ -347,6 +403,7 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
     ["用例语义摘要", model.semanticDigest],
     ["内容摘要", model.contentDigest],
     ["本轮绑定摘要", model.bindingDigest],
+    ["范围契约摘要", model.scopeDigest],
   ];
   metaRows.forEach(([label, value]) => {
     const row = infoSheet.addRow([label, value]);
@@ -387,6 +444,41 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
   legendRow.height = 30;
   infoSheet.views = [{ state: "frozen", ySplit: 2 }];
   infoSheet.properties.showGridLines = false;
+
+  // 范围矩阵：审核者先核对七类对象、资料依据、归宿与组合策略摘要，再审核具体用例步骤。
+  const scopeHeader = scopeSheet.addRow([
+    "类别", "范围", "对象", "依据", "归宿", "关联用例", "范围外理由",
+    "组合策略", "有效组合数", "组合模型", "数据编号", "人工补充",
+  ]);
+  styleHeader(scopeHeader, colors.teal);
+  for (const category of model.scopeMatrix) {
+    for (const object of category.objects) {
+      const disposition = object.disposition === "covered" ? "已覆盖"
+        : object.disposition === "out_of_scope" ? "范围外" : "待定";
+      const row = scopeSheet.addRow([
+        category.code,
+        category.name,
+        object.name,
+        object.evidence.join("\n"),
+        disposition,
+        (object.caseIds ?? []).join("、"),
+        object.reason ?? "",
+        ...combinationSummaryCells(object),
+      ]);
+      styleBody(row);
+      row.height = Math.max(30, Math.min(90, 18 + Math.max(object.evidence.length, 1) * 18));
+      if (object.disposition === "out_of_scope") row.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.paleYellow } };
+      if (object.disposition === "pending") row.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.paleRed } };
+      if (object.combinationDesign?.strategy === "pairwise") {
+        row.getCell(8).fill = { type: "pattern", pattern: "solid", fgColor: { argb: colors.paleBlue } };
+        row.getCell(8).font = { ...font, bold: true, color: { argb: colors.navy } };
+      }
+    }
+  }
+  scopeSheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: layout.scopeLastRow, column: 12 } };
+  setWidths(scopeSheet, [10, 24, 32, 52, 12, 32, 48, 14, 12, 34, 20, 30]);
+  scopeSheet.views = [{ state: "frozen", ySplit: 1 }];
+  scopeSheet.properties.showGridLines = false;
 
   // 用例索引
   const indexHeader = indexSheet.addRow(["模块", "用例编号", "用例标题", "优先级", "风险"]);
@@ -542,7 +634,19 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
   if (rereadTitle !== `${model.title} · 只读评审版`) {
     throw new Error(`Workbook title region mismatch: ${String(rereadTitle)}`);
   }
-  const rereadIndex = reread.getWorksheet(sheetNames[1]);
+  const rereadScope = reread.getWorksheet(sheetNames[1]);
+  const expectedScopeHeader = [
+    "类别", "范围", "对象", "依据", "归宿", "关联用例", "范围外理由",
+    "组合策略", "有效组合数", "组合模型", "数据编号", "人工补充",
+  ];
+  const rereadScopeHeader = [];
+  for (let column = 1; column <= expectedScopeHeader.length; column += 1) {
+    rereadScopeHeader.push(rereadScope.getCell(1, column).value);
+  }
+  if (rereadScope.rowCount !== layout.scopeLastRow || JSON.stringify(rereadScopeHeader) !== JSON.stringify(expectedScopeHeader)) {
+    throw new Error("Workbook scope matrix mismatch.");
+  }
+  const rereadIndex = reread.getWorksheet(sheetNames[2]);
   if (rereadIndex.rowCount !== layout.indexLastRow) {
     throw new Error(`Workbook index row count mismatch: ${rereadIndex.rowCount} vs ${layout.indexLastRow}.`);
   }
@@ -554,7 +658,7 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
   ) {
     throw new Error("Workbook index first data row mismatch.");
   }
-  const rereadDetail = reread.getWorksheet(sheetNames[2]);
+  const rereadDetail = reread.getWorksheet(sheetNames[3]);
   if (rereadDetail.rowCount !== layout.detailLastRow) {
     throw new Error(`Workbook detail row count mismatch: ${rereadDetail.rowCount} vs ${layout.detailLastRow}.`);
   }
@@ -574,9 +678,9 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
     throw new Error("Workbook detail first execution row mismatch.");
   }
   const rereadFormulaAudit = auditStatisticsFormulas(model, layout, [
-    rereadInfo.getCell(15, 2),
     rereadInfo.getCell(16, 2),
     rereadInfo.getCell(17, 2),
+    rereadInfo.getCell(18, 2),
   ]);
   if (rereadFormulaAudit.length > 0) {
     throw new Error(`Workbook formula audit failed after write: ${rereadFormulaAudit.join("；")}`);
@@ -607,6 +711,7 @@ async function createWorkbook(exported, outputPath, previewDir, receiptPath) {
     semanticDigest: exported.semanticDigest,
     contentDigest: exported.contentDigest,
     bindingDigest: exported.bindingDigest,
+    scopeDigest: exported.scopeDigest,
     workbookSha256: sha256(workbookBytes),
     sheets: sheetNames,
     statistics: layout.statistics,
@@ -635,14 +740,15 @@ async function refreshCachedWorkbook(exported, cachedPath, outputPath, previewDi
   info.getCell(10, 2).value = exported.semanticDigest;
   info.getCell(11, 2).value = exported.contentDigest;
   info.getCell(12, 2).value = exported.bindingDigest;
+  info.getCell(13, 2).value = exported.scopeDigest;
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   await workbook.xlsx.writeFile(outputPath);
   const reread = new ExcelJS.Workbook();
   await reread.xlsx.readFile(outputPath);
   const formulas = auditStatisticsFormulas(exported.model, layout, [
-    reread.getWorksheet("说明").getCell(15, 2),
     reread.getWorksheet("说明").getCell(16, 2),
     reread.getWorksheet("说明").getCell(17, 2),
+    reread.getWorksheet("说明").getCell(18, 2),
   ]);
   if (formulas.length) throw new Error(`Cached workbook formula audit failed: ${formulas.join("；")}`);
   await fs.rm(previewDir, { recursive: true, force: true });
@@ -661,6 +767,7 @@ async function refreshCachedWorkbook(exported, cachedPath, outputPath, previewDi
     semanticDigest: exported.semanticDigest,
     contentDigest: exported.contentDigest,
     bindingDigest: exported.bindingDigest,
+    scopeDigest: exported.scopeDigest,
     workbookSha256: sha256(await fs.readFile(outputPath)),
     sheets: sheetNames,
     statistics: layout.statistics,
@@ -674,7 +781,17 @@ async function refreshCachedWorkbook(exported, cachedPath, outputPath, previewDi
 async function main() {
   const args = process.argv.slice(2);
   const modelPath = required(args, "--model");
-  const exported = validateExport(JSON.parse(await fs.readFile(modelPath, "utf8")));
+  const scopePath = required(args, "--scope");
+  const scope = JSON.parse(await fs.readFile(scopePath, "utf8"));
+  // scope.json 位于功能包时，导出前重放 Pairwise 模型；临时纯模型文件仍可做结构预览。
+  const packDirectory = path.dirname(scopePath);
+  if (await fs.access(path.join(packDirectory, "cases.md")).then(() => true).catch(() => false)) {
+    const audit = await auditPack(packDirectory);
+    if (audit.problems.length > 0) {
+      throw new Error(`Scope completeness failed: ${audit.problems.map((item) => `[${item.category}] ${item.object}：${item.message}`).join("；")}`);
+    }
+  }
+  const exported = validateExport(JSON.parse(await fs.readFile(modelPath, "utf8")), scope);
   const layout = buildWorkbookLayout(exported);
   if (args.includes("--validate-only")) {
     process.stdout.write(`${JSON.stringify(layout)}\n`);
