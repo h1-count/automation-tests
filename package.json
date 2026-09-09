@@ -12,7 +12,14 @@
     "test:fast": "node scripts/run-fast-tests.mjs",
     "test:fast:headed": "node scripts/run-fast-tests.mjs --headed",
     "report": "playwright show-report",
+    "report:allure": "node scripts/show-allure-report.mjs",
+    "report:request": "node scripts/show-request-report.mjs",
     "sources:ingest": "node scripts/source-library.mjs ingest",
+    "check:case-completeness": "node scripts/audit-case-completeness.mjs",
+    "check:case-coverage": "node scripts/audit-case-coverage.mjs",
+    "request:plan": "node scripts/prepare-test-request.mjs",
+    "request:reduce": "node scripts/reduce-test-request.mjs",
+    "test:case-completeness": "node --test tests/support/case-completeness.test.mjs tests/support/review-workbook-scope.test.mjs tests/support/request-report.test.mjs tests/support/test-request-plan.test.mjs",
     "check:types": "tsc --project tsconfig.json"
   },
   "dependencies": {
@@ -21,6 +28,9 @@
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.1",
+    "allure": "^3.16.0",
+    "allure-playwright": "^3.11.1",
+    "exceljs": "^4.4.0",
     "typescript": "^7.0.2"
   }
 }

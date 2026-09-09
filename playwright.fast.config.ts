@@ -23,22 +23,27 @@ function resolveFastBaseUrl(): string {
 const baseURL = resolveFastBaseUrl();
 const usesLocalOpenPlatform = new URL(baseURL).hostname === "127.0.0.1";
 const testPackDirectory = process.env.TEST_PACK_DIR;
+const requestReportDirectory = process.env.TEST_REQUEST_REPORT_DIR;
 
 if (!testPackDirectory) {
   throw new Error("请通过 npm run test:fast 运行测试，以便将产物写入对应功能测试包。");
+}
+if (!requestReportDirectory) {
+  throw new Error("请通过 npm run test:fast 运行测试，以便归档请求级报告。");
 }
 
 export default defineConfig({
   testDir: "./testpacks",
   testMatch: "**/*.spec.ts",
   testIgnore: ["**/*.setup.ts", "**/*.teardown.ts"],
-  outputDir: join(testPackDirectory, "artifacts", "results"),
+  outputDir: join(requestReportDirectory, "playwright-results", process.env.TEST_PACK_SLUG ?? "unknown-pack"),
   fullyParallel: false,
   retries: 0,
   workers: undefined,
   reporter: [
     ["list"],
-    ["html", { open: "never", outputFolder: join(testPackDirectory, "artifacts", "report") }]
+    ["html", { open: "never", outputFolder: join(requestReportDirectory, "playwright-report") }],
+    ["allure-playwright", { resultsDir: join(requestReportDirectory, "allure-results") }]
   ],
   ...(usesLocalOpenPlatform
     ? {
@@ -54,9 +59,13 @@ export default defineConfig({
   use: {
     baseURL,
     headless: false,
+    // 产物语义（2026-09-02 降载）：失败诊断完整（失败截图 + 录屏 + trace）；通过用例不再逐条拍
+    // 结束截图、存视频——关键业务节点截图由用例内 attachShot 显式提供。原 screenshot/video 常开时，
+    // 每条收尾都要等 fonts.ready 拍截图、刷视频文件，dev server 卡顿窗口下单条收尾被拖到分钟级。
+    // 注意 video 无"仅失败才录"模式：retain-on-failure 仍全程录制，仅通过后删除，编码开销不变、磁盘与报告体积下降。
     trace: "retain-on-failure",
-    screenshot: "off",
-    video: "off",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
     actionTimeout: 20_000,
     navigationTimeout: 60_000
   },
