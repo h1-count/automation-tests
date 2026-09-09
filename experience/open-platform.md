@@ -9,14 +9,17 @@
 
 ## 页面覆盖状态
 
-- 已完成：登录与注册（`testpacks/web/open-platform/login-register/`，23 条用例全量通过；2026-09-02 按 testcase-designer 对象矩阵核对新增绕过直达 022、注册协议未勾选 023、002 补已登录回访登录页）；创建产品已完成用例设计与审核归档，待用户确认后页面探索（`testpacks/web/open-platform/create-product/`）。
+- 已完成：登录与注册（`testpacks/web/open-platform/login-register/`，25 条用例全量通过；2026-09-02 对象矩阵核对新增绕过直达 022、注册协议未勾选 023，凭据初始化轮新增 024 重置链路设置测试账号密码、025 账号密码登录成功路径含首次设备验证短信分支）；创建产品（`testpacks/web/open-platform/create-product/`，2026-09-02 对象矩阵核对后 13 条用例全量验证通过：新增重复产品名称 013、003/005/008 补核对步骤，2026-09-03 全量回归 1.6 分钟，详见其 conclusion.md）。
 - 候补：官网首页、控制台、用户中心与企业中心。
-- 官网首页、控制台、用户中心与企业中心。
 - 产品开发、设备接入、授权码和运营管理相关平台文档。
 
 ## 重建测试建议
 
 先从无需账号、无需写入的页面可见性和导航用例开始；随后按实际可用的测试环境补充登录、表单和接口场景。每个场景独立保存为普通 Playwright `*.spec.ts` 文件。
+
+## 已验证的跨包数据链路
+
+- `create-product` 的 `runtime/generated-data.json` 记录合成产品名称、型号和平台分配的产品 Model；`product-management`、`product-basic`、`product-function`、`product-advanced`、`product-testing` 会读取该台账作为后续操作对象。多包请求同时包含这些功能时，请求计划应将该关系作为待确认的 `runtime_data` 候选；确认后先执行 `create-product`，下游包只使用台账中的合成记录。
 
 ## 登录与注册实操经验
 

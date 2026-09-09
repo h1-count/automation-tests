@@ -15,8 +15,20 @@ type StoredAuthState = { cookies?: Parameters<BrowserContext["addCookies"]>[0] }
 
 test.describe("开放平台创建产品", () => {
   // 报告证据：关键状态截图直接进入 HTML 报告附件区。
+  // 2026-09-02 二次加固：截图限时 + 一次退避重试 + 仍失败则记日志跳过。
+  // 不要用 page.evaluate(document.fonts.ready) 预热——它没有超时上限，dev server 字体挂起时会把
+  // 整条用例拖到 test timeout（login-register 024 实测命中）；page.screenshot 的 timeout 本身就限界字体等待。
   async function attachShot(page: Page, name: string) {
-    await test.info().attach(name, { body: await page.screenshot(), contentType: "image/png" });
+    try {
+      await test.info().attach(name, { body: await page.screenshot({ timeout: 10_000 }), contentType: "image/png" });
+    } catch {
+      await page.waitForTimeout(2_000).catch(() => {});
+      try {
+        await test.info().attach(name, { body: await page.screenshot({ timeout: 15_000 }), contentType: "image/png" });
+      } catch {
+        console.log(`[截图跳过] ${name}（两次截图均超时，不阻塞用例断言）`);
+      }
+    }
   }
 
   // 每条用例的报告都携带功能包结论（当前结论 + 实现差异与限制）。
@@ -81,7 +93,7 @@ test.describe("开放平台创建产品", () => {
       const state = JSON.parse(await readFile(authStatePath, "utf8")) as StoredAuthState;
       if (!state.cookies?.length) return false;
       await page.context().addCookies(state.cookies);
-      await page.goto("/integration/product/management");
+      await gotoWithRetry(page, "/integration/product/management");
       return !/\/login/u.test(page.url());
     } catch {
       return false;
@@ -109,6 +121,9 @@ test.describe("开放平台创建产品", () => {
   // 一级/二级品类是纯文本节点（无 button/radio role），按可访问文本定位；二级卡片列表容器为项目自有类。
   // 品类接口偶发返回不完整数据（children 缺失，二级区域为空）：二级未出现时重选一级品类重试。
   async function selectCategory(page: Page, level1: string, level2: string) {
+    await expect(page).toHaveURL(/\/integration\/product\/create/u, { timeout: 20_000 });
+    await expect(page.getByText("请选择您创建的产品", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+    await page.evaluate(() => document.fonts.ready).catch(() => {});
     const level1Item = page.locator("main").getByText(level1, { exact: true }).first();
     const level2Item = page.locator("main").getByText(level2, { exact: true }).first();
     for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -124,17 +139,66 @@ test.describe("开放平台创建产品", () => {
   }
 
   async function selectDevelopPlan(page: Page, planLabel: string) {
-    await page.locator("main").getByText(planLabel, { exact: true }).first().click();
+    // 方案卡片由静态字典（Vite 动态 import 的 .dict.ts 模块）驱动渲染，冷启动首次加载可达约 9s；
+    // click 显式放宽到 25s 覆盖字典冷加载窗口（2026-09-02 运行实证）。
+    await page.locator("main").getByText(planLabel, { exact: true }).first().click({ timeout: 25_000 });
     const activePlan = page.locator("main").locator(".plan-item.active").filter({ hasText: planLabel });
-    await expect(activePlan).toBeVisible();
+    await expect(activePlan).toBeVisible({ timeout: 10_000 });
+    // 方案预设 API 异步返回后表单（含 radiogroup）才渲染；硬等任一 radio 出现，
+    // 避免后续断言在空窗期读到空集合。注意：初始向导态（未选方案）没有 radiogroup，
+    // 该等待只能出现在选择方案之后。
+    await page
+      .waitForFunction(
+        () => {
+          const group = document.querySelectorAll('[role="radiogroup"]')[0];
+          return Boolean(group && group.querySelectorAll("input[type='radio']").length > 0);
+        },
+        { timeout: 15_000 }
+      )
+      .catch(() => {
+        throw new Error("选择方案后协议/设备类型表单未在 15s 内渲染（develop preset API 或字典未就绪），请重跑");
+      });
   }
 
   async function expectWizardReady(page: Page) {
     await expect(page).toHaveURL(/\/integration\/product\/create/u);
-    await expect(page.getByRole("button", { name: "创建产品", exact: true })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "返回", exact: true })).toBeEnabled();
     await expect(page.getByText("请选择您创建的产品", { exact: true }).first()).toBeVisible();
+    await page.evaluate(() => document.fonts.ready).catch(() => {});
   }
+
+  // 导航辅助（2026-09-02 耗时优化）：SPA 是客户端渲染，等 load 事件会被字体/长资源停顿拖住
+  // （010 曾因此 60s 超时），domcontentloaded 即路由可交互；卡顿窗口下单次导航可能拖满超时，
+  // 20s 快速失败 + 重载一次自愈。
+  async function gotoWithRetry(page: Page, path: string) {
+    try {
+      await page.goto(path, { waitUntil: "domcontentloaded", timeout: 20_000 });
+    } catch {
+      console.log(`[重试] ${path} 导航 20s 未完成（疑似 dev server 卡顿窗口），重载一次`);
+      await page.goto(path, { waitUntil: "domcontentloaded", timeout: 20_000 });
+    }
+  }
+
+  // 套件预热（2026-09-02 耗时优化）：整轮只执行一次，提前触发 Vite 按需编译并缓存静态字典模块
+  // （冷启动约 9s 的字典加载从首条用例挪到预热）；若 dev server 已处于卡顿窗口，在预热阶段快速
+  // 暴露并给出明确提示，避免中途多条用例拖入 15 分钟级的卡顿收尾。
+  test.beforeAll(async ({ browser }) => {
+    const context = await browser.newContext({ storageState: existsSync(authStatePath) ? authStatePath : undefined });
+    const page = await context.newPage();
+    try {
+      await page.goto("/integration/product/create", { waitUntil: "domcontentloaded", timeout: 60_000 });
+      const wizardSeen = await page
+        .getByText("请选择您创建的产品", { exact: true })
+        .first()
+        .waitFor({ state: "visible", timeout: 45_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (!wizardSeen) {
+        console.log(`[预热] 创建页向导 45s 未渲染（当前 url=${page.url()}）——登录态过期属正常（002 会自动恢复）；若 url 已在创建页则疑似 dev server 卡顿，建议重启 dev server 后重跑`);
+      }
+    } finally {
+      await context.close();
+    }
+  });
 
   async function fillProductForm(page: Page, data: { name: string; model: string; description: string; protocol: string; deviceType: string }) {
     await page.getByPlaceholder("请输入产品名称").fill(data.name);
@@ -149,11 +213,11 @@ test.describe("开放平台创建产品", () => {
   test.describe("入口与权限（无登录态）", () => {
     // 覆盖 OP-PROD-001：未登录直接访问创建产品/产品开发页，重定向登录页（no_write）。
     test("OP-PROD-001 未登录访问创建产品页重定向登录", async ({ page }) => {
-      await page.goto("/integration/product/create");
+      await gotoWithRetry(page, "/integration/product/create");
       await expect(page).toHaveURL(/\/login/u);
       await expect(page.getByRole("form", { name: "短信验证码登录表单" })).toBeVisible();
 
-      await page.goto("/integration/product/management");
+      await gotoWithRetry(page, "/integration/product/management");
       await expect(page).toHaveURL(/\/login/u);
       await attachShot(page, "未登录重定向登录页");
     });
@@ -201,7 +265,7 @@ test.describe("开放平台创建产品", () => {
       }
 
       // 步骤 5：进入产品开发首页，列表、创建入口与搜索框可见。
-      await page.goto("/integration/product/management");
+      await gotoWithRetry(page, "/integration/product/management");
       await expect(page.getByRole("button", { name: "创建产品", exact: true })).toBeVisible();
       await expect(page.getByPlaceholder("Model/名称/型号")).toBeVisible();
       await expect(page.getByText("开发状态", { exact: true })).toBeVisible();
@@ -213,27 +277,50 @@ test.describe("开放平台创建产品", () => {
     test.use({ storageState: authStatePath });
 
     // 覆盖 OP-PROD-003：创建产品入口与向导初始态（no_write）。
+    // 2026-09-02 对象矩阵核对新增步骤 4/5：已登录绕过直达创建页、【返回】跳转结果
+    // （源码核实：permission.ts 已登录放行；ProductCreate.vue goList → integration-product-management）。
     test("OP-PROD-003 创建产品入口与向导初始态", async ({ page }) => {
-      test.setTimeout(60_000);
-      await page.goto("/integration/product/management");
+      test.setTimeout(90_000);
+      await gotoWithRetry(page, "/integration/product/management");
+      // 等首页自身资源就绪（含权限菜单渲染），避免冷启动下点击事件在路由就绪前触发后丢失。
+      await page.getByRole("button", { name: "创建产品", exact: true }).waitFor({ state: "visible", timeout: 20_000 });
+      await page.waitForLoadState("load", { timeout: 20_000 }).catch(() => {});
       await page.getByRole("button", { name: "创建产品", exact: true }).click();
 
-      await expectWizardReady(page);
+      // 步骤 1：URL 跳转 + 向导第一步渲染。
+      await expect(page).toHaveURL(/\/integration\/product\/create/u, { timeout: 20_000 });
+      await expect(page.getByText("请选择您创建的产品", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByRole("button", { name: "创建产品", exact: true })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "返回", exact: true })).toBeEnabled();
       await expect(page.getByText("请选择智能化方案", { exact: true }).first()).toBeVisible();
       await expect(page.getByText("请完善产品信息", { exact: true }).first()).toBeVisible();
       await attachShot(page, "向导初始态-创建按钮禁用");
+
+      // 步骤 4：已登录状态直接访问创建页 URL（绕过首页入口）——向导初始态与入口进入一致。
+      await gotoWithRetry(page, "/integration/product/create");
+      await expect(page).toHaveURL(/\/integration\/product\/create/u, { timeout: 20_000 });
+      await expect(page.getByText("请选择您创建的产品", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByRole("button", { name: "创建产品", exact: true })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "返回", exact: true })).toBeEnabled();
+      await attachShot(page, "已登录绕过直达创建页-向导初始态一致");
+
+      // 步骤 5：点击【返回】——回到产品开发首页。
+      await page.getByRole("button", { name: "返回", exact: true }).click();
+      await expect(page).toHaveURL(/\/integration\/product\/management/u, { timeout: 20_000 });
+      await expect(page.getByRole("button", { name: "创建产品", exact: true })).toBeVisible();
+      await attachShot(page, "返回按钮-回到产品开发首页");
     });
 
     // 覆盖 OP-PROD-004：品类选择、取消与联动（no_write）。
     test("OP-PROD-004 品类选择、取消与联动", async ({ page }) => {
-      test.setTimeout(60_000);
-      await page.goto("/integration/product/create");
+      test.setTimeout(90_000);
+      await gotoWithRetry(page, "/integration/product/create");
       await expectWizardReady(page);
 
       // 步骤 1-2：选一级「照明」，二级出现「灯」，选中后方案区域出现。
       await selectCategory(page, "照明", "灯");
       await expect(page.getByText("请选择智能化方案", { exact: true }).first()).toBeVisible();
-      await expect(page.getByText("开放协议接入", { exact: true }).first()).toBeVisible();
+      await expect(page.getByText("开放协议接入", { exact: true }).first()).toBeVisible({ timeout: 25_000 });
       await attachShot(page, "选中二级品类-方案区域出现");
 
       // 步骤 3：点取消按钮，方案区域隐藏，创建按钮回到禁用态。
@@ -249,13 +336,13 @@ test.describe("开放平台创建产品", () => {
 
     // 覆盖 OP-PROD-005：智能化方案选择与切换品类重置（no_write）。
     test("OP-PROD-005 智能化方案选择与切换品类重置", async ({ page }) => {
-      test.setTimeout(60_000);
-      await page.goto("/integration/product/create");
+      test.setTimeout(90_000);
+      await gotoWithRetry(page, "/integration/product/create");
       await expectWizardReady(page);
 
       // 步骤 1-2：查看方案子集并选择「开放协议接入」，第三步表单出现。
       await selectCategory(page, "照明", "灯");
-      await expect(page.getByText("云云接入", { exact: true }).first()).toBeVisible();
+      await expect(page.getByText("云云接入", { exact: true }).first()).toBeVisible({ timeout: 25_000 });
       await selectDevelopPlan(page, "开放协议接入");
 
       // 步骤 3：表单字段可见（探索确认：开放协议接入下通讯协议 11 项、设备类型 3 项）。
@@ -273,12 +360,34 @@ test.describe("开放平台创建产品", () => {
       await expect(page.locator(".plan-item.active")).toHaveCount(0);
       await expect(page.getByPlaceholder("请输入产品名称")).toHaveCount(0);
       await expect(page.getByRole("button", { name: "创建产品", exact: true })).toBeDisabled();
+
+      // 步骤 5（2026-09-02 对象矩阵核对新增）：同品类切换方案——表单联动。
+      // 探索实证（2026-09-02）：「照明-灯」两方案协议集合相同（均 11 项），集合差异不成立；
+      // 联动可观察信号 = 协议选项集合非空（随 supportedProtocol 刷新）+「协议类型」字段按方案显隐。
+      await gotoWithRetry(page, "/integration/product/create");
+      await expectWizardReady(page);
+      await selectCategory(page, "照明", "灯");
+      await selectDevelopPlan(page, "开放协议接入");
+      const protocolGroup = page.getByRole("radiogroup").first();
+      const openSet = (await protocolGroup.innerText()).split(/\s+/).map((s) => s.trim()).filter(Boolean);
+      expect(openSet.length, "开放协议接入下通讯协议选项应为非空集合").toBeGreaterThan(0);
+
+      await page.locator("main").getByText("云云接入", { exact: true }).first().click();
+      await expect(page.getByRole("radio", { name: "平台标准协议" })).toBeVisible({ timeout: 10_000 });
+      const cloudSet = (await protocolGroup.innerText()).split(/\s+/).map((s) => s.trim()).filter(Boolean);
+      expect(cloudSet.length, "云云接入下通讯协议选项应为非空集合（随 supportedProtocol 刷新）").toBeGreaterThan(0);
+      console.log(`[005-步骤5] 协议集合对比：开放协议接入 ${openSet.length} 项 / 云云接入 ${cloudSet.length} 项（本品类两方案集合${JSON.stringify(openSet) === JSON.stringify(cloudSet) ? "相同" : "不同"}，已按探索事实记录）`);
+
+      // 切回开放协议接入：协议类型字段消失。
+      await page.locator("main").getByText("开放协议接入", { exact: true }).first().click();
+      await expect(page.getByRole("radio", { name: "平台标准协议" })).toHaveCount(0, { timeout: 10_000 });
+      await attachShot(page, "方案切换-协议类型字段显隐联动");
     });
 
     // 覆盖 OP-PROD-006：必填项空表单提交被拦截（no_write：校验失败不发创建请求）。
     test("OP-PROD-006 必填项空表单提交被拦截", async ({ page }) => {
       test.setTimeout(60_000);
-      await page.goto("/integration/product/create");
+      await gotoWithRetry(page, "/integration/product/create");
       await selectCategory(page, "照明", "灯");
       await selectDevelopPlan(page, "开放协议接入");
 
@@ -302,7 +411,7 @@ test.describe("开放平台创建产品", () => {
     // 覆盖 OP-PROD-007：产品型号格式校验与长度边界（no_write）。
     test("OP-PROD-007 产品型号格式校验与长度边界", async ({ page }) => {
       test.setTimeout(60_000);
-      await page.goto("/integration/product/create");
+      await gotoWithRetry(page, "/integration/product/create");
       await selectCategory(page, "照明", "灯");
       await selectDevelopPlan(page, "开放协议接入");
 
@@ -338,7 +447,7 @@ test.describe("开放平台创建产品", () => {
     // 覆盖 OP-PROD-008：产品名称与描述边界（no_write；名称标点空格不拦截为实现差异，记录注解）。
     test("OP-PROD-008 产品名称与描述边界（含实现差异记录）", async ({ page }) => {
       test.setTimeout(60_000);
-      await page.goto("/integration/product/create");
+      await gotoWithRetry(page, "/integration/product/create");
       await selectCategory(page, "照明", "灯");
       await selectDevelopPlan(page, "开放协议接入");
 
@@ -376,12 +485,26 @@ test.describe("开放平台创建产品", () => {
       await descriptionField.press("Tab");
       await expect(page.getByText(/长度必须在/u)).toHaveCount(0);
       await attachShot(page, "描述边界校验完成");
+
+      // 步骤 5（2026-09-02 对象矩阵核对新增）：描述留空——无任何校验提示（选填实证，describe 规则无 required）。
+      baseline = await collectVisibleNotices(page);
+      await descriptionField.fill("");
+      await descriptionField.press("Tab");
+      const emptyDescNotices = await captureNewNotices(page, baseline, 3_000);
+      expect(
+        emptyDescNotices.filter((text) => /描述|长度/u.test(text)),
+        "008-步骤5 描述留空不应出现校验提示（选填实证）"
+      ).toHaveLength(0);
+      if (emptyDescNotices.length > 0) {
+        noteCopy("008-步骤5 描述留空出现的其他提示", "（无提示）", emptyDescNotices);
+      }
+      await attachShot(page, "描述留空-无提示-选填实证");
     });
 
     // 覆盖 OP-PROD-009：云云接入协议类型必选（no_write；「照明-灯」支持云云接入，条件满足）。
     test("OP-PROD-009 云云接入协议类型必选", async ({ page }) => {
       test.setTimeout(60_000);
-      await page.goto("/integration/product/create");
+      await gotoWithRetry(page, "/integration/product/create");
       await selectCategory(page, "照明", "灯");
 
       // 步骤 1：选择云云接入，出现「协议类型」必填单选（实现新增字段）。
@@ -420,7 +543,7 @@ test.describe("开放平台创建产品", () => {
         description: `自动化测试生成的产品${runId}`
       };
 
-      await page.goto("/integration/product/create");
+      await gotoWithRetry(page, "/integration/product/create");
       await selectCategory(page, "照明", "灯");
       await selectDevelopPlan(page, "开放协议接入");
       await fillProductForm(page, {
@@ -456,7 +579,7 @@ test.describe("开放平台创建产品", () => {
       }
 
       // 步骤 1：同品类+同方案进入第三步。
-      await page.goto("/integration/product/create");
+      await gotoWithRetry(page, "/integration/product/create");
       await selectCategory(page, "照明", "灯");
       await selectDevelopPlan(page, "开放协议接入");
 
@@ -489,6 +612,50 @@ test.describe("开放平台创建产品", () => {
       }
     });
 
+    // 覆盖 OP-PROD-013：重复产品名称创建被拒绝（前置依赖 OP-PROD-011 的 D01 产品）。
+    // 2026-09-02 对象矩阵核对新增：唯一性维度「名称」与「型号」分别成行（源码错误码 10524 →「产品名称重复」）。
+    // 型号使用全新唯一合成值以隔离型号维度；写入口径与 010 相同（失败尝试不入台账）。
+    test("OP-PROD-013 重复产品名称创建被拒绝", async ({ page }) => {
+      test.setTimeout(120_000);
+      const history = await readLatestGeneratedData<GeneratedProductData>("web", "open-platform", "create-product");
+      if (!history?.productName || !history?.productModel) {
+        throw new Error("台账缺少 D01 产品资料，请先成功运行 OP-PROD-011");
+      }
+
+      // 步骤 1：同品类+同方案进入第三步。
+      await gotoWithRetry(page, "/integration/product/create");
+      await selectCategory(page, "照明", "灯");
+      await selectDevelopPlan(page, "开放协议接入");
+
+      // 步骤 2：D01 已用名称 + 全新唯一型号（隔离型号维度），其余必填项合法填写。
+      const uniqueModel = `at${String(Date.now()).slice(-4)}`.slice(0, 6);
+      await fillProductForm(page, {
+        name: history.productName,
+        model: uniqueModel === history.productModel ? `x${String(Date.now()).slice(-5)}`.slice(0, 6) : uniqueModel,
+        description: `自动化测试重复名称校验${Date.now()}`,
+        protocol: "WiFi",
+        deviceType: "普通设备"
+      });
+
+      // 步骤 3：提交被名称唯一性拒绝：名称字段出现「重复」类提示，无成功提示、无跳转。
+      const baseline = await collectVisibleNotices(page);
+      await page.getByRole("button", { name: "创建产品", exact: true }).click();
+      const notices = await captureNewNotices(page, baseline, 20_000);
+      const duplicateNotice = notices.find((text) => /名称/u.test(text) && /重复/u.test(text));
+      expect(duplicateNotice, `应出现名称重复提示，实际提示：${notices.join("；") || "（未捕获）"}`).toBeTruthy();
+      noteCopy("013 名称重复提示", "产品名称重复", [duplicateNotice ?? ""]);
+      await expect(page.getByText("产品创建成功")).toHaveCount(0);
+      await expect(page).toHaveURL(/\/integration\/product\/create/u);
+      await attachShot(page, "重复名称-创建被拒绝");
+
+      if (!page.url().includes("/integration/product/create")) {
+        test.info().annotations.push({
+          type: "已知差异",
+          description: "重复名称提交未被拒绝而创建了产品，请检查后端唯一性校验（10524）；台账需人工核对"
+        });
+      }
+    });
+
     // 覆盖 OP-PROD-012：新产品列表回查（no_write；回读台账并将 Model 回填台账记录）。
     test("OP-PROD-012 新产品列表回查与台账记录", async ({ page }) => {
       test.setTimeout(120_000);
@@ -498,7 +665,7 @@ test.describe("开放平台创建产品", () => {
       }
 
       // 步骤 1-2：返回产品开发首页，按 D01 名称搜索。
-      await page.goto("/integration/product/management");
+      await gotoWithRetry(page, "/integration/product/management");
       await page.getByPlaceholder("Model/名称/型号").fill(history.productName);
       await page.getByRole("button", { name: "搜索", exact: true }).click();
 

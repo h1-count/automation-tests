@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
@@ -9,8 +9,20 @@ import {
 
 test.describe("开放平台登录和注册", () => {
   // 报告证据：关键状态截图直接进入 HTML 报告的附件区，便于转发测试/产品评审。
+  // 2026-09-02 加固（与 create-product 同模式）：截图限时 + 一次退避重试 + 仍失败则记日志跳过。
+  // 注意不要用 page.evaluate(document.fonts.ready) 预热——它没有超时上限，dev server 字体挂起时会把
+  // 整条用例拖到 test timeout（024 第二跑即命中）；page.screenshot 的 timeout 本身就限界字体等待。
   async function attachShot(page: Page, name: string) {
-    await test.info().attach(name, { body: await page.screenshot(), contentType: "image/png" });
+    try {
+      await test.info().attach(name, { body: await page.screenshot({ timeout: 10_000 }), contentType: "image/png" });
+    } catch {
+      await page.waitForTimeout(2_000).catch(() => {});
+      try {
+        await test.info().attach(name, { body: await page.screenshot({ timeout: 15_000 }), contentType: "image/png" });
+      } catch {
+        console.log(`[截图跳过] ${name}（两次截图均超时，不阻塞用例断言）`);
+      }
+    }
   }
 
   // 每条用例的报告都携带功能包结论（当前结论 + 已知差异与限制），打开报告即可看到全部待反馈问题。
@@ -186,6 +198,7 @@ test.describe("开放平台登录和注册", () => {
     await expect(page).toHaveURL(/\/console\/home/u, { timeout: 30_000 });
   }
 
+  // 覆盖用例 OP-AUTH-001（账号密码登录表单与提交前校验；no_write，不提交登录请求）。
   test("账号密码登录表单可填写并在勾选协议后启用提交", async ({ page }) => {
     await page.goto("/login");
 
@@ -1320,5 +1333,146 @@ test.describe("开放平台登录和注册", () => {
     await registerPanel.getByText("我已阅读并已同意", { exact: true }).click();
     await expect(submitButton, "023 勾选协议后提交按钮应变为可用").toBeEnabled();
     await attachShot(page, "023 勾选协议后提交可用");
+  });
+
+  // 凭据状态在 worker 内由 024 传递给 025（单 worker 串行执行；跨轮次回退读 process.env/.env）。
+  const credentialState: { password?: string } = {};
+
+  // 覆盖用例 OP-AUTH-024（凭据初始化：重置密码链路为测试账号设置登录密码；write=发送短信并变更账号密码）。
+  // 2026-09-02 凭据初始化方案：注册流程无密码环节（CompanyRegisterForm 12 个字段无 password），账号密码由
+  // 「手机号+短信验证码+新密码」重置链路设置（ResetPassword.vue → forgetPassword），三要素均在测试可控范围，
+  // 自助初始化替代向用户索要。合成密码仅写入本地 .env（TEST_PASSWORD），不入 Git/报告/日志/台账，日志不打印值。
+  test("OP-AUTH-024 凭据初始化：重置密码链路为测试账号设置登录密码（人工过图形验证码）", async ({ page }) => {
+    test.setTimeout(360_000);
+    const testPhone = process.env.TEST_PHONE;
+    const testVerificationCode = process.env.TEST_VERIFICATION_CODE;
+    if (!testPhone || !testVerificationCode) {
+      throw new Error("缺少 TEST_PHONE / TEST_VERIFICATION_CODE 环境变量");
+    }
+
+    // 凭据准备：优先复用 .env 已有密码（重置把它重设为当前值，幂等）；否则合成生成并追加写入 .env。
+    let testPassword = process.env.TEST_PASSWORD?.trim();
+    if (!testPassword) {
+      testPassword = `Atpw${Date.now().toString(36)}A1`;
+      await appendFile(join(process.cwd(), ".env"), `\nTEST_PASSWORD=${testPassword}\n`, "utf8");
+      process.env.TEST_PASSWORD = testPassword;
+      console.log("[凭据初始化] 已生成合成密码并写入本地 .env 的 TEST_PASSWORD（值不展示）");
+    }
+
+    // 步骤 1：登录页「忘记密码」→ /reset-pw 密码重置页。
+    await page.goto("/login");
+    const loginPanel = page.locator('[role="tabpanel"][aria-labelledby="tab-login"]');
+    await loginPanel.getByRole("link", { name: "找回登录密码" }).click();
+    await expect(page).toHaveURL(/\/reset-pw/u);
+    await expect(page.getByRole("heading", { name: "密码重置" })).toBeVisible();
+
+    // 步骤 2：请求验证码（人工完成点选图形验证码）。
+    const phoneInput = page.getByPlaceholder("请输入手机号");
+    const codeInput = page.getByPlaceholder("请输入验证码");
+    const passwordInput = page.getByPlaceholder("请输入新密码");
+    const repeatInput = page.getByPlaceholder("请再次输入新密码");
+    await phoneInput.fill(testPhone);
+    await expect(codeInput).toBeEnabled();
+    console.log("[人工步骤] 请在浏览器窗口完成图形验证码（滑块拖动或点选文字，失败可直接重试；最长等待 4 分钟），重置验证码将发送至测试手机号");
+    await page.getByRole("button", { name: /获取验证码/u }).click();
+    await waitForSmsCountdownOrReject(page);
+
+    // 步骤 3：固定测试验证码 + 合成密码（8-32 位，含大小写字母与数字）。
+    await codeInput.fill(testVerificationCode);
+    await passwordInput.fill(testPassword);
+    await repeatInput.fill(testPassword);
+    await attachShot(page, "024 重置表单已填写（密码不截入报告）");
+
+    // 步骤 4：提交重置 → 成功提示 → 确认后跳转登录页。
+    await page.getByRole("button", { name: "重置密码" }).click();
+    const successDialog = page.getByText("重置成功，请重新登录", { exact: false });
+    await expect(successDialog.first(), "024 应出现重置成功提示").toBeVisible({ timeout: 30_000 });
+    await attachShot(page, "024 密码重置成功提示");
+    await page.getByRole("button", { name: /确定/u }).click();
+    await expect(page).toHaveURL(/\/login/u, { timeout: 15_000 });
+    console.log("[024] 重置成功，测试账号密码已初始化为 .env TEST_PASSWORD 当前值");
+    credentialState.password = testPassword;
+  });
+
+  // 覆盖用例 OP-AUTH-025（账号密码登录成功路径；write=创建登录会话，用例结束后退出失效）。
+  // 由原「待确认」行转正：密码由 024 凭据初始化写入 .env（TEST_PASSWORD），不再依赖用户提供。
+  test("OP-AUTH-025 账号密码登录成功路径（人工过图形验证码）", async ({ page }) => {
+    test.setTimeout(360_000);
+    const testPhone = process.env.TEST_PHONE;
+    const testPassword = credentialState.password ?? process.env.TEST_PASSWORD?.trim();
+    if (!testPhone || !testPassword) {
+      throw new Error("缺少 TEST_PHONE 或测试密码（先执行 OP-AUTH-024，或在 .env 配置 TEST_PASSWORD）");
+    }
+
+    // 步骤 1：切换「账号登录」方式，表单元素可见，未填时提交禁用。
+    await page.goto("/login");
+    const loginPanel = page.locator('[role="tabpanel"][aria-labelledby="tab-login"]');
+    await loginPanel.getByText("账号登录", { exact: true }).click();
+    const accountPhone = loginPanel.getByRole("textbox", { name: "账号登录手机号" });
+    const passwordInput = loginPanel.getByRole("textbox", { name: "登录密码" });
+    const submitButton = loginPanel.getByRole("button", { name: "账号密码登录", exact: true });
+    await expect(accountPhone).toBeVisible();
+    await expect(passwordInput).toBeVisible();
+    await expect(submitButton).toBeDisabled();
+
+    // 步骤 2：填写手机号与 .env 密码，勾选协议 → 提交可用。
+    await accountPhone.fill(testPhone);
+    await passwordInput.fill(testPassword);
+    await loginPanel.getByText("我已阅读并已同意", { exact: true }).click();
+    await expect(submitButton).toBeEnabled();
+    await attachShot(page, "025 账号登录表单已填写（密码不截入报告）");
+
+    // 步骤 3：提交登录（人工完成图形验证码）。
+    console.log("[人工步骤] 请在浏览器窗口完成图形验证码（滑块拖动或点选文字，失败可直接重试；最长等待 4 分钟），期间请勿关闭窗口");
+    await submitButton.click();
+
+    // 步骤 3-4（2026-09-02 执行探索补充的页面事实）：账号首次在本设备密码登录时，登录接口返回
+    // loginType=1，前端切换到「首次设备登录验证表单」要求短信二次验证（LoginForm.vue doLoginSuccess/
+    // isFirstLoginResp）。人工完成图形验证码的耗时不可控，不能用固定短超时探测分支——改为长等待
+    // 二选一：进入控制台（未触发设备验证）或出现首次设备验证表单（触发）。
+    const loginOutcomeHandle = await page.waitForFunction(
+      () => {
+        if (location.pathname.includes("/console/home")) return "home";
+        if (document.body.innerText.includes("帐号首次登录设备")) return "device";
+        return false;
+      },
+      undefined,
+      { timeout: 300_000, polling: 1_000 }
+    );
+    const loginOutcome = await loginOutcomeHandle.jsonValue();
+    if (loginOutcome === "device") {
+      console.log("[页面事实] 命中首次设备登录二次验证（loginType=1），进入短信验证分支");
+      const firstLoginForm = page.getByRole("form", { name: "首次设备登录验证表单" });
+      const deviceCode = firstLoginForm.getByRole("textbox", { name: "首次设备登录验证码" });
+      const deviceSend = firstLoginForm.getByRole("button", { name: "获取登录短信验证码" });
+      const deviceSubmit = firstLoginForm.getByRole("button", { name: "完成首次设备验证" });
+      await expect(deviceCode).toBeVisible();
+
+      // count-on-start：表单挂载即空转 60s 倒计时，期间获取按钮禁用（:disabled="Boolean(counter)"），
+      // 必须先等倒计时走完、按钮恢复可用才能点击请求短信。
+      await expect(deviceSend, "设备验证获取按钮应在挂载倒计时走完后启用").toBeEnabled({ timeout: 90_000 });
+      console.log("[人工步骤] 请在浏览器窗口再完成一次图形验证码（滑块拖动或点选文字，失败可直接重试；最长等待 4 分钟），设备验证短信将发送至测试手机号");
+      await deviceSend.click();
+      // 发送成功的状态信号：此时倒计时已归零（无倒计时文案），短信发出后 counter 重启、文案重新出现。
+      await page
+        .waitForFunction(() => /秒后重新获取/u.test(document.body.innerText), undefined, { timeout: 240_000, polling: 500 })
+        .catch(() => {});
+      await deviceCode.fill(process.env.TEST_VERIFICATION_CODE ?? "");
+      await expect(deviceSubmit).toBeEnabled();
+      await attachShot(page, "025 首次设备验证表单已填写");
+      await deviceSubmit.click();
+    }
+
+    // 步骤 5：登录成功 → 控制台首页（人工验证码可能失败重试，等待放宽到 120s）。
+    await expect(page).toHaveURL(/\/console\/home/u, { timeout: 120_000 });
+    await attachShot(page, "025 账号密码登录成功-控制台首页");
+
+    // 步骤 4：退出登录，会话失效并返回登录页。
+    await page.locator(".user-meta-list .btn-usermeta").click();
+    const exitItem = page.locator(".user-action-list").getByText("退出", { exact: true });
+    await expect(exitItem).toBeVisible();
+    await exitItem.click();
+    await expect(page).toHaveURL(/\/login/u, { timeout: 30_000 });
+    await attachShot(page, "025 退出后返回登录页");
   });
 });
