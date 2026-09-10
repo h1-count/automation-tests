@@ -1813,11 +1813,10 @@ test.describe("开放平台协议管理", () => {
       await closeDrawer(page, drawer);
     });
 
-    // 覆盖 OP-CBP-031：可视化映射完整性拦截与提示文案实证（写入：映射保存）。
-    // 20260910 五轮实证：插入变量为行内气泡（参数选中+取值模式 value，无确认按钮），选中后模板节点未见
-    // {{变量}} 落点，点「下一步」被拦截且标题下持久红条「请在平台标准JSON Body模板中配置映射规则」；
-    // tab3 响应处理区块自动化路径不通，与 034（空参数拦截）构成双层校验闭环。
-    test("OP-CBP-031 可视化映射完整性拦截实证", async ({ page }) => {
+    // 覆盖 OP-CBP-031：响应处理区块结构与 payload参数表二级标题（写入：模板映射保存）。
+    // 20260910 八轮实证：插入变量为行内气泡（参数胶囊选项+取值模式 value）；点击气泡内参数胶囊即落点至焦点字段
+    // （人工操作截图实证：payload.thirdPartyDevIds 落入 deviceSn 引用位），落点后 2→3 步进放行。
+    test("OP-CBP-031 响应处理区块结构", async ({ page }) => {
       test.setTimeout(300_000);
       const { proto } = await targetProtocol(page);
       await openProtocolEdit(page, proto);
@@ -1825,61 +1824,137 @@ test.describe("开放平台协议管理", () => {
       const drawer = await openUpDrawer(page);
       await drawerStepNext(page, drawer);
       await expect(drawer.getByText(/上行数据参数表/u).first()).toBeVisible({ timeout: 15_000 });
-      // 步骤 1：可视化映射区可见 + 插入变量气泡展开（行内气泡=参数名+取值模式，非 role=dialog）。
       const tplZoneText = (await drawer.getByText(/平台标准JSON ?Body模板/u).first().isVisible().catch(() => false)) ? "可见" : "不可见";
       test.expect(tplZoneText, "可视化映射区标题").toBe("可见");
+      // 步骤 1：插入变量 → 点击气泡内参数胶囊 → 变量落点至焦点字段（deviceSn 必填位）。
       const upParamExpr2 = `$.at${chainTail(proto)}`;
       await drawer.getByText("插入变量", { exact: true }).first().click({ force: true });
-      await page.waitForTimeout(1_200);
-      const bubbleText = (await drawer.locator("text=/\\$\\.at/u").first().innerText().catch(() => "")) || "";
-      test.info().annotations.push({ type: "探索注解", description: `插入变量行内气泡展开：气泡含参数引用「${bubbleText.trim()}」（无确认按钮；选中后模板节点未见 {{变量}} 落点——交互留档）` });
-      // 步骤 2：点「下一步」→ 拦截红条（短暂提示，~3s 自动消失——六轮实证；点击后立即轮询读取）。
-      // 文案视觉实证为「请在平台标准JSON Body模板中配置解析规则/映射规则」（两轮帧转写略有出入，宽松匹配）。
-      await drawer.getByRole("button", { name: "下一步", exact: true }).first().click();
-      // 拦截提示可能 portal 到 body 层（EP teleport 常态）——用 page 级可见性等待，宽松正则（提示类断言不做精确文案匹配）。
-      const guardLoc = page.getByText(/请在.{0,18}模板.{0,4}配置.{0,8}规则/u).first();
-      let guardSeen = "";
-      try {
-        await guardLoc.waitFor({ state: "visible", timeout: 8_000 });
-        guardSeen = (await guardLoc.innerText().catch(() => "")).replace(/\s+/gu, " ");
-        await attachShot(page, "OP-CBP-031 拦截红条");
-      } catch {
-        // 兜底：读整页文本再试一次（防该提示非独立元素渲染）。
-        const bodyTxt = (await page.locator("body").innerText().catch(() => "")).replace(/\s+/gu, " ");
-        const m = bodyTxt.match(/请在.{0,18}模板.{0,4}配置.{0,8}规则/u);
-        if (m) guardSeen = m[0];
+      await page.waitForTimeout(900);
+      // 气泡胶囊点击：优先浮层容器（popper 特征），否则按几何位置选「参数表格之下、模板区内」的匹配元素
+      //（九轮实证：getByText(...).last() 会误中参数表格 cell——rowgroup 因此获得 [active] 焦点）。
+      const chipHandle = await page.evaluateHandle((expr) => {
+        const els: HTMLElement[] = [];
+        for (const el of document.querySelectorAll("body *")) {
+          if (!(el instanceof HTMLElement)) continue;
+          if (el.children.length > 0) continue;
+          if (!el.textContent || !el.textContent.includes(expr)) continue;
+          const style = getComputedStyle(el);
+          if (style.visibility === "hidden" || style.display === "none") continue;
+          const rect = el.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) continue;
+          let p: HTMLElement | null = el;
+          let floating = style.position === "fixed" || style.position === "absolute";
+          while (p && p !== document.body) {
+            const cls = typeof p.className === "string" ? p.className : "";
+            if (/popper|popover|tooltip|dropdown/i.test(cls)) floating = true;
+            p = p.parentElement;
+          }
+          if (floating) els.push(el);
+        }
+        return els.length > 0 ? els[els.length - 1] : null;
+      }, upParamExpr2);
+      const chipEl = chipHandle.asElement() as Locator | null;
+      if (chipEl) {
+        await chipEl.click({ force: true }).catch(() => {});
+        await page.waitForTimeout(900);
+      } else {
+        test.info().annotations.push({ type: "探索注解", description: "插入变量气泡未探测到浮层参数胶囊（floating 特征缺失）" });
       }
-      test.expect(guardSeen, "2→3 应被拦截且出现红条提示（8s 窗内，page 级）").not.toBe("");
-      await page.waitForTimeout(2_000);
-      const stillTab2 = await drawer.getByText(/上行数据参数表/u).first().isVisible().catch(() => false);
-      test.expect(stillTab2, "拦截后应停留 tab2").toBe(true);
-      test.info().annotations.push({ type: "探索注解", description: `拦截红条实证（短暂提示自动消失）：${guardSeen}（trace 帧留档；034 空参数拦截 + 031 映射缺失拦截 = 双层校验闭环）` });
-      // 步骤 3-4：响应处理区块以源码勘察注解留档（自动化不可达）+ 关闭抽屉。
-      test.info().annotations.push({ type: "探索注解", description: "响应处理 tab 区块（源码勘察留档）：响应表达式配置/成功条件表达式/是否需要平台响应数据/参数数值配置/payload参数表二级标题（Bug11 源码层落地）/平台标准参数表/第三方payload模板" });
+      const refCount = await drawer.getByText(upParamExpr2).count().catch(() => 0);
+      test.expect(refCount, `气泡参数点击后变量应落点（模板区出现 ${upParamExpr2} 引用；当前出现次数=${refCount}）`).toBeGreaterThan(1);
+      test.info().annotations.push({ type: "探索注解", description: `插入变量气泡参数点击落点实证：${upParamExpr2} 引用落至首个字段（模板区出现 ${refCount} 处）` });
+      // 步骤 2：保存模板映射（落点即映射，台账 mapping-save，保留至 009 删协议兜底清场）。
+      await drawer.getByRole("button", { name: "保存", exact: true }).first().click();
+      await waitToastsClear(page);
+      await recordConfigWrite(proto, "mapping-save", "模板映射保存（气泡落点后 031 保存，保留至 009 清场）");
+      // 步骤 3：步进 tab3（落点后双层校验放行）。
+      await drawerStepNext(page, drawer);
+      await expect(drawer.getByText(/响应表达式配置/u).first()).toBeVisible({ timeout: 20_000 });
+      test.info().annotations.push({ type: "探索注解", description: "落点后步进放行（034 空参数拦截 + 映射缺失拦截红条构成完整校验链）；优化「成功表达式和是否响应处理起小标题」以区块标题落地" });
+      // 步骤 4：响应表达式配置两字段（成功条件表达式 + 是否需要平台响应数据，默认「否」→ payload 区块条件隐藏）。
+      await expect(drawer.getByText(/成功条件表达式/u).first()).toBeVisible({ timeout: 10_000 });
+      const needResp = drawer.getByText(/是否需要平台响应数据/u).first();
+      await expect(needResp).toBeVisible({ timeout: 10_000 });
+      test.info().annotations.push({ type: "探索注解", description: "tab3 默认态实证：仅「响应表达式配置」区（成功条件表达式 + 是否需要平台响应数据=否）；payload 参数表/平台标准参数表/第三方payload模板为「是」分支条件渲染（操作指南：选是才需配置响应数据映射）" });
+      // 步骤 5：切「是」→ 条件区块展开（payload参数表二级标题 Bug11 + 表列结构 + 平台标准参数表 + 第三方payload模板）。
+      const yesOption = drawer.getByText("是", { exact: true }).first();
+      await yesOption.click({ force: true });
+      await page.waitForTimeout(1_200);
+      await expect(drawer.getByText(/payload参数表/u).first()).toBeVisible({ timeout: 15_000 });
+      // 两张表列头分别断言（十二轮实证：payload参数表 与 平台标准参数表 列结构不同）。
+      const payloadZone = drawer.getByText(/payload参数表/u).first().locator("xpath=ancestor::*[contains(@class,'ep-form-item') or self::section][1]");
+      const payloadHeadText = (await drawer.locator(".ep-table__header:visible").filter({ hasText: /键值对模式/ }).first().innerText().catch(() => "")).replace(/\s+/gu, " ");
+      test.expect(payloadHeadText, "payload参数表列结构").toMatch(/提取表达式\(JSONPath\).*数据类型.*键值对模式.*值来源.*是否必填.*转换类型.*操作/u);
+      const platHeadText = (await drawer.locator(".ep-table__header:visible").filter({ hasText: /参数名称/ }).first().innerText().catch(() => "")).replace(/\s+/gu, " ");
+      test.expect(platHeadText, "平台标准参数表列结构").toMatch(/序号.*参数名称.*提取表达式.*数据类型.*参数位置.*是否必须/u);
+      await expect(drawer.getByText(/第三方.*payload.*模板|第三方payload模板/u).first()).toBeVisible({ timeout: 10_000 });
+      test.info().annotations.push({ type: "探索注解", description: "「是」分支展开实证：payload参数表二级标题（Bug11）+ 表列结构 + 平台标准参数表 + 第三方payload模板全部可见" });
+      // 步骤 6：不点「完成配置」（避免把「是」分支态持久化），直接关闭抽屉（关闭确认）。
       await closeDrawer(page, drawer);
-      await attachShot(page, "OP-CBP-031 映射拦截");
+      await attachShot(page, "OP-CBP-031 响应处理区");
     });
 
-    // 覆盖 OP-CBP-032：payload 参数值来源联动与静态值（等价覆盖：下行侧 037 同组件实证；本用例零写入）。
-    test("OP-CBP-032 payload参数等价覆盖核查", async ({ page }) => {
-      test.setTimeout(240_000);
+    // 覆盖 OP-CBP-032：payload 参数添加写入：值来源联动与静态值（写入；tab3 依赖 031 已落点+保存映射）。
+    test("OP-CBP-032 payload参数添加写入", async ({ page }) => {
+      test.setTimeout(300_000);
       const { proto } = await targetProtocol(page);
       await openProtocolEdit(page, proto);
       await gotoConfigStep(page, 2);
       const drawer = await openUpDrawer(page);
-      await drawerStepNext(page, drawer);
-      // 步骤 1：等价覆盖核查（PayloadParamEditDialog 共用组件已由下行 037 实证：值来源联动/静态值/添加单条提示/删除确认）。
-      test.info().annotations.push({ type: "探索注解", description: "等价覆盖：上行 payload 参数表与下行 Body 参数表共用 PayloadParamEditDialog.vue（值来源 平台生成/静态值 联动子配置；弹窗默认标题「添加Body参数」），添加-删除链路由 OP-CBP-037 台账承载（down-param-add/delete）" });
-      // 步骤 2：tab2 直接关闭（不点「下一步」、不点「保存」）→ 无映射保存请求。
-      const mappingSaveProbe: string[] = [];
-      page.on("request", (r) => {
-        if (r.method() === "POST" && /(mapping|format-config)/i.test(r.url())) mappingSaveProbe.push(r.url());
-      });
+      await drawerStepNext(page, drawer); // 1→2（031 已落点+保存映射）
+      await drawerStepNext(page, drawer); // 2→3
+      // tab3 默认 radio=否（payload 区条件隐藏，031 已实证）——本用例需操作 payload 表，先切「是」展开。
+      const yesOpt2 = drawer.getByText("是", { exact: true }).first();
+      await yesOpt2.click({ force: true });
+      await page.waitForTimeout(1_200);
+      await expect(drawer.getByText(/payload参数表/u).first()).toBeVisible({ timeout: 15_000 });
+      // D25：平台生成（时间戳联动）。
+      const genExpr = `$.resp${chainTail(proto)}`;
+      // 添加参数按钮在 payload参数表 标题侧（a11y 节点 e646）；十五轮实证 first() 会命中 tab2 隐藏面板的同名节点 → 用 last() 取 tab3 激活面板内节点 + force。
+      const addParamBtn = drawer.getByText(/添加参数/u).last();
+      await addParamBtn.scrollIntoViewIfNeeded().catch(() => {});
+      await addParamBtn.click({ force: true });
+      const dlg1 = page.getByRole("dialog", { name: /添加.*参数/u }).last();
+      await dlg1.waitFor({ state: "visible", timeout: 15_000 });
+      await page.waitForTimeout(800);
+      const dlg1Title = (await dlg1.locator(".ep-dialog__header").innerText().catch(() => "")).trim();
+      test.info().annotations.push({ type: "探索注解", description: `payload 参数弹窗标题（实证，共用组件默认「添加Body参数」）：${dlg1Title}` });
+      await fillParamDialogBasic(page, dlg1, genExpr, { generated: true });
+      // 值来源=平台生成 → 类型/单位子配置出现。
+      const generatedLabel = dlg1.getByText(/时间戳/u).first();
+      await expect(generatedLabel).toBeVisible({ timeout: 8_000 });
+      await dlg1.getByRole("button", { name: "确定", exact: true }).click();
+      await page.waitForTimeout(1_500);
+      const payloadTable = drawer.locator(".ep-table:visible").filter({ hasText: /键值对模式/ }).first();
+      const genRow = payloadTable.locator("tbody tr").filter({ hasText: genExpr }).first();
+      await expect(genRow).toBeVisible({ timeout: 15_000 });
+      // D26：静态值。
+      const stcExpr = `$.stc${chainTail(proto)}`;
+      await addParamBtn.scrollIntoViewIfNeeded().catch(() => {});
+      await addParamBtn.click({ force: true });
+      const dlg2 = page.getByRole("dialog", { name: /添加.*参数/u }).last();
+      await dlg2.waitFor({ state: "visible", timeout: 15_000 });
+      await page.waitForTimeout(800);
+      await fillParamDialogBasic(page, dlg2, stcExpr, { staticValue: `ok${chainTail(proto)}` });
+      const staticInput = dlg2.getByRole("textbox", { name: /静态值/u }).first();
+      test.info().annotations.push({ type: "探索注解", description: `D26 静态值输入出现=${await staticInput.isVisible().catch(() => false)}` });
+      await dlg2.getByRole("button", { name: "确定", exact: true }).click();
+      await page.waitForTimeout(1_500);
+      const stcRow = payloadTable.locator("tbody tr").filter({ hasText: stcExpr }).first();
+      await expect(stcRow).toBeVisible({ timeout: 15_000 });
+      await recordConfigWrite(proto, "payload-param-add", `payload 参数=${genExpr},${stcExpr}`);
+      // 自清理删除两条。
+      for (const row of [stcRow, genRow]) {
+        await row.getByText("删除", { exact: true }).first().click({ force: true });
+        const box = page.locator(".ep-overlay-message-box:visible, .ep-message-box:visible").last();
+        await box.waitFor({ state: "visible", timeout: 6_000 });
+        await box.getByRole("button", { name: "确定", exact: true }).click({ force: true });
+        await expect(row).toBeHidden({ timeout: 15_000 });
+        await page.waitForTimeout(600);
+      }
+      await recordConfigWrite(proto, "payload-param-delete", `payload 参数自清理=${genExpr},${stcExpr}`);
       await closeDrawer(page, drawer);
-      test.expect(mappingSaveProbe, "拦截/直接关闭态不应有映射保存请求").toHaveLength(0);
-      // 步骤 3：台账记录（零写入，等价覆盖声明）。
-      test.info().annotations.push({ type: "台账", description: "payload-param-add/delete=等价覆盖（由 OP-CBP-037 台账承载），本用例零写入" });
-      await attachShot(page, "OP-CBP-032 等价覆盖");
+      await attachShot(page, "OP-CBP-032 payload参数");
     });
 
     // 覆盖 OP-CBP-029：上行参数删除自清理（写入；排 032 后执行）。
