@@ -5,8 +5,9 @@
 ```bash
 npm run test:fast
 npm run test:fast -- testpacks/web/open-platform/login-register/login-register.spec.ts
+npm run test:fast:repair -- --report-id <请求报告标识>
 npm run report:request -- <请求报告标识>
-npm run report:allure -- --pack <功能包>
+npm run report:allure -- --report-id <请求报告标识> --pack <功能包>
 ```
 
 ## 环境
@@ -19,7 +20,7 @@ FAST_BASE_URL=https://open-platform-test.ikingcity.com/ npm run test:fast
 
 ## 生成测试用例并写脚本
 
-完整流程链（流程正本，AGENTS.md 只保留闸门义务）：多包请求先创建并确认 `request-plan.json` → 按设计批次独立加载上下文 → 生成设计卡 → 判定组合策略并维护 `scope.json`（七类范围契约 + `combinationDesign`）→ 审计范围契约 → 生成 `cases.md` → Reduce 汇总 → 导出 Excel（先审核范围矩阵与组合策略摘要）并等待用户确认 → 重新加载复核并确认 MCP 可用 → MCP 按已确认用例探索 → 按计划顺序编写/更新 `<feature>.spec.ts` 与 `conclusion.md` → 串行 `npm run test:fast` → 查看请求级报告与 trace。
+完整流程链（流程正本，AGENTS.md 只保留闸门义务）：多包请求先创建并确认 `request-plan.json` → 生成并审计功能包级 `agent-dispatch.json` → 按工作单批次独立加载上下文 → 生成设计卡 → 判定组合策略并维护 `scope.json`（七类范围契约 + `combinationDesign`）→ 审计范围契约 → 生成 `cases.md` → Reduce 汇总 → 导出 Excel（先审核范围矩阵与组合策略摘要）并等待用户确认 → 重新加载复核并确认 MCP 可用 → MCP 按已确认用例探索 → 按计划顺序编写/更新 `<feature>.spec.ts` 与 `conclusion.md` → 串行 `npm run test:fast` → 查看请求级报告与 trace。
 
 ### 功能测试包结构
 
@@ -30,12 +31,13 @@ FAST_BASE_URL=https://open-platform-test.ikingcity.com/ npm run test:fast
 | `<feature>.spec.ts` | Playwright 测试脚本（怎么执行） | 提交 |
 | `cases.md` | 分层用例表（测什么，供审核） | 提交 |
 | `scope.json` | 七类范围契约：对象、源码/资料依据、covered/out_of_scope/pending 归宿；另含每对象 `combinationDesign` 组合设计（见「组合设计门禁」） | 提交 |
+| `execution.json` | 用例可执行性契约：每个用例的同包 `dependsOn` 前置关系；所有用例必须能在 `test()` 标题中定位 | 提交 |
 | `conclusion.md` | 当前结论、断言策略说明与已知差异 | 提交 |
 | `review/<review-id>/` | 审核 Excel 工作簿 + 预览图 | 不提交 |
 | `runtime/` | 本地运行数据：台账（见「数据写入与台账」）、评审模型、探索脚本等 | 不提交 |
 | `test-reports/<report-id>.md` | 唯一长期测试结论：请求范围、全局用例序号、最终状态、执行次数和失败摘要；单包在包内，多包在公共目录 | 提交 |
-| `artifacts/current/` | 仅当前请求的 `request-plan.json`、设计汇总、Allure 原始结果、HTML、Trace、视频和截图；运行前清空，运行器自动启动本地报告服务 | 不提交 |
-| `runtime/allure-history.jsonl` | Allure 3 紧凑历史，自动限制最近 20 次，用于趋势和不稳定用例判断；不含完整 HTML 或媒体 | 不提交 |
+| `artifacts/current/<report-id>/` | 指定请求的请求级最终 Allure：全部用例的最后结果与最终失败诊断；补测只替换命中用例，不保留中间轮次 | 不提交 |
+| `runtime/allure-history/<report-id>.jsonl` | 指定请求的 Allure 3 紧凑历史，自动限制最近 20 次，用于趋势和不稳定用例判断；不含完整 HTML 或媒体 | 不提交 |
 
 ### 加载测试上下文
 
@@ -57,7 +59,7 @@ node scripts/load-test-context.mjs --project open-platform --scope login-registe
 
 ### 多功能包请求编排
 
-一次请求涉及 3 个及以上功能包时，先创建请求计划；1–2 包仍按单批串行设计。请求计划不绑定任何具体调度器：上层流程按其 `designBatches` 分派独立工作单元，每单元只读取本包资料、项目经验与计划声明的上游摘要，最多同时处理 3 包。
+一次请求涉及 3 个及以上功能包时，先创建请求计划；1–2 包仍按单批串行设计且不得创建测试子智能体。计划会机器生成 `agentWorkOrders`：每个功能包恰好一个工作单，按 `designBatches` 最多同时处理 3 包。工作单只允许绑定功能包，不接受页面、组件、上行/下行规则或源码文件作为任务粒度；设计、探索、脚本和排错均复用同一工作单。
 
 ```bash
 npm run request:plan -- --report-id product-flow-001 \
@@ -71,10 +73,23 @@ npm run request:plan -- --report-id product-flow-001 \
   --pack testpacks/web/open-platform/product-function \
   --confirm web/open-platform/create-product:web/open-platform/product-basic \
   --confirm web/open-platform/create-product:web/open-platform/product-function
-npm run request:reduce -- --plan testpacks/web/open-platform/artifacts/current/request-plan.json
+npm run request:reduce -- --plan testpacks/web/open-platform/artifacts/current/product-flow-001/request-plan.json
+npm run request:dispatch -- --plan testpacks/web/open-platform/artifacts/current/product-flow-001/request-plan.json
 ```
 
-命令会从所选脚本读取跨包 `runtime/generated-data.json` 的事实并生成 `pending_confirmation` 候选；需求、源码和 `experience/<project>.md` 中识别的其他业务依赖也必须写为候选并确认，不能凭关键词静默决定。未确认候选、循环依赖、遗漏上游包和范围审计失败都会阻断 Reduce 与计划执行。请求计划记录依赖、设计批次、脚本批次和串行执行顺序；真实 ID 不写入计划，继续由上游包运行成功后的台账提供。
+命令会从所选脚本读取跨包 `runtime/generated-data.json` 的事实并生成 `pending_confirmation` 候选；需求、源码和 `experience/<project>.md` 中识别的其他业务依赖也必须写为候选并确认，不能凭关键词静默决定。未确认候选、循环依赖、遗漏上游包、非法工作单和范围审计失败都会阻断 Reduce 与计划执行。`npm run request:dispatch` 只输出已审计的功能包工作单，供上层调度器分派；真实 ID 不写入计划，继续由上游包运行成功后的台账提供。
+
+工作单进入探索、脚本或排错阶段前，先做阶段校验；例如：
+
+```bash
+npm run request:assert-work-order -- \
+  --plan testpacks/web/open-platform/artifacts/current/product-flow-001/request-plan.json \
+  --pack web/open-platform/create-product \
+  --work-order WO-B1-01 \
+  --stage script_authoring
+```
+
+允许阶段固定为 `case_design`、`page_exploration`、`script_authoring`、`failure_diagnosis`；工作单与功能包不匹配、组件级任务或越界上下文均拒绝。
 
 用例表（`cases.md`）的分层格式与模板以 `skills/testcase-designer/SKILL.md`「输出格式（cases.md 模板）」为定义正本——顶部声明（测试类型/默认环境/默认数据策略、上下文来源与结论）、五列快速索引、折叠详情与“数据编号、步骤、操作、测试数据、预期结果”五列表格均在其模板中定义，本文件不重复维护模板；步骤表每行只描述一个操作和一个可观察预期。用例范围完整性按同一 SKILL.md「工作流——划定范围（七类提取）」逐类核对，不得只写主流程；范围外场景在用例表头部显式声明理由。
 
@@ -124,7 +139,9 @@ test("首页登录入口可见", async ({ page }) => {
 
 快速通道按一次用户请求生成一份可提交的 `test-reports/<标识>.md`。多包请求使用 `npm run test:fast -- --request-plan <request-plan.json> <多个功能包脚本>`；运行器校验功能包集合、已确认依赖与计划顺序后仍逐包执行。未使用请求计划时可继续用 `--report-id <标识>`。同一标识的复测或补测会合并更新 Markdown：保留此前已执行用例，更新最终状态与执行次数；Markdown 内嵌最小机器数据，只用于下一轮合并。
 
-Allure 原始结果、HTML、Trace、视频与截图只存在公共目录的 `artifacts/current/`。运行器启动前先关闭上一轮报告服务并清空该目录，完成后重建当前 Allure 并启动本地服务；`npm run report:allure -- --pack <功能包> [--pack <功能包> ...]` 可手动打开。Allure 3 的 `runtime/allure-history.jsonl` 独立保留最近 20 次紧凑历史，不包含媒体。`npm run report:request -- <标识>` 输出长期 Markdown 路径。截图、视频、Trace 和报告不得包含真实密码、Token、密钥、Cookie 或其他可复用凭据；对外分享前必须人工检查媒体内容。
+修复脚本后运行 `npm run test:fast:repair -- --report-id <标识>`。它从该报告的机器数据取出失败、非通过和未执行用例，递归补齐 `execution.json` 中的同包前置用例，再以 `--grep` 精确复测；复测失败立即结束。复测全部通过后，运行器依据报告中已确认的跨包依赖，全量回归命中功能包及其下游包。首次使用必须先用普通 `test:fast` 完整执行一次建立报告基线；旧报告仍可阅读，但不能作为局部复测来源。
+
+Allure 原始结果、HTML、Trace、视频与截图存在公共目录的 `artifacts/current/<report-id>/`，但主入口始终是请求级最终聚合：首次全量写入全部用例，补测只替换命中用例；通过补测会删除该用例此前失败的诊断材料，最终失败才保留其最后一次 Trace、视频和截图。中间 attempt 在合并后立即删除。每次新请求启动时，会回收同一公共目录下没有运行锁的旧请求目录。`npm run report:allure -- --report-id <标识> --pack <功能包> [--pack <功能包> ...]` 打开该请求的完整最终 Allure。Allure 3 的 `runtime/allure-history/<report-id>.jsonl` 独立保留该请求最近 20 次紧凑历史，不包含媒体。`npm run report:request -- <标识>` 输出长期 Markdown 路径。同一标识被另一运行占用时会直接失败，避免并发复测写坏同一份 Markdown 报告。截图、视频、Trace 和报告不得包含真实密码、Token、密钥、Cookie 或其他可复用凭据；对外分享前必须人工检查媒体内容。
 
 ### 提示类断言（规则正本）
 

@@ -15,7 +15,7 @@
 
 - 测试资产按功能测试包聚合，目录与文件布局（含各目录 Git 边界、`review-id` 命名与覆盖更新约定）以 `docs/FAST-TRACK.md`「功能测试包结构」为准，此处不重复维护。
 - `src/`、`scripts/`、`skills/`、`sources/`、`experience/` 为跨功能共享目录，不移动到测试包。
-- 不保留旧正式工作流的测试请求、评审记录、门禁、manifest、运行档案或正式执行链路；当前工作流的长期结论仅为可提交的 `test-reports/<report-id>.md`。`review/`、`artifacts/current/`、`runtime/` 下的审核模型、台账与 Allure 历史均为本地数据、不提交 Git，边界以 `docs/FAST-TRACK.md`「功能测试包结构」为准。提交信息沿用 `type(scope): 中文摘要` 格式。
+- 不保留旧正式工作流的测试请求、评审记录、门禁、manifest、运行档案或正式执行链路；当前工作流的长期结论仅为可提交的 `test-reports/<report-id>.md`。`artifacts/current/<report-id>/` 是该请求全部用例的最终聚合 Allure（每用例仅最后一次结果与最终失败诊断），不保留中间轮次；`review/`、`runtime/` 均为本地数据、不提交 Git，边界以 `docs/FAST-TRACK.md`「功能测试包结构」为准。提交信息沿用 `type(scope): 中文摘要` 格式。
 
 ## 用例表与审核
 
@@ -25,7 +25,7 @@
 
 ## 上下文与流程
 
-- 单次请求涉及 3 个及以上功能包时，先用 `npm run request:plan -- --report-id <标识> --pack <功能包> ...` 创建请求计划。需求、源码、项目经验和既有台账只能生成候选依赖；候选必须确认后才可计算批次。设计可按计划最多并行 3 个独立工作单元，脚本生成与 Playwright 执行仍按计划顺序串行。请求计划仅放在本次公共目录的 `artifacts/current/request-plan.json`，不提交 Git。
+- 单次请求涉及 3 个及以上功能包时，先用 `npm run request:plan -- --report-id <标识> --pack <功能包> ...` 创建请求计划，再运行 `npm run request:dispatch -- --plan <request-plan.json>`。机器生成的 `agentWorkOrders` 是唯一可分派工作单：一个工作单只绑定一个功能包，禁止按页面、组件或源码文件拆分；1–2 包不得创建测试子智能体。设计可按工作单批次最多并行 3 个，探索、脚本、排错复用同一工作单，脚本生成与 Playwright 执行仍按计划顺序串行。请求计划与工作单仅放在本次公共目录的 `artifacts/current/<report-id>/`，不提交 Git。
 - 生成用例与测试前必须先加载上下文、开始探索/写脚本/执行前必须重新加载复核（范围、环境、写入风险、已审核用例一致性），完整流程链、命令用法与上下文记录格式以 `docs/FAST-TRACK.md` 为准，此处不重复维护。
 - 不可逾越的闸门：Excel 未经用户确认不得发送验证码、登录、提交注册或执行其他外部写操作；页面事实与已审核用例不一致时，先更新用例表并重新导出 Excel 再继续。
 
