@@ -191,7 +191,13 @@ if (reportIdIndex !== -1 && !requestedReportId) throw new Error("--report-id 需
 const requestPlanIndex = rawArguments.indexOf("--request-plan");
 const requestPlanArgument = requestPlanIndex === -1 ? undefined : rawArguments[requestPlanIndex + 1];
 if (requestPlanIndex !== -1 && !requestPlanArgument) throw new Error("--request-plan 需要 request-plan.json 路径");
-const argumentsList = rawArguments.filter((_, index) => index !== reportIdIndex && index !== reportIdIndex + 1 && index !== requestPlanIndex && index !== requestPlanIndex + 1);
+// 未传 --request-plan 时 requestPlanIndex=-1，"index !== requestPlanIndex + 1" 会恒排除首参（spec 路径），
+// 导致文档口径的单包命令静默回退全量收集（2026-09-09 修复）：仅在实际出现该旗标时剔除其自身与取值。
+const argumentsList = rawArguments.filter((_, index) => {
+  if (reportIdIndex !== -1 && (index === reportIdIndex || index === reportIdIndex + 1)) return false;
+  if (requestPlanIndex !== -1 && (index === requestPlanIndex || index === requestPlanIndex + 1)) return false;
+  return true;
+});
 const explicitSpecArguments = argumentsList.filter(isSpecPath);
 const passthroughArguments = argumentsList.filter((argument) => !isSpecPath(argument));
 const specs = explicitSpecArguments.length > 0

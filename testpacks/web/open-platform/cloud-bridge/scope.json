@@ -69,6 +69,50 @@
             "parameters": [],
             "constraints": []
           }
+        },
+        {
+          "id": "c01-uplink-drawer-deep",
+          "name": "上行规则编辑抽屉深度功能面（页面标题/tab 步进/参数表格化管理/响应处理区块，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            "前端源码（2026-09-09 勘察）：`components/BtnEditUpRule.vue`（抽屉标题=查看/编辑/新建前缀+规则名，tab 头 pointer-events:none 仅底部按钮切换，步进静默保存）、`UpDataParamsTable.vue`（只读表格+行内编辑/删除+表上方添加参数；静默保存仅一条「添加成功/编辑成功」toast；删除 confirm「确定要删除该参数吗？」）、`ParamEditDialog.vue`（提取表达式 max64 必填/数据类型/键值对模式/转换类型 4 项必填；枚举值映射规则「当设备上报数值为…映射为本平台数值…」；设备时间格式 required:false）、`BtnEditUpResponseProcessing.vue`（响应表达式配置/成功条件表达式/是否需要平台响应数据/参数数值配置/平台标准参数表/第三方payload模板）、`PayloadParamsTable.vue`（payload参数表二级标题；列 提取表达式/数据类型/键值对模式/值来源/是否必填/转换类型；键值对行显示「-」）、`PayloadParamEditDialog.vue`（值来源 平台生成→类型时间戳/随机数+单位/格式+位数4-16、静态值→1-64；标题实际为「添加Body参数」）、`BtnEditUpAnalysisRules.vue`（可视化映射+保存/刷新）、`DownAuthTypeBasicAuth.vue`（密码 show-password）、`S2`（上行认证方式 签名认证/Basic Auth，App secret 显示/隐藏）、`BtnEditDownRule.vue`（下行抽屉标题动态「编辑{规则名}」，兜底「编辑下行规则配置」）、`BtnEditDownRuleFormBasic.vue`（下行触发条件小标题；Control Type 非新建禁用）、`BtnEditDownRuleFormRules.vue`（指令数据/自定义Body模板 v-if=!shouldHideSections 即 GetToken/AddNode 隐藏；Query 表仅 GET/DELETE、Body 表仅 POST/PUT；Query 列 含对应平台参数）、`BtnEditDownRuleFormResponse.vue`（返回参数说明仅 GetToken/AddNode；参数说明 span 固定展示）、`DownRuleTest.vue`（输出面板标题「输出下行指令」）、`cloud-enum.ts`（Control Type 枚举 bind/unbind/control.prop/node.add/token.get）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-024",
+            "OP-CBP-025",
+            "OP-CBP-031",
+            "OP-CBP-034"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "抽屉打开-观察-步进为线性单场景流程；动态表单分支的组合空间单列于 c02-up-param-dialog / c02-payload-param-dialog，此处不重复计数。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-downlink-drawer-deep",
+          "name": "下行规则编辑抽屉深度功能面（标题/下行触发条件/类型驱动区块/草稿生命周期，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            "前端源码（2026-09-09 勘察）：`components/BtnEditUpRule.vue`（抽屉标题=查看/编辑/新建前缀+规则名，tab 头 pointer-events:none 仅底部按钮切换，步进静默保存）、`UpDataParamsTable.vue`（只读表格+行内编辑/删除+表上方添加参数；静默保存仅一条「添加成功/编辑成功」toast；删除 confirm「确定要删除该参数吗？」）、`ParamEditDialog.vue`（提取表达式 max64 必填/数据类型/键值对模式/转换类型 4 项必填；枚举值映射规则「当设备上报数值为…映射为本平台数值…」；设备时间格式 required:false）、`BtnEditUpResponseProcessing.vue`（响应表达式配置/成功条件表达式/是否需要平台响应数据/参数数值配置/平台标准参数表/第三方payload模板）、`PayloadParamsTable.vue`（payload参数表二级标题；列 提取表达式/数据类型/键值对模式/值来源/是否必填/转换类型；键值对行显示「-」）、`PayloadParamEditDialog.vue`（值来源 平台生成→类型时间戳/随机数+单位/格式+位数4-16、静态值→1-64；标题实际为「添加Body参数」）、`BtnEditUpAnalysisRules.vue`（可视化映射+保存/刷新）、`DownAuthTypeBasicAuth.vue`（密码 show-password）、`S2`（上行认证方式 签名认证/Basic Auth，App secret 显示/隐藏）、`BtnEditDownRule.vue`（下行抽屉标题动态「编辑{规则名}」，兜底「编辑下行规则配置」）、`BtnEditDownRuleFormBasic.vue`（下行触发条件小标题；Control Type 非新建禁用）、`BtnEditDownRuleFormRules.vue`（指令数据/自定义Body模板 v-if=!shouldHideSections 即 GetToken/AddNode 隐藏；Query 表仅 GET/DELETE、Body 表仅 POST/PUT；Query 列 含对应平台参数）、`BtnEditDownRuleFormResponse.vue`（返回参数说明仅 GetToken/AddNode；参数说明 span 固定展示）、`DownRuleTest.vue`（输出面板标题「输出下行指令」）、`cloud-enum.ts`（Control Type 枚举 bind/unbind/control.prop/node.add/token.get）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-035",
+            "OP-CBP-036",
+            "OP-CBP-037",
+            "OP-CBP-039"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "抽屉线性步进流程；类型×方法等价类组合空间单列于 c05-downlink-type-sections。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
         }
       ]
     },
@@ -117,6 +161,106 @@
             "parameters": [],
             "constraints": []
           }
+        },
+        {
+          "id": "c02-up-param-dialog",
+          "name": "上行数据参数弹窗字段与转换类型动态表单（2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            "前端源码（2026-09-09 勘察）：`components/BtnEditUpRule.vue`（抽屉标题=查看/编辑/新建前缀+规则名，tab 头 pointer-events:none 仅底部按钮切换，步进静默保存）、`UpDataParamsTable.vue`（只读表格+行内编辑/删除+表上方添加参数；静默保存仅一条「添加成功/编辑成功」toast；删除 confirm「确定要删除该参数吗？」）、`ParamEditDialog.vue`（提取表达式 max64 必填/数据类型/键值对模式/转换类型 4 项必填；枚举值映射规则「当设备上报数值为…映射为本平台数值…」；设备时间格式 required:false）、`BtnEditUpResponseProcessing.vue`（响应表达式配置/成功条件表达式/是否需要平台响应数据/参数数值配置/平台标准参数表/第三方payload模板）、`PayloadParamsTable.vue`（payload参数表二级标题；列 提取表达式/数据类型/键值对模式/值来源/是否必填/转换类型；键值对行显示「-」）、`PayloadParamEditDialog.vue`（值来源 平台生成→类型时间戳/随机数+单位/格式+位数4-16、静态值→1-64；标题实际为「添加Body参数」）、`BtnEditUpAnalysisRules.vue`（可视化映射+保存/刷新）、`DownAuthTypeBasicAuth.vue`（密码 show-password）、`S2`（上行认证方式 签名认证/Basic Auth，App secret 显示/隐藏）、`BtnEditDownRule.vue`（下行抽屉标题动态「编辑{规则名}」，兜底「编辑下行规则配置」）、`BtnEditDownRuleFormBasic.vue`（下行触发条件小标题；Control Type 非新建禁用）、`BtnEditDownRuleFormRules.vue`（指令数据/自定义Body模板 v-if=!shouldHideSections 即 GetToken/AddNode 隐藏；Query 表仅 GET/DELETE、Body 表仅 POST/PUT；Query 列 含对应平台参数）、`BtnEditDownRuleFormResponse.vue`（返回参数说明仅 GetToken/AddNode；参数说明 span 固定展示）、`DownRuleTest.vue`（输出面板标题「输出下行指令」）、`cloud-enum.ts`（Control Type 枚举 bind/unbind/control.prop/node.add/token.get）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-026",
+            "OP-CBP-027",
+            "OP-CBP-028",
+            "OP-CBP-029"
+          ],
+          "combinationDesign": {
+            "strategy": "direct_enumeration",
+            "rationale": "有效组合=转换类型 4 取值（无转换/枚举值转换/时间格式转换/键值对，ParamEditDialog.vue:26-38）：动态表单仅随转换类型分支变化；键值对模式（仅值/仅键）与数据类型（8 类）同转换类型无交叉影响，按等价类取代表（仅值+字符串），不计入组合。4 ≤ 12 直接枚举，逐项映射 D17~D20。",
+            "validCombinationCount": 4,
+            "parameters": [
+              {
+                "name": "转换类型",
+                "values": [
+                  "无转换",
+                  "枚举值转换",
+                  "时间格式转换",
+                  "键值对"
+                ],
+                "evidence": "ParamEditDialog.vue:26-38 选项原文；优化需求「转换类型的动态表单逻辑」三分支"
+              },
+              {
+                "name": "键值对模式（正交代表）",
+                "values": [
+                  "仅值(value)"
+                ],
+                "evidence": "与转换类型无交叉影响，取代表值"
+              }
+            ],
+            "constraints": [],
+            "dRange": "D17~D20"
+          }
+        },
+        {
+          "id": "c02-payload-param-dialog",
+          "name": "payload 参数弹窗字段与值来源联动（上行 tab3 与下行 body/query 共用 PayloadParamEditDialog，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            "前端源码（2026-09-09 勘察）：`components/BtnEditUpRule.vue`（抽屉标题=查看/编辑/新建前缀+规则名，tab 头 pointer-events:none 仅底部按钮切换，步进静默保存）、`UpDataParamsTable.vue`（只读表格+行内编辑/删除+表上方添加参数；静默保存仅一条「添加成功/编辑成功」toast；删除 confirm「确定要删除该参数吗？」）、`ParamEditDialog.vue`（提取表达式 max64 必填/数据类型/键值对模式/转换类型 4 项必填；枚举值映射规则「当设备上报数值为…映射为本平台数值…」；设备时间格式 required:false）、`BtnEditUpResponseProcessing.vue`（响应表达式配置/成功条件表达式/是否需要平台响应数据/参数数值配置/平台标准参数表/第三方payload模板）、`PayloadParamsTable.vue`（payload参数表二级标题；列 提取表达式/数据类型/键值对模式/值来源/是否必填/转换类型；键值对行显示「-」）、`PayloadParamEditDialog.vue`（值来源 平台生成→类型时间戳/随机数+单位/格式+位数4-16、静态值→1-64；标题实际为「添加Body参数」）、`BtnEditUpAnalysisRules.vue`（可视化映射+保存/刷新）、`DownAuthTypeBasicAuth.vue`（密码 show-password）、`S2`（上行认证方式 签名认证/Basic Auth，App secret 显示/隐藏）、`BtnEditDownRule.vue`（下行抽屉标题动态「编辑{规则名}」，兜底「编辑下行规则配置」）、`BtnEditDownRuleFormBasic.vue`（下行触发条件小标题；Control Type 非新建禁用）、`BtnEditDownRuleFormRules.vue`（指令数据/自定义Body模板 v-if=!shouldHideSections 即 GetToken/AddNode 隐藏；Query 表仅 GET/DELETE、Body 表仅 POST/PUT；Query 列 含对应平台参数）、`BtnEditDownRuleFormResponse.vue`（返回参数说明仅 GetToken/AddNode；参数说明 span 固定展示）、`DownRuleTest.vue`（输出面板标题「输出下行指令」）、`cloud-enum.ts`（Control Type 枚举 bind/unbind/control.prop/node.add/token.get）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-032"
+          ],
+          "combinationDesign": {
+            "strategy": "direct_enumeration",
+            "rationale": "有效组合=转换类型 4 × 值来源 2（平台生成/静态值）=8：值来源选择切换子配置区（时间戳单位/随机数格式与位数 vs 静态值输入）为真实交叉；键值对模式与数据类型正交取代表。8 ≤ 12 直接枚举，映射 D25~D32；写入用例 OP-CBP-032 执行代表组合 D25/D29，其余组合由弹窗观察（OP-CBP-038）覆盖。",
+            "validCombinationCount": 8,
+            "parameters": [
+              {
+                "name": "转换类型",
+                "values": [
+                  "无转换",
+                  "枚举值转换",
+                  "时间格式转换",
+                  "键值对"
+                ],
+                "evidence": "PayloadParamEditDialog.vue:105-117 选项原文（第 4 项文案缺「转换」二字，文案差异注解）"
+              },
+              {
+                "name": "值来源",
+                "values": [
+                  "平台生成",
+                  "静态值"
+                ],
+                "evidence": "PayloadParamEditDialog.vue:40-51 选项原文；需求「平台随机生成（随机字符串、时间戳）」的落地文案为「平台生成」，表格回显兼容标签保留全称（PayloadParamsTable.vue:111-118）"
+              }
+            ],
+            "constraints": [],
+            "dRange": "D25~D32"
+          }
+        },
+        {
+          "id": "c02-down-param-dialog",
+          "name": "下行 body/query 参数弹窗字段（对应平台参数/是否必填/值来源子配置，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            "前端源码（2026-09-09 勘察）：`components/BtnEditUpRule.vue`（抽屉标题=查看/编辑/新建前缀+规则名，tab 头 pointer-events:none 仅底部按钮切换，步进静默保存）、`UpDataParamsTable.vue`（只读表格+行内编辑/删除+表上方添加参数；静默保存仅一条「添加成功/编辑成功」toast；删除 confirm「确定要删除该参数吗？」）、`ParamEditDialog.vue`（提取表达式 max64 必填/数据类型/键值对模式/转换类型 4 项必填；枚举值映射规则「当设备上报数值为…映射为本平台数值…」；设备时间格式 required:false）、`BtnEditUpResponseProcessing.vue`（响应表达式配置/成功条件表达式/是否需要平台响应数据/参数数值配置/平台标准参数表/第三方payload模板）、`PayloadParamsTable.vue`（payload参数表二级标题；列 提取表达式/数据类型/键值对模式/值来源/是否必填/转换类型；键值对行显示「-」）、`PayloadParamEditDialog.vue`（值来源 平台生成→类型时间戳/随机数+单位/格式+位数4-16、静态值→1-64；标题实际为「添加Body参数」）、`BtnEditUpAnalysisRules.vue`（可视化映射+保存/刷新）、`DownAuthTypeBasicAuth.vue`（密码 show-password）、`S2`（上行认证方式 签名认证/Basic Auth，App secret 显示/隐藏）、`BtnEditDownRule.vue`（下行抽屉标题动态「编辑{规则名}」，兜底「编辑下行规则配置」）、`BtnEditDownRuleFormBasic.vue`（下行触发条件小标题；Control Type 非新建禁用）、`BtnEditDownRuleFormRules.vue`（指令数据/自定义Body模板 v-if=!shouldHideSections 即 GetToken/AddNode 隐藏；Query 表仅 GET/DELETE、Body 表仅 POST/PUT；Query 列 含对应平台参数）、`BtnEditDownRuleFormResponse.vue`（返回参数说明仅 GetToken/AddNode；参数说明 span 固定展示）、`DownRuleTest.vue`（输出面板标题「输出下行指令」）、`cloud-enum.ts`（Control Type 枚举 bind/unbind/control.prop/node.add/token.get）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-036",
+            "OP-CBP-037"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "弹窗与上行 payload 弹窗同组件（PayloadParamEditDialog），转换类型×值来源组合空间已在 c02-payload-param-dialog 建模（D25~D32）；下行特有维度（对应平台参数仅 Query 且全类型非必填、Body/Query 表随 HTTP 方法切换）为单场景核查，无新增组合空间。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
         }
       ]
     },
@@ -135,6 +279,48 @@
           "combinationDesign": {
             "strategy": "not_applicable",
             "rationale": "无独立可测对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c03-duplicate-expression",
+          "name": "同一规则下参数表达式重复配置拦截（云云bridgeBug 第 1 项，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            [
+              "前端源码（2026-09-09 勘察）：`UpDataParamsTable.vue`/`PayloadParamsTable.vue` 添加与编辑路径（:217-255/:288-309）均无前端查重，全目录 grep「重复」仅命中注释；Bug 文档第 1 项标注（通过），预计由后端拦截——用例设计为提交后断言「无重复行落库」，若后端拒绝则无成功写入不记台账。"
+            ]
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-030"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单场景重复拦截核查：同表达式重复添加 1 次，无参数交叉。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c03-dual-entry-consistency",
+          "name": "新增协议双入口弹窗一致性（云云bridgeBug 第 2 项，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            [
+              "前端源码（2026-09-09 勘察）：协议管理页与产品开发-云云开发入口复用同一 `components/BtnEditCloudProtocol.vue`（187 行），字段/校验/文案同源；一致性核查为双入口渲染比对单场景。"
+            ]
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-041"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "双入口弹窗结构比对为单场景，无参数交叉。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -202,6 +388,67 @@
             "parameters": [],
             "constraints": []
           }
+        },
+        {
+          "id": "c04-conversion-dynamic",
+          "name": "转换类型动态表单联动与选项统一性（云云bridgeBug 第 18 项 + 优化转换类型逻辑，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            "前端源码（2026-09-09 勘察）：`components/BtnEditUpRule.vue`（抽屉标题=查看/编辑/新建前缀+规则名，tab 头 pointer-events:none 仅底部按钮切换，步进静默保存）、`UpDataParamsTable.vue`（只读表格+行内编辑/删除+表上方添加参数；静默保存仅一条「添加成功/编辑成功」toast；删除 confirm「确定要删除该参数吗？」）、`ParamEditDialog.vue`（提取表达式 max64 必填/数据类型/键值对模式/转换类型 4 项必填；枚举值映射规则「当设备上报数值为…映射为本平台数值…」；设备时间格式 required:false）、`BtnEditUpResponseProcessing.vue`（响应表达式配置/成功条件表达式/是否需要平台响应数据/参数数值配置/平台标准参数表/第三方payload模板）、`PayloadParamsTable.vue`（payload参数表二级标题；列 提取表达式/数据类型/键值对模式/值来源/是否必填/转换类型；键值对行显示「-」）、`PayloadParamEditDialog.vue`（值来源 平台生成→类型时间戳/随机数+单位/格式+位数4-16、静态值→1-64；标题实际为「添加Body参数」）、`BtnEditUpAnalysisRules.vue`（可视化映射+保存/刷新）、`DownAuthTypeBasicAuth.vue`（密码 show-password）、`S2`（上行认证方式 签名认证/Basic Auth，App secret 显示/隐藏）、`BtnEditDownRule.vue`（下行抽屉标题动态「编辑{规则名}」，兜底「编辑下行规则配置」）、`BtnEditDownRuleFormBasic.vue`（下行触发条件小标题；Control Type 非新建禁用）、`BtnEditDownRuleFormRules.vue`（指令数据/自定义Body模板 v-if=!shouldHideSections 即 GetToken/AddNode 隐藏；Query 表仅 GET/DELETE、Body 表仅 POST/PUT；Query 列 含对应平台参数）、`BtnEditDownRuleFormResponse.vue`（返回参数说明仅 GetToken/AddNode；参数说明 span 固定展示）、`DownRuleTest.vue`（输出面板标题「输出下行指令」）、`cloud-enum.ts`（Control Type 枚举 bind/unbind/control.prop/node.add/token.get）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-026",
+            "OP-CBP-038"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "动态表单分支展示与选项清单核查为单场景观察；分支间切换重置已在组件内实现（ParamEditDialog.vue:209-216），分支组合空间归 c02-up-param-dialog。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-mapping-validation",
+          "name": "可视化映射必填校验拦截（优化：必填的字段需要做必填校验，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            [
+              "前端源码（2026-09-09 勘察）：`BtnEditUpRule.vue:293-346` validateAnalysisRules 在步进（第2→3步）时集中校验：至少一条参数（:298）、逐行三项（:306-321）、模板非空（:328）、JSON 合法（:336）；校验失败无映射保存请求。若台账协议既有配置已完整，则拦截分支前置不成立，用例按自适应分支注解跳过。"
+            ]
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-034"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "校验拦截单场景（配置不完整→下一步被拦截且无写入），无参数交叉。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-bug-visual-surface",
+          "name": "像素级视觉核查项（Bug 第 6 项英文间距 / 第 8 项输入框与标题横线重合，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            [
+              "前端源码（2026-09-09 勘察）：`ParamEditDialog.vue` 全文无 el-divider 与 scoped 边框线，可能的「横线」为 dialog header 全局 border-bottom（styles/index.scss:586-595）或抽屉 header :after 1px 线（index.scss:601-618），表单区距 header 线 ≥16+20px，源码层静态无重叠；`DownAuthTypeApiKey.vue:4`「API Key 」标签含尾随空格（间距问题线索）。"
+            ]
+          ],
+          "disposition": "out_of_scope",
+          "caseIds": [],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "视觉重叠/间距为像素级样式核查，Playwright 行为断言不适用；由 MCP 只读勘察截图复核并出具结论（Bug 第 8 项上轮标注不通过，本轮重点复验），证据写入 conclusion.md。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          },
+          "reason": "视觉重叠/间距为像素级样式核查，Playwright 行为断言不适用；由 MCP 只读勘察截图复核并出具结论（Bug 第 8 项上轮标注不通过，本轮重点复验），证据写入 conclusion.md。"
         }
       ]
     },
@@ -264,6 +511,85 @@
             "parameters": [],
             "constraints": []
           }
+        },
+        {
+          "id": "c05-downlink-type-sections",
+          "name": "下行规则类型驱动区块显隐与参数表方法驱动（优化下行瘦身 + Bug 第 14 项，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            "前端源码（2026-09-09 勘察）：`components/BtnEditUpRule.vue`（抽屉标题=查看/编辑/新建前缀+规则名，tab 头 pointer-events:none 仅底部按钮切换，步进静默保存）、`UpDataParamsTable.vue`（只读表格+行内编辑/删除+表上方添加参数；静默保存仅一条「添加成功/编辑成功」toast；删除 confirm「确定要删除该参数吗？」）、`ParamEditDialog.vue`（提取表达式 max64 必填/数据类型/键值对模式/转换类型 4 项必填；枚举值映射规则「当设备上报数值为…映射为本平台数值…」；设备时间格式 required:false）、`BtnEditUpResponseProcessing.vue`（响应表达式配置/成功条件表达式/是否需要平台响应数据/参数数值配置/平台标准参数表/第三方payload模板）、`PayloadParamsTable.vue`（payload参数表二级标题；列 提取表达式/数据类型/键值对模式/值来源/是否必填/转换类型；键值对行显示「-」）、`PayloadParamEditDialog.vue`（值来源 平台生成→类型时间戳/随机数+单位/格式+位数4-16、静态值→1-64；标题实际为「添加Body参数」）、`BtnEditUpAnalysisRules.vue`（可视化映射+保存/刷新）、`DownAuthTypeBasicAuth.vue`（密码 show-password）、`S2`（上行认证方式 签名认证/Basic Auth，App secret 显示/隐藏）、`BtnEditDownRule.vue`（下行抽屉标题动态「编辑{规则名}」，兜底「编辑下行规则配置」）、`BtnEditDownRuleFormBasic.vue`（下行触发条件小标题；Control Type 非新建禁用）、`BtnEditDownRuleFormRules.vue`（指令数据/自定义Body模板 v-if=!shouldHideSections 即 GetToken/AddNode 隐藏；Query 表仅 GET/DELETE、Body 表仅 POST/PUT；Query 列 含对应平台参数）、`BtnEditDownRuleFormResponse.vue`（返回参数说明仅 GetToken/AddNode；参数说明 span 固定展示）、`DownRuleTest.vue`（输出面板标题「输出下行指令」）、`cloud-enum.ts`（Control Type 枚举 bind/unbind/control.prop/node.add/token.get）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-036",
+            "OP-CBP-037"
+          ],
+          "combinationDesign": {
+            "strategy": "direct_enumeration",
+            "rationale": "按等价类压缩：Control Type 5 取值压缩为类型等价类 2（系统级=Get Token/添加节点：隐藏指令数据与自定义Body模板；设备级=设备绑定/解绑/属性控制：展示）；HTTP 方法 4 取值压缩为方法等价类 2（POST/PUT→Body 参数表；GET/DELETE→Query 参数表）。有效组合 2×2=4 ≤ 12 直接枚举，映射 D33~D36；D33（系统级+POST）由 OP-CBP-036 执行，D34（系统级+GET）由 OP-CBP-037 方法切换观察（取消不落库），D35/D36（设备级）的类型维度由既有 OP-CBP-016 覆盖并注解。实现差异注解：Body/Query 参数表仅由 HTTP 方法驱动，不随类型隐藏（BtnEditDownRuleFormRules.vue:149,844/92,722），与优化需求「Get token/获取节点不展示 body 参数表」存在偏差，报告留档。",
+            "validCombinationCount": 4,
+            "parameters": [
+              {
+                "name": "类型等价类",
+                "values": [
+                  "系统级（Get Token/添加节点）",
+                  "设备级（设备绑定/解绑/属性控制）"
+                ],
+                "evidence": "BtnEditDownRuleFormRules.vue:325-328 shouldHideSections；cloud-enum.ts Control Type 枚举"
+              },
+              {
+                "name": "方法等价类",
+                "values": [
+                  "写体（POST/PUT）",
+                  "URL 参数（GET/DELETE）"
+                ],
+                "evidence": "BtnEditDownRuleFormRules.vue:149,844（Body）/92,722（Query）"
+              }
+            ],
+            "constraints": [],
+            "dRange": "D33~D36"
+          }
+        },
+        {
+          "id": "c05-dialog-centering",
+          "name": "选择平台产品弹窗居中显示（云云bridgeBug 第 4 项，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            [
+              "前端源码（2026-09-09 勘察）：映射弹窗（产品-协议映射，CloudBridgeProtocolDetailS1.vue handleAddProductMapping）为 Element Plus dialog，居中断言以视口 boundingBox 中心点偏差量行为化断言。"
+            ]
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-040"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "弹窗居中量测为单场景，无参数交叉。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-bug-product-delete-sync",
+          "name": "删除产品同步云云bridge表（云云bridgeBug 第 5 项，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            [
+              "边界依据：删除产品属跨模块高风险删除写入（AGENTS.md 硬边界第 2 条红线边缘），且 Bug 文档第 5 项已标注（通过）；删除动作为产品模块（create-product/product-management 包）职责，不在本包重复设计。"
+            ]
+          ],
+          "disposition": "out_of_scope",
+          "caseIds": [],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外：跨模块后端同步行为 + 高风险删除写入，不纳入本包自动化。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          },
+          "reason": "跨模块后端同步行为 + 高风险删除写入，不纳入本包自动化。"
         }
       ]
     },
@@ -282,6 +608,27 @@
           "combinationDesign": {
             "strategy": "not_applicable",
             "rationale": "无独立可测对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c06-basic-auth-show-hide",
+          "name": "Basic Auth 密码显示/隐藏切换与认证区文案（云云bridgeBug 第 7/12/6 项，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            [
+              "前端源码（2026-09-09 勘察）：S2 上行认证方式=Basic Auth 时实际渲染 `DownAuthTypeBasicAuth.vue`（:8 密码框 type=password + show-password，可切换；CloudBridgeProtocolDetailS2.vue:44-48/:133）；`UpAuthTypeBasicAuth.vue` 无 show-password 且未被 S2 引用（疑似死代码）。认证区文案核查：不出现「AuthorizationToken 所在 header 自动加入公共 header」提示（Bug 第 12 项）；「App key」「Basic Auth」中英混排标签间距以截图注解（Bug 第 6 项）。"
+            ]
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-033"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "密码显隐切换与文案核查均为单场景交互，无参数交叉。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -373,6 +720,33 @@
               "OP-CBP-016",
               "OP-CBP-017",
               "OP-CBP-019"
+            ]
+          }
+        },
+        {
+          "id": "c07-param-write-lifecycle",
+          "name": "上行/payload/下行参数写入生命周期（添加/编辑/删除自清理，2026-09-09）",
+          "evidence": [
+            "`sources/open-platform/需求/云云bridge优化/云云bridge优化.md`（编辑规则页面标题、可视化映射必填校验、响应处理小标题、上行数据参数表表格化管理/添加参数/转换类型动态表单/编辑回显/删除、payload参数映射、下行 Get token 与获取节点瘦身、body/query 参数表新增值来源/数据类型/键对值模式）、`sources/open-platform/需求/云云bridgeBug/云云bridgeBug.md`（18 项验证清单）、`sources/open-platform/平台文档/云云接入bridge协议转换操作指南/云云接入bridge协议转换操作指南.md`（上行数据解析配置/下行数据解析配置章节）。",
+            "前端源码（2026-09-09 勘察）：`components/BtnEditUpRule.vue`（抽屉标题=查看/编辑/新建前缀+规则名，tab 头 pointer-events:none 仅底部按钮切换，步进静默保存）、`UpDataParamsTable.vue`（只读表格+行内编辑/删除+表上方添加参数；静默保存仅一条「添加成功/编辑成功」toast；删除 confirm「确定要删除该参数吗？」）、`ParamEditDialog.vue`（提取表达式 max64 必填/数据类型/键值对模式/转换类型 4 项必填；枚举值映射规则「当设备上报数值为…映射为本平台数值…」；设备时间格式 required:false）、`BtnEditUpResponseProcessing.vue`（响应表达式配置/成功条件表达式/是否需要平台响应数据/参数数值配置/平台标准参数表/第三方payload模板）、`PayloadParamsTable.vue`（payload参数表二级标题；列 提取表达式/数据类型/键值对模式/值来源/是否必填/转换类型；键值对行显示「-」）、`PayloadParamEditDialog.vue`（值来源 平台生成→类型时间戳/随机数+单位/格式+位数4-16、静态值→1-64；标题实际为「添加Body参数」）、`BtnEditUpAnalysisRules.vue`（可视化映射+保存/刷新）、`DownAuthTypeBasicAuth.vue`（密码 show-password）、`S2`（上行认证方式 签名认证/Basic Auth，App secret 显示/隐藏）、`BtnEditDownRule.vue`（下行抽屉标题动态「编辑{规则名}」，兜底「编辑下行规则配置」）、`BtnEditDownRuleFormBasic.vue`（下行触发条件小标题；Control Type 非新建禁用）、`BtnEditDownRuleFormRules.vue`（指令数据/自定义Body模板 v-if=!shouldHideSections 即 GetToken/AddNode 隐藏；Query 表仅 GET/DELETE、Body 表仅 POST/PUT；Query 列 含对应平台参数）、`BtnEditDownRuleFormResponse.vue`（返回参数说明仅 GetToken/AddNode；参数说明 span 固定展示）、`DownRuleTest.vue`（输出面板标题「输出下行指令」）、`cloud-enum.ts`（Control Type 枚举 bind/unbind/control.prop/node.add/token.get）。"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-CBP-027",
+            "OP-CBP-028",
+            "OP-CBP-029",
+            "OP-CBP-032",
+            "OP-CBP-036",
+            "OP-CBP-039"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "写入动作为线性 CRUD 单场景（参数 batch add-or-update → 编辑 → 删除自清理；下行草稿规则 创建→核查→删除），无参数交叉组合；写入全部作用于台账合成协议，经 recordGeneratedData 记录，删除仅限本轮创建的合成参数/规则。高风险/多负向叠加组合不存在；人工补充：OP-CBP-030（重复表达式拦截，失败尝试不留痕）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-CBP-030"
             ]
           }
         }
