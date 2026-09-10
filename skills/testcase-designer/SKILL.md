@@ -10,8 +10,8 @@ description: 快速通道测试用例设计器。为 automation-tests 工程生�
 
 ## 硬前置（每次必须执行）
 
-0. 一次请求涉及 3 个及以上功能包时，先读取本次 `request-plan.json`：只加载计划分配给当前功能包的资料、上游摘要和项目经验；不得把其他包的详细用例带入本包设计。需求、源码、经验与既有台账可提出候选依赖，但候选需在请求计划确认后才是有效前置条件。
-1. 先运行 `node scripts/prepare-case-design.mjs --pack testpacks/<type>/<project>/<feature>`，加载本包 `runtime/design-card.md` 与实际资料；不得依赖长会话记忆续接范围。
+0. 一次请求涉及 3 个及以上功能包时，先读取 `agent-dispatch.json` 中绑定本包的唯一工作单：只加载工作单允许的本包资料、上游摘要和项目经验；不得把其他包的详细用例带入本包设计，也不得按页面、组件或源码文件另拆子智能体。需求、源码、经验与既有台账可提出候选依赖，但候选需在请求计划确认后才是有效前置条件。
+1. 先运行 `node scripts/prepare-case-design.mjs --pack testpacks/<type>/<project>/<feature> --work-order <workOrderId>`，加载本包 `runtime/design-card.md` 与实际资料；不得依赖长会话记忆续接范围。1–2 包请求不传 `--work-order`，由主智能体串行设计。
 2. 先维护同包已提交的 `scope.json`（统一 `testcase-scope`），固定覆盖 C01…C07。每个对象必须提供源码/资料依据，并归为 `covered`（关联 cases.md 用例 ID）、`out_of_scope`（理由+依据）或 `pending`；每个对象还必须声明 `combinationDesign` 组合设计结论（触发规则见「识别参数、取值与约束」），缺失或策略选错会阻断审计、Excel 导出与 `npm run test:fast`。
 3. 写入/更新 `cases.md` 后，先运行 `node scripts/audit-case-completeness.mjs <功能包>`；有 pending 或其他缺口时不得导出 Excel、不得进入脚本和执行阶段。
 

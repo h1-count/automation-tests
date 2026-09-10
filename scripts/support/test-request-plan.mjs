@@ -3,6 +3,8 @@ import path from "node:path";
 
 export const requestPlanSchema = "test-request-plan";
 export const maxDesignWorkers = 3;
+export const agentWorkOrderStages = ["case_design", "page_exploration", "script_authoring", "failure_diagnosis"];
+const workOrderArtifacts = ["runtime/design-card.md", "scope.json", "cases.md"];
 const dependencyStatuses = new Set(["confirmed", "pending_confirmation", "rejected"]);
 const dependencyKinds = new Set(["runtime_data", "business_precondition"]);
 
@@ -53,6 +55,92 @@ function dependencyKey(dependency) {
   return `${dependency.from}\u0000${dependency.to}\u0000${dependency.kind}`;
 }
 
+function hasOnlyKeys(value, keys) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).every((key) => keys.includes(key))
+    && keys.every((key) => Object.hasOwn(value, key));
+}
+
+/**
+ * 只有多功能包请求才生成工作单。工作单完全由功能包、批次和已确认依赖派生，
+ * 不接受页面、组件或源码文件作为拆分粒度。
+ */
+export function buildAgentWorkOrders(packPaths, designBatches, dependencies) {
+  if (packPaths.length < 3) return [];
+  const confirmed = dependencies.filter((dependency) => dependency.status === "confirmed");
+  return designBatches.flatMap((batch, batchOffset) => batch.map((packPath, orderOffset) => ({
+    workOrderId: `WO-B${batchOffset + 1}-${String(orderOffset + 1).padStart(2, "0")}`,
+    packPath,
+    batchId: batchOffset + 1,
+    allowedStages: [...agentWorkOrderStages],
+    allowedContext: {
+      ownPackArtifacts: [...workOrderArtifacts],
+      sourceScope: "pack_matched_only",
+      projectExperience: true,
+      upstreamDependencies: confirmed
+        .filter((dependency) => dependency.to === packPath)
+        .map(({ from, kind, evidence }) => ({ packPath: from, kind, evidence }))
+    }
+  })));
+}
+
+/** 严格校验工作单只能是请求计划的确定性派生结果。 */
+export function validateAgentWorkOrders(plan) {
+  const problems = [];
+  const packs = Array.isArray(plan?.packs) ? plan.packs : [];
+  const packPaths = packs.map((pack) => text(pack?.path)).filter(Boolean);
+  const orders = plan?.agentWorkOrders;
+  if (!Array.isArray(orders)) return ["agentWorkOrders 必须是数组"];
+  if (packPaths.length < 3) {
+    if (orders.length !== 0) problems.push("1–2 个功能包不得创建测试子智能体工作单");
+    return problems;
+  }
+  const expected = buildAgentWorkOrders(packPaths, plan.designBatches ?? [], plan.dependencies ?? []);
+  if (orders.length !== expected.length) {
+    problems.push(`agentWorkOrders 数量必须等于功能包数：期望 ${expected.length}，实际 ${orders.length}`);
+    return problems;
+  }
+  const seenOrders = new Set();
+  const seenPacks = new Set();
+  for (const order of orders) {
+    if (!hasOnlyKeys(order, ["workOrderId", "packPath", "batchId", "allowedStages", "allowedContext"])) {
+      problems.push("工作单只能包含 workOrderId、packPath、batchId、allowedStages、allowedContext；禁止组件、页面或源码拆分字段");
+      continue;
+    }
+    if (!text(order.workOrderId) || seenOrders.has(order.workOrderId)) problems.push(`workOrderId 必须唯一：${text(order.workOrderId) || "(空)"}`);
+    seenOrders.add(order.workOrderId);
+    if (!packPaths.includes(text(order.packPath)) || seenPacks.has(order.packPath)) problems.push(`每个工作单必须唯一绑定本次功能包：${text(order.packPath) || "(空)"}`);
+    seenPacks.add(order.packPath);
+    if (!Array.isArray(order.allowedStages) || JSON.stringify(order.allowedStages) !== JSON.stringify(agentWorkOrderStages)) {
+      problems.push(`工作单 ${text(order.workOrderId) || "(空)"} 的 allowedStages 必须为全测试流程标准阶段`);
+    }
+    const context = order.allowedContext;
+    if (!hasOnlyKeys(context, ["ownPackArtifacts", "sourceScope", "projectExperience", "upstreamDependencies"])) {
+      problems.push(`工作单 ${text(order.workOrderId) || "(空)"} 的 allowedContext 字段非法`);
+    }
+  }
+  if (problems.length === 0 && JSON.stringify(orders) !== JSON.stringify(expected)) {
+    problems.push("agentWorkOrders 必须与功能包、设计批次和已确认依赖的机器计算结果完全一致");
+  }
+  return problems;
+}
+
+/** 验证某阶段是否可使用指定功能包工作单。 */
+export function validateWorkOrderUse(plan, packPath, workOrderId, stage) {
+  const problems = validateAgentWorkOrders(plan);
+  const paths = (plan?.packs ?? []).map((pack) => text(pack?.path)).filter(Boolean);
+  if (paths.length < 3) {
+    if (workOrderId) problems.push("1–2 个功能包请求不得传入工作单");
+    return problems;
+  }
+  if (!workOrderId) return [...problems, "多功能包请求必须提供 --work-order"];
+  const order = (plan.agentWorkOrders ?? []).find((item) => item.workOrderId === workOrderId);
+  if (!order) return [...problems, `未找到工作单：${workOrderId}`];
+  if (order.packPath !== packPath) problems.push(`工作单 ${workOrderId} 只能处理 ${order.packPath}`);
+  if (!agentWorkOrderStages.includes(stage) || !order.allowedStages?.includes(stage)) problems.push(`工作单 ${workOrderId} 不允许阶段：${stage}`);
+  return problems;
+}
+
 export function buildBatches(packPaths, dependencies, parallel) {
   const confirmed = dependencies.filter((item) => item.status === "confirmed");
   const incoming = new Map(packPaths.map((pack) => [pack, new Set()]));
@@ -101,6 +189,7 @@ export function validateRequestPlan(plan) {
   if (!problems.some((problem) => problem.includes("待确认"))) {
     try { buildBatches(paths, dependencies, paths.length >= 3); } catch (error) { problems.push(error.message); }
   }
+  problems.push(...validateAgentWorkOrders(plan));
   return problems;
 }
 
@@ -119,6 +208,7 @@ export function buildRequestPlan({ reportId, packs, dependencies = [] }) {
     packs,
     dependencies,
     designBatches,
+    agentWorkOrders: buildAgentWorkOrders(paths, designBatches, dependencies),
     scriptBatches: executionOrder.map((pack) => [pack]),
     executionOrder
   };
@@ -126,6 +216,32 @@ export function buildRequestPlan({ reportId, packs, dependencies = [] }) {
 
 export async function readRequestPlan(planPath) {
   return JSON.parse(await fs.readFile(planPath, "utf8"));
+}
+
+/** 从功能包向上查找包含该包的当前请求计划；同一路径有多个请求时拒绝猜测。 */
+export async function findActiveRequestPlanForPack(rootDirectory, packDirectory) {
+  const testpacksDirectory = path.join(rootDirectory, "testpacks");
+  const packPath = relativePack(rootDirectory, packDirectory);
+  let directory = path.resolve(packDirectory);
+  while (directory.startsWith(testpacksDirectory)) {
+    const currentRoot = path.join(directory, "artifacts", "current");
+    let reportDirectories = [];
+    try { reportDirectories = await fs.readdir(currentRoot, { withFileTypes: true }); } catch { /* 当前目录没有请求计划，继续向上查找 */ }
+    const matches = [];
+    for (const entry of reportDirectories) {
+      if (!entry.isDirectory()) continue;
+      const planPath = path.join(currentRoot, entry.name, "request-plan.json");
+      try {
+        const plan = await readRequestPlan(planPath);
+        if ((plan.packs ?? []).some((pack) => pack.path === packPath)) matches.push({ planPath, plan });
+      } catch { /* 此请求目录没有计划 */ }
+    }
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) throw new Error(`功能包 ${packPath} 命中多个当前请求计划；请显式传入对应工作单`);
+    if (directory === testpacksDirectory) break;
+    directory = path.dirname(directory);
+  }
+  return null;
 }
 
 export async function writeJsonAtomic(filePath, value) {

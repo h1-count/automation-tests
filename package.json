@@ -10,6 +10,7 @@
   "scripts": {
     "test": "npm run test:fast",
     "test:fast": "node scripts/run-fast-tests.mjs",
+    "test:fast:repair": "node scripts/repair-fast-tests.mjs",
     "test:fast:headed": "node scripts/run-fast-tests.mjs --headed",
     "report": "playwright show-report",
     "report:allure": "node scripts/show-allure-report.mjs",
@@ -17,9 +18,13 @@
     "sources:ingest": "node scripts/source-library.mjs ingest",
     "check:case-completeness": "node scripts/audit-case-completeness.mjs",
     "check:case-coverage": "node scripts/audit-case-coverage.mjs",
+    "check:test-execution": "node scripts/audit-test-execution.mjs",
     "request:plan": "node scripts/prepare-test-request.mjs",
+    "request:dispatch": "node scripts/prepare-agent-dispatch.mjs",
+    "request:assert-work-order": "node scripts/assert-agent-work-order.mjs",
     "request:reduce": "node scripts/reduce-test-request.mjs",
-    "test:case-completeness": "node --test tests/support/case-completeness.test.mjs tests/support/review-workbook-scope.test.mjs tests/support/request-report.test.mjs tests/support/test-request-plan.test.mjs",
+    "check:agent-dispatch": "node scripts/audit-agent-dispatch.mjs",
+    "test:case-completeness": "node --test tests/support/case-completeness.test.mjs tests/support/review-workbook-scope.test.mjs tests/support/request-report.test.mjs tests/support/test-request-plan.test.mjs tests/support/agent-dispatch.test.mjs tests/support/test-execution-contract.test.mjs",
     "check:types": "tsc --project tsconfig.json"
   },
   "dependencies": {

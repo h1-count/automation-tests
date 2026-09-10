@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { auditPack, validateScope } from "./audit-case-completeness.mjs";
+import { auditAgentDispatch } from "./audit-agent-dispatch.mjs";
+import { findActiveRequestPlanForPack } from "./support/test-request-plan.mjs";
 
 const exportSchema = "testcase-review-export";
 const modelSchema = "testcase-review-model";
@@ -785,6 +787,12 @@ async function main() {
   const scope = JSON.parse(await fs.readFile(scopePath, "utf8"));
   // scope.json 位于功能包时，导出前重放 Pairwise 模型；临时纯模型文件仍可做结构预览。
   const packDirectory = path.dirname(scopePath);
+  let activeRequest = null;
+  try { activeRequest = await findActiveRequestPlanForPack(process.cwd(), packDirectory); } catch { /* 临时工作簿模型不属于工程功能包 */ }
+  if (activeRequest) {
+    const dispatchAudit = auditAgentDispatch(activeRequest.plan);
+    if (!dispatchAudit.valid) throw new Error(`子智能体编排未通过：${dispatchAudit.problems.join("；")}`);
+  }
   if (await fs.access(path.join(packDirectory, "cases.md")).then(() => true).catch(() => false)) {
     const audit = await auditPack(packDirectory);
     if (audit.problems.length > 0) {

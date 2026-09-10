@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { auditPack, categoryCodes, categoryNames, combinationRules, scopeSchema } from "./audit-case-completeness.mjs";
+import { findActiveRequestPlanForPack, validateWorkOrderUse } from "./support/test-request-plan.mjs";
 
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -12,9 +13,17 @@ function argumentValue(name) {
 
 const packArgument = argumentValue("--pack");
 if (!packArgument) throw new Error("用法：node scripts/prepare-case-design.mjs --pack testpacks/web/<project>/<feature>");
+const workOrderId = argumentValue("--work-order");
 const packDirectory = path.resolve(rootDirectory, packArgument);
 const relativePack = path.relative(path.join(rootDirectory, "testpacks"), packDirectory);
 if (relativePack.startsWith("..") || path.isAbsolute(relativePack)) throw new Error("--pack 必须位于 testpacks/ 下");
+const activeRequest = await findActiveRequestPlanForPack(rootDirectory, packDirectory);
+if (activeRequest) {
+  const problems = validateWorkOrderUse(activeRequest.plan, relativePack.replaceAll(path.sep, "/"), workOrderId, "case_design");
+  if (problems.length > 0) throw new Error(`子智能体工作单未通过：${problems.join("；")}`);
+} else if (workOrderId) {
+  throw new Error("未找到包含该功能包的当前请求计划，不能使用 --work-order");
+}
 
 const cases = await fs.readFile(path.join(packDirectory, "cases.md"), "utf8");
 const contextLines = cases.split("\n").filter((line) => /^>\s*(上下文|资料|来源)/u.test(line.trim())).slice(0, 12);

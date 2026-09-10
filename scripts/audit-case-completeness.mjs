@@ -3,6 +3,8 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { auditAgentDispatch } from "./audit-agent-dispatch.mjs";
+import { readRequestPlan } from "./support/test-request-plan.mjs";
 
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const categoryCodes = ["C01", "C02", "C03", "C04", "C05", "C06", "C07"];
@@ -271,9 +273,37 @@ async function collectPackDirectories(overrides) {
 }
 
 async function main() {
-  const packs = await collectPackDirectories(process.argv.slice(2));
+  const rawArguments = process.argv.slice(2);
+  const requestPlanIndex = rawArguments.indexOf("--request-plan");
+  const requestPlanPath = requestPlanIndex === -1 ? undefined : rawArguments[requestPlanIndex + 1];
+  if (requestPlanIndex !== -1 && !requestPlanPath) throw new Error("--request-plan 需要 request-plan.json 路径");
+  const overrides = rawArguments.filter((_, index) => index !== requestPlanIndex && index !== requestPlanIndex + 1);
+  const packs = await collectPackDirectories(overrides);
   if (packs.length === 0) throw new Error("未找到含 cases.md 的功能包");
   let failed = false;
+  // 运行器会显式传入本轮功能包。三包以上必须存在同一公共目录下、已审计的工作单，
+  // 因而在 Playwright 启动前阻断组件级或越界的子智能体编排。
+  if (overrides.length >= 3) {
+    try {
+      if (!requestPlanPath) throw new Error("缺少请求计划");
+      const plan = await readRequestPlan(path.resolve(rootDirectory, requestPlanPath));
+      const expectedPacks = packs.map((pack) => path.relative(path.join(rootDirectory, "testpacks"), pack).replaceAll(path.sep, "/")).sort();
+      const plannedPacks = (plan.packs ?? []).map((pack) => pack.path).sort();
+      const problems = [
+        ...(JSON.stringify(expectedPacks) === JSON.stringify(plannedPacks) ? [] : ["当前 request-plan.json 的功能包集合必须与本轮审计完全一致"]),
+        ...auditAgentDispatch(plan).problems
+      ];
+      if (problems.length > 0) {
+        failed = true;
+        console.error(`[子智能体编排] ✗ ${problems.join("；")}`);
+      } else {
+        console.log(`[子智能体编排] ${plan.agentWorkOrders.length} 个功能包级工作单 ✓`);
+      }
+    } catch {
+      failed = true;
+      console.error("[子智能体编排] ✗ 三个及以上功能包必须先传入已确认的 request-plan.json");
+    }
+  }
   for (const pack of packs.sort()) {
     const result = await auditPack(pack);
     if (result.problems.length === 0) {
