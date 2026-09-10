@@ -1,0 +1,17 @@
+{
+  "schema": "test-execution-contract",
+  "cases": {
+    "OP-STAT-001": {
+      "dependsOn": []
+    },
+    "OP-STAT-002": {
+      "dependsOn": []
+    },
+    "OP-STAT-003": {
+      "dependsOn": []
+    },
+    "OP-STAT-004": {
+      "dependsOn": []
+    }
+  }
+}

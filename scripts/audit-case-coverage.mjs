@@ -29,19 +29,9 @@ function extractCaseIds(text) {
 
 function extractSpecAnchors(text) {
   const anchored = new Set();
-  // ① 测试标题内嵌 ID。
-  for (const match of text.matchAll(/test\("([^"]*)"/g)) {
+  // 局部复测只能通过 Playwright --grep 选择测试标题；注释与步骤引用不再算执行锚点。
+  for (const match of text.matchAll(/test(?:\.fixme)?\("([^"]*)"/g)) {
     for (const id of match[1].match(caseIdPattern) ?? []) anchored.add(id);
-  }
-  for (const line of text.split("\n")) {
-    // ② 「覆盖用例」注释行上的 ID。
-    if (line.includes("覆盖用例")) {
-      for (const id of line.match(caseIdPattern) ?? []) anchored.add(id);
-    }
-    // ③ 步骤级引用：OP-XXX-NNN 步骤。
-    for (const match of line.matchAll(/OP-[A-Z]+-\d{3}\s*步骤/g)) {
-      anchored.add(match[0].replace(/\s*步骤$/u, ""));
-    }
   }
   return anchored;
 }
@@ -76,7 +66,7 @@ async function auditPack(packDirectory) {
 
   // 缺口一：用例表有、脚本未锚定（漏实现或锚点注释丢失）。
   for (const id of [...caseIds].sort()) {
-    if (!anchoredIds.has(id)) problems.push(`用例 ${id} 在脚本中没有任何覆盖锚点（注释/标题/步骤引用均未出现）`);
+    if (!anchoredIds.has(id)) problems.push(`用例 ${id} 未出现在可选择的 test() 标题`);
   }
   // 缺口二：脚本锚定了、用例表没有（脚本越界实现或用例被删未同步）。
   for (const id of [...anchoredIds].sort()) {

@@ -1,0 +1,32 @@
+{
+  "schema": "test-execution-contract",
+  "cases": {
+    "OP-ACCT-001": {
+      "dependsOn": []
+    },
+    "OP-ACCT-002": {
+      "dependsOn": []
+    },
+    "OP-ACCT-003": {
+      "dependsOn": []
+    },
+    "OP-ACCT-004": {
+      "dependsOn": []
+    },
+    "OP-ACCT-005": {
+      "dependsOn": []
+    },
+    "OP-ACCT-006": {
+      "dependsOn": []
+    },
+    "OP-ACCT-007": {
+      "dependsOn": []
+    },
+    "OP-ACCT-008": {
+      "dependsOn": []
+    },
+    "OP-ACCT-009": {
+      "dependsOn": []
+    }
+  }
+}

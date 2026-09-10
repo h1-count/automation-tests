@@ -426,7 +426,7 @@ export type GeneratedCloudProtocolData = {
   statusToggledAt?: string[];
   /** 删除成功后回填删除标记（同 runId 覆盖更新）。 */
   deletedAt?: string;
-  /** 配置页写入流水（2026-09-07 二次扩展：映射/Header/认证/规则启停/下行规则/最终保存/状态流转）。 */
+  /** 配置页写入流水（2026-09-07 二次扩展：映射/Header/认证/规则启停/下行规则/最终保存/状态流转；2026-09-09 三次扩展：参数/映射模板/草稿规则生命周期）。 */
   configWrites?: Array<{
     at: string;
     kind:
@@ -440,7 +440,17 @@ export type GeneratedCloudProtocolData = {
       | "down-rule-add"
       | "down-rule-remove"
       | "final-save"
-      | "protocol-status-flow";
+      | "protocol-status-flow"
+      | "param-add"
+      | "param-edit"
+      | "param-delete"
+      | "payload-param-add"
+      | "payload-param-delete"
+      | "mapping-save"
+      | "down-param-add"
+      | "down-param-delete"
+      | "down-draft-add"
+      | "down-draft-delete";
     detail?: string;
   }>;
 };

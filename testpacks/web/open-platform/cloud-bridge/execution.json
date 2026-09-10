@@ -1,0 +1,198 @@
+{
+  "schema": "test-execution-contract",
+  "cases": {
+    "OP-CBP-001": {
+      "dependsOn": []
+    },
+    "OP-CBP-002": {
+      "dependsOn": []
+    },
+    "OP-CBP-003": {
+      "dependsOn": []
+    },
+    "OP-CBP-004": {
+      "dependsOn": []
+    },
+    "OP-CBP-005": {
+      "dependsOn": []
+    },
+    "OP-CBP-006": {
+      "dependsOn": [
+        "OP-CBP-005"
+      ]
+    },
+    "OP-CBP-007": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-008": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-009": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-010": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-011": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-012": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-013": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-014": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-015": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-016": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-017": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-018": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-019": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-020": {
+      "dependsOn": []
+    },
+    "OP-CBP-021": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-022": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-023": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-024": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-025": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-026": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-027": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-028": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-029": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-030": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-031": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-032": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-033": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-034": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-035": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-036": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-037": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-038": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-039": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-040": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    },
+    "OP-CBP-041": {
+      "dependsOn": [
+        "OP-CBP-006"
+      ]
+    }
+  }
+}

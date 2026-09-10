@@ -34,6 +34,10 @@ function resultKey(result) {
   return result.historyId ?? result.fullName ?? result.name;
 }
 
+function resultCaseIds(result) {
+  return [...new Set(`${result.name ?? ""} ${result.fullName ?? ""}`.match(/OP-[A-Z]+-\d{3}/g) ?? [])];
+}
+
 function caseNumber(result) {
   const match = String(result.name ?? "").match(/^(\d+)\.\s/u);
   return match ? Number(match[1]) : undefined;
@@ -97,22 +101,38 @@ export async function buildRequestReport({ currentDirectory, durableReportPath }
   }
 
   const report = await loadPreviousReport(durableReportPath, manifest.reportId);
+  const catalog = Array.isArray(manifest.caseCatalog) ? manifest.caseCatalog : [];
+  const catalogById = new Map(catalog.map((item) => [item.caseId, item]));
+  const plannedIds = Array.isArray(manifest.plannedCaseIds) ? new Set(manifest.plannedCaseIds) : null;
   let nextNumber = Math.max(0, ...Object.values(report.cases).map((item) => item.number)) + 1;
   report.packs = [...new Set([...report.packs, ...manifest.packs])].sort();
-  report.attempts.push({ startedAt: manifest.startedAt, finishedAt: new Date().toISOString(), packs: manifest.packs });
+  report.caseCatalog = catalog.length ? catalog : report.caseCatalog;
+  report.dependencies = manifest.dependencies ?? report.dependencies ?? [];
+  for (const item of report.caseCatalog ?? []) {
+    if (!report.cases[item.key]) report.cases[item.key] = {
+      number: nextNumber++, name: item.caseId, status: "unexecuted", executions: 0, source: item.packPath, failureSummary: ""
+    };
+  }
+  report.attempts.push({ startedAt: manifest.startedAt, finishedAt: new Date().toISOString(), packs: manifest.packs, executedPacks: manifest.executedPacks ?? manifest.packs, runMode: manifest.runMode ?? "initial_full", plannedCaseIds: manifest.plannedCaseIds ?? [] });
   for (const [key, attempts] of grouped) {
     const result = attempts.at(-1);
-    const previous = report.cases[key];
-    const number = previous?.number ?? caseNumber(result) ?? nextNumber++;
-    if (number >= nextNumber) nextNumber = number + 1;
-    report.cases[key] = {
-      number,
-      name: String(result.name ?? previous?.name ?? key).replace(/^\d+\.\s/u, ""),
-      status: result.status ?? "unknown",
-      executions: (previous?.executions ?? 0) + attempts.length,
-      source: result.fullName ?? previous?.source ?? "",
-      failureSummary: failureSummary(result)
-    };
+    const ids = resultCaseIds(result);
+    const resultKeys = ids.length
+      ? ids.filter((id) => !plannedIds || plannedIds.has(id)).map((id) => catalogById.get(id)?.key ?? key)
+      : [key];
+    for (const resultKeyValue of resultKeys) {
+      const previous = report.cases[resultKeyValue];
+      const number = previous?.number ?? caseNumber(result) ?? nextNumber++;
+      if (number >= nextNumber) nextNumber = number + 1;
+      report.cases[resultKeyValue] = {
+        number,
+        name: String(result.name ?? previous?.name ?? resultKeyValue).replace(/^\d+\.\s/u, ""),
+        status: result.status ?? "unknown",
+        executions: (previous?.executions ?? 0) + attempts.length,
+        source: result.fullName ?? previous?.source ?? "",
+        failureSummary: failureSummary(result)
+      };
+    }
   }
   report.updatedAt = new Date().toISOString();
   await fs.mkdir(path.dirname(durableReportPath), { recursive: true });

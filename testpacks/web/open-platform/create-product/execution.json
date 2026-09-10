@@ -1,0 +1,44 @@
+{
+  "schema": "test-execution-contract",
+  "cases": {
+    "OP-PROD-001": {
+      "dependsOn": []
+    },
+    "OP-PROD-002": {
+      "dependsOn": []
+    },
+    "OP-PROD-003": {
+      "dependsOn": []
+    },
+    "OP-PROD-004": {
+      "dependsOn": []
+    },
+    "OP-PROD-005": {
+      "dependsOn": []
+    },
+    "OP-PROD-006": {
+      "dependsOn": []
+    },
+    "OP-PROD-007": {
+      "dependsOn": []
+    },
+    "OP-PROD-008": {
+      "dependsOn": []
+    },
+    "OP-PROD-009": {
+      "dependsOn": []
+    },
+    "OP-PROD-010": {
+      "dependsOn": []
+    },
+    "OP-PROD-011": {
+      "dependsOn": []
+    },
+    "OP-PROD-012": {
+      "dependsOn": []
+    },
+    "OP-PROD-013": {
+      "dependsOn": []
+    }
+  }
+}

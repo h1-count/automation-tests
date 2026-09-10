@@ -1,0 +1,29 @@
+{
+  "schema": "test-execution-contract",
+  "cases": {
+    "OP-PMGT-001": {
+      "dependsOn": []
+    },
+    "OP-PMGT-002": {
+      "dependsOn": []
+    },
+    "OP-PMGT-003": {
+      "dependsOn": []
+    },
+    "OP-PMGT-004": {
+      "dependsOn": []
+    },
+    "OP-PMGT-005": {
+      "dependsOn": []
+    },
+    "OP-PMGT-006": {
+      "dependsOn": []
+    },
+    "OP-PMGT-007": {
+      "dependsOn": []
+    },
+    "OP-PMGT-008": {
+      "dependsOn": []
+    }
+  }
+}

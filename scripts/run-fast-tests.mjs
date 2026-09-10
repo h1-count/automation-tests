@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import "dotenv/config";
 
@@ -12,6 +13,7 @@ const caseIdPattern = /OP-[A-Z]+-\d{3}/g;
 const { requestArtifactDirectories } = await import("./support/request-report-location.mjs");
 const { hasGeneratedData, readRequestPlan, validateRequestPlan } = await import("./support/test-request-plan.mjs");
 const { startReportServer, stopReportServer } = await import("./support/report-server.mjs");
+const { loadExecutionContract } = await import("./support/test-execution-contract.mjs");
 
 async function collectSpecs(directory) {
   const entries = await fs.readdir(directory, { withFileTypes: true });
@@ -38,32 +40,131 @@ function assertTestpack(specPath) {
 }
 
 function timestampId() {
-  return new Date().toISOString().replace(/[-:]/gu, "").replace(/\.\d{3}Z$/u, "Z");
+  return `${new Date().toISOString().replace(/[-:.]/gu, "")}-${randomUUID().slice(0, 8)}`;
 }
 
 function packSlug(packDirectory) {
   return path.relative(testpacksDirectory, packDirectory).replaceAll(path.sep, "__");
 }
 
-async function prepareCurrentArtifacts(reportId, packDirectories, requestPlanPath) {
+async function prepareCurrentArtifacts(reportId, packDirectories, requestPlanPath, manifestExtra = {}) {
   const directories = requestArtifactDirectories(rootDirectory, packDirectories, reportId);
   const preservedPlan = requestPlanPath ? await fs.readFile(requestPlanPath, "utf8") : undefined;
   let preservedDesignSummary;
   if (requestPlanPath) {
     try { preservedDesignSummary = await fs.readFile(path.join(path.dirname(requestPlanPath), "design-summary.json"), "utf8"); } catch { /* 设计汇总可不存在 */ }
   }
-  await fs.rm(directories.currentDirectory, { recursive: true, force: true });
+  // 初始全量建立新基线；补测和影响回归只能覆盖请求级聚合中的命中用例。
+  if (manifestExtra.runMode === "initial_full") await fs.rm(directories.currentDirectory, { recursive: true, force: true });
   await fs.mkdir(directories.currentDirectory, { recursive: true });
+  await fs.rm(directories.attemptDirectory, { recursive: true, force: true });
+  await fs.mkdir(directories.attemptDirectory, { recursive: true });
   const manifest = {
     schema: "test-request-current-run-v1",
     reportId,
     startedAt: new Date().toISOString(),
-    packs: packDirectories.map((directory) => path.relative(rootDirectory, directory).replaceAll(path.sep, "/")).sort()
+    packs: packDirectories.map((directory) => path.relative(rootDirectory, directory).replaceAll(path.sep, "/")).sort(),
+    ...manifestExtra
   };
   await fs.writeFile(directories.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   if (preservedPlan) await fs.writeFile(directories.requestPlanPath, preservedPlan, "utf8");
   if (preservedDesignSummary) await fs.writeFile(directories.designSummaryPath, preservedDesignSummary, "utf8");
   return directories;
+}
+
+function resultPackPath(result, packDirectories) {
+  const source = `${result.fullName ?? ""} ${(result.labels ?? []).map((label) => label.value).join(" ")}`.replaceAll("\\", "/");
+  return packDirectories
+    .map((directory) => path.relative(testpacksDirectory, directory).replaceAll(path.sep, "/"))
+    .find((candidate) => source.includes(candidate));
+}
+
+function resultKeys(result, packDirectories) {
+  const packPath = resultPackPath(result, packDirectories);
+  const ids = [...new Set(`${result.name ?? ""} ${result.fullName ?? ""}`.match(caseIdPattern) ?? [])];
+  return packPath && ids.length ? ids.map((id) => `${packPath}:${id}`) : [];
+}
+
+async function mergeAttemptIntoAggregate(directories, packDirectories) {
+  let entries;
+  try { entries = await fs.readdir(directories.attemptResultsDirectory, { withFileTypes: true }); } catch { return; }
+  await fs.mkdir(directories.resultsDirectory, { recursive: true });
+  let index = {};
+  try { index = JSON.parse(await fs.readFile(directories.aggregateIndexPath, "utf8")); } catch { /* 新基线 */ }
+  for (const entry of entries.filter((item) => item.isFile() && item.name.endsWith("-result.json"))) {
+    const resultPath = path.join(directories.attemptResultsDirectory, entry.name);
+    const result = JSON.parse(await fs.readFile(resultPath, "utf8"));
+    const keys = resultKeys(result, packDirectories);
+    if (keys.length === 0) continue;
+    const canonical = keys.join("__").replaceAll(/[^A-Za-z0-9_-]/gu, "_");
+    const previousFiles = [...new Set(keys.flatMap((key) => index[key]?.files ?? []))];
+    await Promise.all(previousFiles.map((file) => fs.rm(path.join(directories.resultsDirectory, file), { force: true })));
+    const files = [];
+    for (const attachment of result.attachments ?? []) {
+      if (!attachment.source) continue;
+      const source = path.join(directories.attemptResultsDirectory, attachment.source);
+      const targetName = `${canonical}--${attachment.source}`;
+      try { await fs.copyFile(source, path.join(directories.resultsDirectory, targetName)); attachment.source = targetName; files.push(targetName); } catch { /* 缺失附件不影响结果 */ }
+    }
+    const resultName = `${canonical}-result.json`;
+    await fs.writeFile(path.join(directories.resultsDirectory, resultName), JSON.stringify(result), "utf8");
+    files.push(resultName);
+    for (const key of keys) index[key] = { files };
+  }
+  await fs.writeFile(directories.aggregateIndexPath, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+  await fs.rm(directories.attemptDirectory, { recursive: true, force: true });
+}
+
+async function acquireReportRunLock(directories) {
+  await fs.mkdir(path.dirname(directories.runLockPath), { recursive: true });
+  try {
+    const handle = await fs.open(directories.runLockPath, "wx");
+    await handle.writeFile(`${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`, "utf8");
+    await handle.close();
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+    let owner = {};
+    try { owner = JSON.parse(await fs.readFile(directories.runLockPath, "utf8")); } catch { /* 锁文件损坏同样按占用处理 */ }
+    let alive = false;
+    if (Number.isInteger(owner.pid)) {
+      try { process.kill(owner.pid, 0); alive = true; } catch { /* 已退出的进程留下的是陈旧锁 */ }
+    }
+    if (alive) throw new Error(`请求 ${path.basename(directories.currentDirectory)} 正在执行（pid ${owner.pid}）；同一 report-id 不允许并发复测`);
+    await fs.rm(directories.runLockPath, { force: true });
+    return acquireReportRunLock(directories);
+  }
+  return async () => fs.rm(directories.runLockPath, { force: true });
+}
+
+async function hasLiveReportRunLock(lockPath) {
+  let owner;
+  try { owner = JSON.parse(await fs.readFile(lockPath, "utf8")); } catch { return false; }
+  if (!Number.isInteger(owner.pid)) return false;
+  try {
+    process.kill(owner.pid, 0);
+    return true;
+  } catch {
+    await fs.rm(lockPath, { force: true });
+    return false;
+  }
+}
+
+// 当前目录不是归档：保留仍在执行的并发请求，下一次请求启动时回收已完成请求的完整 Allure 材料。
+// 可提交的 Markdown 与 runtime/ 下的历史、台账均不在此清理范围内。
+async function cleanupCompletedCurrentArtifacts(directories) {
+  let entries;
+  try { entries = await fs.readdir(directories.currentRootDirectory, { withFileTypes: true }); } catch { return []; }
+  const removed = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === path.basename(directories.currentDirectory)) continue;
+    const candidateDirectory = path.join(directories.currentRootDirectory, entry.name);
+    const lockPath = path.join(directories.assetRoot, "artifacts", ".locks", `${entry.name}.lock`);
+    if (await hasLiveReportRunLock(lockPath)) continue;
+    await stopReportServer(candidateDirectory);
+    await fs.rm(candidateDirectory, { recursive: true, force: true });
+    removed.push(entry.name);
+  }
+  return removed;
 }
 
 function runCommand(command, argumentsList, description, environment) {
@@ -77,13 +178,13 @@ function runCommand(command, argumentsList, description, environment) {
   });
 }
 
-function runPlaywright(specPath, passthroughArguments, requestDirectory) {
+function runPlaywright(specPath, passthroughArguments, requestDirectory, caseIds = []) {
   const packDirectory = path.dirname(specPath);
   const relativeSpecPath = path.relative(rootDirectory, specPath);
   return new Promise((resolve) => {
     const child = spawn(
       process.execPath,
-      [playwrightCli, "test", "--config=playwright.fast.config.ts", relativeSpecPath, ...passthroughArguments],
+      [playwrightCli, "test", "--config=playwright.fast.config.ts", relativeSpecPath, ...(caseIds.length ? ["--grep", `(?:${caseIds.map((id) => id.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|")})`] : []), ...passthroughArguments],
       {
         cwd: rootDirectory,
         env: { ...process.env, TEST_PACK_DIR: packDirectory, TEST_PACK_SLUG: packSlug(packDirectory), TEST_REQUEST_REPORT_DIR: requestDirectory },
@@ -98,7 +199,7 @@ function runPlaywright(specPath, passthroughArguments, requestDirectory) {
   });
 }
 
-// 全量 Allure 明细（含录屏/trace）仅在 artifacts/current/ 中重建。
+// 全量 Allure 明细（含录屏/trace）仅在 artifacts/current/<report-id>/ 中重建。
 // Allure 3 已移除 --clean：生成前先删输出目录；历史由独立 JSONL 限制为最近 20 次。
 async function generateAllureReport(requestDirectories) {
   const { resultsDirectory, reportDirectory } = requestDirectories;
@@ -191,11 +292,21 @@ if (reportIdIndex !== -1 && !requestedReportId) throw new Error("--report-id 需
 const requestPlanIndex = rawArguments.indexOf("--request-plan");
 const requestPlanArgument = requestPlanIndex === -1 ? undefined : rawArguments[requestPlanIndex + 1];
 if (requestPlanIndex !== -1 && !requestPlanArgument) throw new Error("--request-plan 需要 request-plan.json 路径");
+const runModeIndex = rawArguments.indexOf("--run-mode");
+const runMode = runModeIndex === -1 ? "initial_full" : rawArguments[runModeIndex + 1];
+if (!new Set(["initial_full", "targeted_repair", "impact_regression"]).has(runMode)) throw new Error("--run-mode 非法");
+const caseIdsIndex = rawArguments.indexOf("--case-ids");
+const requestedCaseIds = caseIdsIndex === -1 ? [] : rawArguments[caseIdsIndex + 1]?.split(",").map((id) => id.trim()).filter(Boolean);
+if (caseIdsIndex !== -1 && requestedCaseIds.length === 0) throw new Error("--case-ids 需要至少一个用例 ID");
+const reportPacks = rawArguments.flatMap((value, index) => value === "--report-pack" && rawArguments[index + 1] ? [path.resolve(rootDirectory, rawArguments[index + 1])] : []);
 // 未传 --request-plan 时 requestPlanIndex=-1，"index !== requestPlanIndex + 1" 会恒排除首参（spec 路径），
 // 导致文档口径的单包命令静默回退全量收集（2026-09-09 修复）：仅在实际出现该旗标时剔除其自身与取值。
 const argumentsList = rawArguments.filter((_, index) => {
   if (reportIdIndex !== -1 && (index === reportIdIndex || index === reportIdIndex + 1)) return false;
   if (requestPlanIndex !== -1 && (index === requestPlanIndex || index === requestPlanIndex + 1)) return false;
+  if (runModeIndex !== -1 && (index === runModeIndex || index === runModeIndex + 1)) return false;
+  if (caseIdsIndex !== -1 && (index === caseIdsIndex || index === caseIdsIndex + 1)) return false;
+  if (rawArguments[index] === "--report-pack" || rawArguments[index - 1] === "--report-pack") return false;
   return true;
 });
 const explicitSpecArguments = argumentsList.filter(isSpecPath);
@@ -221,6 +332,8 @@ if (!(await probeLocalDevServer())) {
 } else {
   // 完整性闸门不允许用环境变量绕过：范围契约先于用例-脚本锚点，确保 Playwright 启动前即失败。
   const packSet = [...new Set(specs.map((specPath) => path.dirname(specPath)))];
+  const reportPackSet = reportPacks.length ? [...new Set(reportPacks)] : packSet;
+  if (packSet.some((pack) => !reportPackSet.includes(pack))) throw new Error("--report-pack 必须覆盖本轮实际执行的全部功能包");
   const packPaths = packSet.map((directory) => path.relative(testpacksDirectory, directory).replaceAll(path.sep, "/"));
   let orderedSpecs = [...specs].sort();
   if (requestPlan) {
@@ -233,7 +346,7 @@ if (!(await probeLocalDevServer())) {
   }
   const scopeAuditExitCode = await runCommand(
     process.execPath,
-    [path.join(rootDirectory, "scripts", "audit-case-completeness.mjs"), ...packSet],
+    [path.join(rootDirectory, "scripts", "audit-case-completeness.mjs"), ...(requestPlanPath ? ["--request-plan", requestPlanPath] : []), ...packSet],
     "范围完整性检查"
   );
   if (scopeAuditExitCode !== 0) process.exitCode = 1;
@@ -246,54 +359,91 @@ if (!(await probeLocalDevServer())) {
     if (coverageAuditExitCode !== 0) process.exitCode = 1;
   }
   if (process.exitCode === undefined || process.exitCode === 0) {
+    const executionAuditExitCode = await runCommand(
+      process.execPath,
+      [path.join(rootDirectory, "scripts", "audit-test-execution.mjs"), ...reportPackSet],
+      "用例执行契约检查"
+    );
+    if (executionAuditExitCode !== 0) process.exitCode = 1;
+  }
+  if (process.exitCode === undefined || process.exitCode === 0) {
     let failed = false;
+    const contracts = await Promise.all(reportPackSet.map((pack) => loadExecutionContract(rootDirectory, pack)));
+    const contractByPack = new Map(contracts.map((contract) => [contract.packPath, contract]));
+    const knownIds = new Set(contracts.flatMap((contract) => contract.caseIds));
+    for (const id of requestedCaseIds) if (!knownIds.has(id)) throw new Error(`--case-ids 包含本次请求不存在的用例：${id}`);
     const reportId = requestedReportId ?? requestPlan?.reportId ?? `request-${timestampId()}`;
-    const expectedDirectories = requestArtifactDirectories(rootDirectory, packSet, reportId);
+    const expectedDirectories = requestArtifactDirectories(rootDirectory, reportPackSet, reportId);
     if (requestPlan && path.resolve(requestPlanPath) !== path.resolve(expectedDirectories.requestPlanPath)) {
-      throw new Error("request-plan.json 必须位于本次请求公共目录的 artifacts/current/request-plan.json");
+      throw new Error(`request-plan.json 必须位于本次请求公共目录的 artifacts/current/${reportId}/request-plan.json`);
     }
-    // 复测前置检查（2026-09-09 修订）：上一轮运行器拉起的报告服务仍在运行则先关闭，避免端口堆积与旧链接误用。
-    const previousServer = await stopReportServer(expectedDirectories.currentDirectory);
-    if (previousServer.stopped) {
-      process.stdout.write(`已关闭上一轮报告服务（pid ${previousServer.pid}，端口 ${previousServer.port}）\n`);
-    }
-    // 当前诊断目录只保存本轮证据；复测的历史结果由 Markdown 报告合并保存。
-    const requestDirectories = await prepareCurrentArtifacts(reportId, packSet, requestPlanPath);
-    process.stdout.write(`当前 Allure：${path.relative(rootDirectory, requestDirectories.currentDirectory)}\n长期报告：${path.relative(rootDirectory, requestDirectories.durableReportPath)}（复测请追加 --report-id ${reportId}）\n`);
-    const completedPacks = new Map();
-    for (const specPath of orderedSpecs) {
-      assertTestpack(specPath);
-      const relativePack = path.relative(testpacksDirectory, path.dirname(specPath)).replaceAll(path.sep, "/");
-      if (requestPlan) {
-        for (const dependency of requestPlan.dependencies.filter((item) => item.status === "confirmed" && item.to === relativePack && item.kind === "runtime_data")) {
-          if (completedPacks.get(dependency.from) !== 0 || !(await hasGeneratedData(rootDirectory, dependency.from))) {
-            throw new Error(`下游功能包 ${relativePack} 需要上游 ${dependency.from} 的本轮运行数据，但上游未成功产生台账记录`);
+    const releaseRunLock = await acquireReportRunLock(expectedDirectories);
+    try {
+      const removedReports = await cleanupCompletedCurrentArtifacts(expectedDirectories);
+      if (removedReports.length > 0) {
+        process.stdout.write(`已清理 ${removedReports.length} 个已完成的旧 Allure 临时报告：${removedReports.join("、")}\n`);
+      }
+      // 复测前置检查：仅关闭同一 report-id 的上一轮服务，避免影响并发请求。
+      const previousServer = await stopReportServer(expectedDirectories.currentDirectory);
+      if (previousServer.stopped) {
+        process.stdout.write(`已关闭上一轮报告服务（pid ${previousServer.pid}，端口 ${previousServer.port}）\n`);
+      }
+      if (runMode === "initial_full") await fs.rm(expectedDirectories.durableReportPath, { force: true });
+      // 当前诊断目录只保存本轮证据；复测的历史结果由 Markdown 报告合并保存。
+      const caseCatalog = contracts.flatMap((contract) => contract.caseIds.map((caseId) => ({
+        key: `${contract.packPath}:${caseId}`, packPath: contract.packPath, caseId, dependsOn: contract.dependsOn[caseId]
+      })));
+      const plannedCaseIds = requestedCaseIds.length
+        ? contracts.flatMap((contract) => contract.caseIds.filter((caseId) => requestedCaseIds.some((requested) => contract.titleByCaseId.get(requested) === contract.titleByCaseId.get(caseId))))
+        : caseCatalog.filter((item) => packSet.some((pack) => item.packPath === path.relative(testpacksDirectory, pack).replaceAll(path.sep, "/"))).map((item) => item.caseId);
+      const requestDirectories = await prepareCurrentArtifacts(reportId, reportPackSet, requestPlanPath, {
+        executedPacks: packSet.map((directory) => path.relative(rootDirectory, directory).replaceAll(path.sep, "/")).sort(),
+        runMode,
+        plannedCaseIds,
+        caseCatalog,
+        dependencies: requestPlan?.dependencies?.filter((item) => item.status === "confirmed") ?? []
+      });
+      process.stdout.write(`当前 Allure：${path.relative(rootDirectory, requestDirectories.currentDirectory)}\n长期报告：${path.relative(rootDirectory, requestDirectories.durableReportPath)}（复测请追加 --report-id ${reportId}）\n`);
+      const completedPacks = new Map();
+      for (const specPath of orderedSpecs) {
+        assertTestpack(specPath);
+        const relativePack = path.relative(testpacksDirectory, path.dirname(specPath)).replaceAll(path.sep, "/");
+        if (requestPlan) {
+          for (const dependency of requestPlan.dependencies.filter((item) => item.status === "confirmed" && item.to === relativePack && item.kind === "runtime_data")) {
+            if (completedPacks.get(dependency.from) !== 0 || !(await hasGeneratedData(rootDirectory, dependency.from))) {
+              throw new Error(`下游功能包 ${relativePack} 需要上游 ${dependency.from} 的本轮运行数据，但上游未成功产生台账记录`);
+            }
           }
         }
+        const contract = contractByPack.get(relativePack);
+        const selectedCaseIds = requestedCaseIds.filter((id) => contract.caseIds.includes(id));
+        const exitCode = await runPlaywright(specPath, passthroughArguments, requestDirectories.attemptDirectory, selectedCaseIds);
+        completedPacks.set(relativePack, exitCode);
+        failed ||= exitCode !== 0;
       }
-      const exitCode = await runPlaywright(specPath, passthroughArguments, requestDirectories.currentDirectory);
-      completedPacks.set(relativePack, exitCode);
-      failed ||= exitCode !== 0;
-    }
-    await numberAllureCases(requestDirectories.resultsDirectory, packSet);
-    const reportExitCode = await generateAllureReport(requestDirectories);
-    failed ||= reportExitCode !== 0;
-    const summaryExitCode = await runCommand(
-      process.execPath,
-      [path.join(rootDirectory, "scripts", "build-request-report.mjs"), "--current", requestDirectories.currentDirectory, "--output", requestDirectories.durableReportPath],
-      "生成长期 Markdown 报告"
-    );
-    failed ||= summaryExitCode !== 0;
-    // 自动拉起常驻报告服务并输出可点击链接（复测时运行器会先自动关闭本服务）。
-    try {
-      const server = await startReportServer(requestDirectories.currentDirectory);
-      process.stdout.write(
-        `报告服务已启动（后台常驻）：\n` +
-        `  当前 Allure：${server.detailUrl}\n`
+      await numberAllureCases(requestDirectories.attemptResultsDirectory, packSet);
+      await mergeAttemptIntoAggregate(requestDirectories, packSet);
+      const reportExitCode = await generateAllureReport(requestDirectories);
+      failed ||= reportExitCode !== 0;
+      const summaryExitCode = await runCommand(
+        process.execPath,
+        [path.join(rootDirectory, "scripts", "build-request-report.mjs"), "--current", requestDirectories.currentDirectory, "--output", requestDirectories.durableReportPath],
+        "生成长期 Markdown 报告"
       );
-    } catch (error) {
-      process.stderr.write(`报告服务启动失败：${error instanceof Error ? error.message : String(error)}\n可手动打开：npm run report:allure -- --pack ${path.relative(rootDirectory, packSet[0])}\n`);
+      failed ||= summaryExitCode !== 0;
+      // 自动拉起常驻报告服务并输出可点击链接（复测时运行器会先自动关闭本服务）。
+      try {
+        const server = await startReportServer(requestDirectories.currentDirectory);
+        process.stdout.write(
+          `报告服务已启动（后台常驻）：\n` +
+          `  当前 Allure：${server.detailUrl}\n`
+        );
+      } catch (error) {
+        process.stderr.write(`报告服务启动失败：${error instanceof Error ? error.message : String(error)}\n可手动打开：npm run report:allure -- --report-id ${reportId} --pack ${path.relative(rootDirectory, packSet[0])}\n`);
+      }
+      process.exitCode = failed ? 1 : 0;
+    } finally {
+      await releaseRunLock();
     }
-    process.exitCode = failed ? 1 : 0;
   }
 }

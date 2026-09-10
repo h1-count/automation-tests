@@ -1,0 +1,32 @@
+{
+  "schema": "test-execution-contract",
+  "cases": {
+    "OP-PBSC-001": {
+      "dependsOn": []
+    },
+    "OP-PBSC-002": {
+      "dependsOn": []
+    },
+    "OP-PBSC-003": {
+      "dependsOn": []
+    },
+    "OP-PBSC-004": {
+      "dependsOn": []
+    },
+    "OP-PBSC-005": {
+      "dependsOn": []
+    },
+    "OP-PBSC-006": {
+      "dependsOn": []
+    },
+    "OP-PBSC-007": {
+      "dependsOn": []
+    },
+    "OP-PBSC-008": {
+      "dependsOn": []
+    },
+    "OP-PBSC-009": {
+      "dependsOn": []
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "schema": "test-execution-contract",
+  "cases": {
+    "OP-PADV-001": {
+      "dependsOn": []
+    },
+    "OP-PADV-002": {
+      "dependsOn": []
+    },
+    "OP-PADV-003": {
+      "dependsOn": []
+    },
+    "OP-PADV-004": {
+      "dependsOn": []
+    },
+    "OP-PADV-005": {
+      "dependsOn": []
+    }
+  }
+}

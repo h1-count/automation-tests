@@ -13,6 +13,31 @@ async function writeCurrent(directory, results) {
   await Promise.all(results.map((result, index) => fs.writeFile(path.join(resultDirectory, `${index}-result.json`), JSON.stringify(result))));
 }
 
+test("报告将未执行目录项保留为 unexecuted，并按多用例标题同步结果", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "request-report-catalog-"));
+  const current = path.join(directory, "current");
+  const report = path.join(directory, "test-reports", "demo.md");
+  try {
+    await fs.mkdir(path.join(current, "allure-results"), { recursive: true });
+    await fs.writeFile(path.join(current, "manifest.json"), JSON.stringify({
+      reportId: "demo", startedAt: "2026-09-10T00:00:00.000Z", packs: ["testpacks/web/open-platform/demo"], runMode: "initial_full", plannedCaseIds: ["OP-X-001", "OP-X-002"], dependencies: [],
+      caseCatalog: [
+        { key: "web/open-platform/demo:OP-X-001", packPath: "web/open-platform/demo", caseId: "OP-X-001", dependsOn: [] },
+        { key: "web/open-platform/demo:OP-X-002", packPath: "web/open-platform/demo", caseId: "OP-X-002", dependsOn: [] },
+        { key: "web/open-platform/demo:OP-X-003", packPath: "web/open-platform/demo", caseId: "OP-X-003", dependsOn: [] }
+      ]
+    }));
+    await fs.writeFile(path.join(current, "allure-results", "demo-result.json"), JSON.stringify({ name: "OP-X-001 OP-X-002 组合测试", status: "passed", stop: 1, fullName: "demo.spec.ts" }));
+    await buildRequestReport({ currentDirectory: current, durableReportPath: report });
+    const data = await fs.readFile(report, "utf8");
+    assert.match(data, /OP-X-001 OP-X-002 组合测试 \| passed/u);
+    assert.match(data, /OP-X-003 \| unexecuted/u);
+    assert.match(data, /"runMode":"initial_full"/u);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("Markdown 报告合并跨包用例、复测次数和全局序号", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "request-report-"));
   const current = path.join(directory, "current");
@@ -43,15 +68,16 @@ test("Markdown 报告合并跨包用例、复测次数和全局序号", async ()
   }
 });
 
-test("单包和多包按公共目录拆分长期报告、当前证据与本地历史", () => {
+test("单包和多包按公共目录拆分长期报告，并按请求标识隔离当前证据与历史", () => {
   const root = "/workspace";
   const one = requestArtifactDirectories(root, ["/workspace/testpacks/web/open-platform/login-register"], "login-001");
   assert.equal(one.durableReportPath, "/workspace/testpacks/web/open-platform/login-register/test-reports/login-001.md");
-  assert.equal(one.currentDirectory, "/workspace/testpacks/web/open-platform/login-register/artifacts/current");
+  assert.equal(one.currentDirectory, "/workspace/testpacks/web/open-platform/login-register/artifacts/current/login-001");
   const many = requestArtifactDirectories(root, [
     "/workspace/testpacks/web/open-platform/login-register",
     "/workspace/testpacks/web/open-platform/create-product"
   ], "flow-001");
   assert.equal(many.durableReportPath, "/workspace/testpacks/web/open-platform/test-reports/flow-001.md");
-  assert.equal(many.historyPath, "/workspace/testpacks/web/open-platform/runtime/allure-history.jsonl");
+  assert.equal(many.currentDirectory, "/workspace/testpacks/web/open-platform/artifacts/current/flow-001");
+  assert.equal(many.historyPath, "/workspace/testpacks/web/open-platform/runtime/allure-history/flow-001.jsonl");
 });

@@ -1,0 +1,26 @@
+{
+  "schema": "test-execution-contract",
+  "cases": {
+    "OP-PFNC-001": {
+      "dependsOn": []
+    },
+    "OP-PFNC-002": {
+      "dependsOn": []
+    },
+    "OP-PFNC-003": {
+      "dependsOn": []
+    },
+    "OP-PFNC-004": {
+      "dependsOn": []
+    },
+    "OP-PFNC-005": {
+      "dependsOn": []
+    },
+    "OP-PFNC-006": {
+      "dependsOn": []
+    },
+    "OP-PFNC-007": {
+      "dependsOn": []
+    }
+  }
+}

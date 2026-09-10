@@ -26,17 +26,28 @@ export function resolveRequestAssetRoot(rootDirectory, packDirectories) {
 }
 
 export function requestArtifactDirectories(rootDirectory, packDirectories, reportId) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(reportId ?? "")) {
+    throw new Error(`请求报告标识只能包含字母、数字、点、下划线和连字符：${reportId}`);
+  }
   const assetRoot = resolveRequestAssetRoot(rootDirectory, packDirectories);
-  const currentDirectory = path.join(assetRoot, "artifacts", "current");
+  const currentRootDirectory = path.join(assetRoot, "artifacts", "current");
+  // 当前诊断材料按请求标识隔离。这样同一公共功能目录中的两个请求可以并行，
+  // 而同一标识的复测仍会只重建自己的当前材料。
+  const currentDirectory = path.join(currentRootDirectory, reportId);
   return {
     assetRoot,
+    currentRootDirectory,
     currentDirectory,
     resultsDirectory: path.join(currentDirectory, "allure-results"),
+    attemptDirectory: path.join(currentDirectory, ".attempt"),
+    attemptResultsDirectory: path.join(currentDirectory, ".attempt", "allure-results"),
+    aggregateIndexPath: path.join(currentDirectory, "aggregate-index.json"),
     reportDirectory: path.join(currentDirectory, "allure-report"),
     manifestPath: path.join(currentDirectory, "manifest.json"),
     requestPlanPath: path.join(currentDirectory, "request-plan.json"),
     designSummaryPath: path.join(currentDirectory, "design-summary.json"),
-    historyPath: path.join(assetRoot, "runtime", "allure-history.jsonl"),
+    historyPath: path.join(assetRoot, "runtime", "allure-history", `${reportId}.jsonl`),
+    runLockPath: path.join(assetRoot, "artifacts", ".locks", `${reportId}.lock`),
     durableReportPath: path.join(assetRoot, "test-reports", `${reportId}.md`)
   };
 }
