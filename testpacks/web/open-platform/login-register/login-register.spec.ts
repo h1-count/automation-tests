@@ -199,7 +199,7 @@ test.describe("开放平台登录和注册", () => {
   }
 
   // 覆盖用例 OP-AUTH-001（账号密码登录表单与提交前校验；no_write，不提交登录请求）。
-  test("账号密码登录表单可填写并在勾选协议后启用提交", async ({ page }) => {
+  test("OP-AUTH-001 账号密码登录表单可填写并在勾选协议后启用提交", async ({ page }) => {
     await page.goto("/login");
 
     const loginPanel = page.locator('[role="tabpanel"][aria-labelledby="tab-login"]');
@@ -217,7 +217,7 @@ test.describe("开放平台登录和注册", () => {
 
   // 覆盖用例 OP-AUTH-002（短信验证码登录，含发送短信与临时登录会话写入）。
   // 获取登录短信验证码会强制弹出点选文字图形验证码；脚本等待倒计时文案出现（最长 4 分钟）。
-  test("短信验证码登录成功并在退出后失效会话（人工过图形验证码）", async ({ page }) => {
+  test("OP-AUTH-002 短信验证码登录成功并在退出后失效会话（人工过图形验证码）", async ({ page }) => {
     test.setTimeout(360_000);
     const testPhone = process.env.TEST_PHONE;
     const testVerificationCode = process.env.TEST_VERIFICATION_CODE;
@@ -279,7 +279,7 @@ test.describe("开放平台登录和注册", () => {
   });
 
   // 覆盖用例 OP-AUTH-006（登录手机号长度边界与格式校验，no_write）。
-  test("登录手机号长度边界与格式校验", async ({ page }) => {
+  test("OP-AUTH-006 登录手机号长度边界与格式校验", async ({ page }) => {
     await page.goto("/login");
     const loginPanel = page.locator('[role="tabpanel"][aria-labelledby="tab-login"]');
     const smsPhone = loginPanel.getByRole("textbox", { name: "短信登录手机号" });
@@ -319,7 +319,7 @@ test.describe("开放平台登录和注册", () => {
   });
 
   // 覆盖用例 OP-AUTH-007（未勾选协议时登录提交被拦截，no_write）。
-  test("未勾选协议时登录提交被拦截", async ({ page }) => {
+  test("OP-AUTH-007 未勾选协议时登录提交被拦截", async ({ page }) => {
     await page.goto("/login");
     const loginPanel = page.locator('[role="tabpanel"][aria-labelledby="tab-login"]');
 
@@ -348,7 +348,7 @@ test.describe("开放平台登录和注册", () => {
 
   // 覆盖用例 OP-AUTH-008（无效凭证登录失败提示；提交一次预期失败的登录请求，不创建会话）。
   // 账号密码登录同样会弹出点选文字图形验证码，需人工在浏览器窗口完成。
-  test("无效凭证登录失败并停留登录页（人工过图形验证码）", async ({ page }) => {
+  test("OP-AUTH-008 无效凭证登录失败并停留登录页（人工过图形验证码）", async ({ page }) => {
     test.setTimeout(360_000);
     const testPhone = process.env.TEST_PHONE;
     if (!testPhone) {
@@ -379,7 +379,7 @@ test.describe("开放平台登录和注册", () => {
 
   // 覆盖用例 OP-AUTH-009（短信验证码错误登录被拒；发送短信但不创建会话，不产生数据记录）。
   // 图形点选验证码需人工在浏览器窗口完成；脚本等待倒计时文案出现（最长 4 分钟）。
-  test("短信验证码错误时登录被拒绝（人工过图形验证码）", async ({ page }) => {
+  test("OP-AUTH-009 短信验证码错误时登录被拒绝（人工过图形验证码）", async ({ page }) => {
     test.setTimeout(360_000);
     const testPhone = process.env.TEST_PHONE;
     if (!testPhone) {
@@ -418,7 +418,7 @@ test.describe("开放平台登录和注册", () => {
 
   // 覆盖用例 OP-AUTH-003（注册表单结构与字段联动，no_write）。
   // 步骤 5 断言按 disableLogin 实现修正：验证码不在 disableLogin 内，验证码为空时提交按钮实际可用，点击后被表单校验拦截。
-  test("注册表单可填写，验证码为空时提交可用但被表单校验拦截", async ({ page }) => {
+  test("OP-AUTH-003 注册表单可填写，验证码为空时提交可用但被表单校验拦截", async ({ page }) => {
     test.setTimeout(120_000);
     const testPhone = process.env.TEST_PHONE;
     if (!testPhone) {
@@ -458,7 +458,7 @@ test.describe("开放平台登录和注册", () => {
 
   // 覆盖用例 OP-AUTH-004（请求注册短信验证码）与 OP-AUTH-005（提交企业注册申请）。
   // 图形点选验证码需人工在浏览器窗口完成；脚本等待倒计时文案出现（最长 4 分钟）。
-  test("请求注册短信验证码并提交企业注册申请（人工过图形验证码）", async ({ page }) => {
+  test("OP-AUTH-004 OP-AUTH-005 OP-AUTH-019 请求注册短信验证码并提交企业注册申请（人工过图形验证码）", async ({ page }) => {
     test.setTimeout(360_000);
     const testPhone = process.env.TEST_PHONE;
     const testVerificationCode = process.env.TEST_VERIFICATION_CODE;
@@ -544,7 +544,7 @@ test.describe("开放平台登录和注册", () => {
 
   // 覆盖用例 OP-AUTH-010（注册验证码错误被拒；发送短信但不提交注册，不产生数据记录）。
   // 图形点选验证码需人工在浏览器窗口完成；脚本等待倒计时文案出现（最长 4 分钟）。
-  test("注册短信验证码错误时注册被拒绝（人工过图形验证码）", async ({ page }) => {
+  test("OP-AUTH-010 注册短信验证码错误时注册被拒绝（人工过图形验证码）", async ({ page }) => {
     test.setTimeout(360_000);
     const testPhone = process.env.TEST_PHONE;
     if (!testPhone) {
@@ -606,7 +606,7 @@ test.describe("开放平台登录和注册", () => {
   });
 
   // 覆盖用例 OP-AUTH-011（同一手机号注册第二个企业并验证管理员默认身份；两次人工图形验证码：注册发送 + 登录发送）。
-  test("同一手机号可注册多个企业且新企业默认管理员（人工过图形验证码）", async ({ page }) => {
+  test("OP-AUTH-011 同一手机号可注册多个企业且新企业默认管理员（人工过图形验证码）", async ({ page }) => {
     test.setTimeout(720_000);
     const testPhone = process.env.TEST_PHONE;
     const testVerificationCode = process.env.TEST_VERIFICATION_CODE;
@@ -669,7 +669,7 @@ test.describe("开放平台登录和注册", () => {
   });
 
   // 覆盖用例 OP-AUTH-012（企业标识格式与唯一性校验，no_write：不请求验证码、提交被前端拦截）。
-  test("企业标识格式与唯一性校验", async ({ page }) => {
+  test("OP-AUTH-012 企业标识格式与唯一性校验", async ({ page }) => {
     test.setTimeout(120_000);
     const testPhone = process.env.TEST_PHONE;
     if (!testPhone) {
@@ -742,7 +742,7 @@ test.describe("开放平台登录和注册", () => {
   });
 
   // 覆盖用例 OP-AUTH-013（注册表单字段级校验规则矩阵，no_write：全程不请求验证码）。
-  test("注册表单字段级校验规则矩阵", async ({ page }) => {
+  test("OP-AUTH-013 注册表单字段级校验规则矩阵", async ({ page }) => {
     test.setTimeout(180_000);
     const testPhone = process.env.TEST_PHONE;
     if (!testPhone) {
@@ -896,7 +896,7 @@ test.describe("开放平台登录和注册", () => {
   });
 
   // 覆盖用例 OP-AUTH-014（重复企业名称注册被后端拒绝；发送短信但提交被拒，不产生数据记录）。
-  test("重复企业名称注册被后端拒绝（人工过图形验证码）", async ({ page }) => {
+  test("OP-AUTH-014 重复企业名称注册被后端拒绝（人工过图形验证码）", async ({ page }) => {
     test.setTimeout(360_000);
     const testPhone = process.env.TEST_PHONE;
     const testVerificationCode = process.env.TEST_VERIFICATION_CODE;
@@ -944,7 +944,7 @@ test.describe("开放平台登录和注册", () => {
   });
 
   // 覆盖用例 OP-AUTH-015（重复统一社会信用代码注册被后端拒绝；发送短信但提交被拒，不产生数据记录）。
-  test("重复统一社会信用代码注册被后端拒绝（人工过图形验证码）", async ({ page }) => {
+  test("OP-AUTH-015 重复统一社会信用代码注册被后端拒绝（人工过图形验证码）", async ({ page }) => {
     test.setTimeout(360_000);
     const testPhone = process.env.TEST_PHONE;
     const testVerificationCode = process.env.TEST_VERIFICATION_CODE;
@@ -1004,7 +1004,7 @@ test.describe("开放平台登录和注册", () => {
   // 覆盖用例 OP-AUTH-016（待审核企业的信用代码占用：第二测试手机号提交待审核记录的信用代码）。
   // 同手机号存在待审核申请时提交被“正在申请中”前置校验拦截，单手机号结构性无法触达信用代码查重层，故用第二手机号实证。
   // 条件性写入：查重生效则提交被拒（无写入）；若提交成功说明待审核不占用信用代码（严重差异），注册已实际写入，按台账规则记录并立即反馈。
-  test("待审核企业的信用代码占用（第二手机号，人工过图形验证码）", async ({ page }) => {
+  test("OP-AUTH-016 待审核企业的信用代码占用（第二手机号，人工过图形验证码）", async ({ page }) => {
     test.setTimeout(360_000);
     const secondPhone = process.env.TEST_PHONE_SECOND;
     const testVerificationCode = process.env.TEST_VERIFICATION_CODE;
@@ -1108,7 +1108,7 @@ test.describe("开放平台登录和注册", () => {
 
   // 覆盖用例 OP-AUTH-017（登录、注册、密码重置页面入口互跳与可达性；纯导航 no_write）。
   // 跳转结果按 URL 与目标面板可见性断言（行为成立即通过）。
-  test("登录、注册、密码重置页面入口互跳与可达性", async ({ page }) => {
+  test("OP-AUTH-017 登录、注册、密码重置页面入口互跳与可达性", async ({ page }) => {
     // 步骤 1：首页顶部导航「登录/注册」入口 → 登录页。
     await page.goto("/");
     const entryLink = page.getByRole("link", { name: "登录/注册" });
@@ -1139,7 +1139,7 @@ test.describe("开放平台登录和注册", () => {
   // 覆盖用例 OP-AUTH-018（密码重置表单字段级校验规则；no_write，不请求验证码、不提交重置）。
   // 字段校验提示是 el-form-item 行内错误文本：断言"出现对应类提示"这一行为（宽匹配），
   // 实际文案与需求参考文案的差异只记录不阻断；页面错误随输入修正而消失，属正常表单行为。
-  test("密码重置表单字段级校验规则", async ({ page }) => {
+  test("OP-AUTH-018 密码重置表单字段级校验规则", async ({ page }) => {
     const resetErrors = (scope: string) =>
       page.locator(".el-form-item").filter({ hasText: scope }).locator(".el-form-item__error");
 
@@ -1198,7 +1198,7 @@ test.describe("开放平台登录和注册", () => {
 
   // 覆盖用例 OP-AUTH-020（注册必填项空值逐项非空提示；no_write，全空提交只触发表单校验、不发注册请求）。
   // 需求参考文案"请输入××"；实际文案宽匹配语义，差异以日志记录不阻断。
-  test("注册必填项空值逐项非空提示", async ({ page }) => {
+  test("OP-AUTH-020 注册必填项空值逐项非空提示", async ({ page }) => {
     await page.goto("/login?tab=register");
     const registerPanel = page.locator('[role="tabpanel"][aria-labelledby="tab-register"]');
     await expect(page.getByRole("tab", { name: "注册", exact: true })).toHaveAttribute("aria-selected", "true");
@@ -1244,7 +1244,7 @@ test.describe("开放平台登录和注册", () => {
 
   // 覆盖用例 OP-AUTH-021（密码重置错误验证码被拒绝；write=发送短信，重置因验证码错误被拒，密码不变更）。
   // 图形点选验证码需人工在浏览器窗口完成；与 009/010 同模式。
-  test("密码重置错误验证码被拒绝（人工过图形验证码）", async ({ page }) => {
+  test("OP-AUTH-021 密码重置错误验证码被拒绝（人工过图形验证码）", async ({ page }) => {
     test.setTimeout(360_000);
     const testPhone = process.env.TEST_PHONE;
     const testVerificationCode = process.env.TEST_VERIFICATION_CODE;
@@ -1290,7 +1290,7 @@ test.describe("开放平台登录和注册", () => {
   // 覆盖用例 OP-AUTH-022（绕过入口直达的页面可达性行为；纯导航 no_write，2026-09-02 对象矩阵核对新增）。
   // 实现事实（src/permission.ts、src/routes/common.ts，2026-09-02 探索复核一致）：
   // 无 token 访问非公开路径时路由守卫 next({name:'login'}) 重定向；/reset-pw 经 meta.auth=false 公开放行。
-  test("绕过入口直达的页面可达性行为", async ({ page }) => {
+  test("OP-AUTH-022 绕过入口直达的页面可达性行为", async ({ page }) => {
     // 步骤 1：未登录直达受保护页 /console/home——被重定向回登录页，不展示控制台内容。
     await page.goto("/console/home");
     await expect(page).toHaveURL(/\/login/u, { timeout: 30_000 });
@@ -1309,7 +1309,7 @@ test.describe("开放平台登录和注册", () => {
   // 覆盖用例 OP-AUTH-023（注册表单未勾选协议时提交被拦截；no_write，2026-09-02 对象矩阵核对新增）。
   // 实现事实（RegisterForm.vue disableLogin 含 !agreementChk）：未勾选协议时提交按钮禁用；
   // 与 OP-AUTH-007（登录表单）按"同一控件跨表单分别成行"覆盖。
-  test("注册表单未勾选协议时提交被拦截", async ({ page }) => {
+  test("OP-AUTH-023 注册表单未勾选协议时提交被拦截", async ({ page }) => {
     test.setTimeout(120_000);
     const testPhone = process.env.TEST_PHONE;
     if (!testPhone) {
@@ -1454,9 +1454,31 @@ test.describe("开放平台登录和注册", () => {
       console.log("[人工步骤] 请在浏览器窗口再完成一次图形验证码（滑块拖动或点选文字，失败可直接重试；最长等待 4 分钟），设备验证短信将发送至测试手机号");
       await deviceSend.click();
       // 发送成功的状态信号：此时倒计时已归零（无倒计时文案），短信发出后 counter 重启、文案重新出现。
-      await page
-        .waitForFunction(() => /秒后重新获取/u.test(document.body.innerText), undefined, { timeout: 240_000, polling: 500 })
-        .catch(() => {});
+      // 2026-09-10 重测实证：同手机号单轮第 11 次发送被频控拒绝（提示“操作太频繁，请稍后再试”），
+      // 倒计时 240s 不出现——改为倒计时/频控拒绝竞速等待，拒绝时记录注记后用仍有效的固定测试验证码继续，
+      // 终态断言（登录成功）保持不变，不再静默空等。
+      const deviceSendOutcome = await page
+        .waitForFunction(
+          () => {
+            if (/秒后重新获取/u.test(document.body.innerText)) return "sent";
+            const alert = document.querySelector('[role="alert"]');
+            if (alert && /频繁|太频繁|超限|稍后再试/u.test(alert.textContent ?? "")) return "rejected";
+            return false;
+          },
+          undefined,
+          { timeout: 240_000, polling: 500 }
+        )
+        .then((h) => h?.jsonValue() as Promise<"sent" | "rejected">)
+        .catch(() => null);
+      if (deviceSendOutcome === "rejected") {
+        test.info().annotations.push({
+          type: "已知差异",
+          description: "首次设备验证短信被后端频控拒绝（单轮对同一手机号发送已达上限，提示“操作太频繁”）；设备验证以仍有效的固定测试验证码完成，登录终态不受影响。频控窗口重置后重跑可获得全新短信发送的干净证据"
+        });
+        console.log("[频控拒绝] 设备验证短信发送被拒，使用仍有效的固定测试验证码继续（终态断言不变）");
+      } else if (deviceSendOutcome === "sent") {
+        console.log("[自动捕获] 设备验证短信发送成功（倒计时已出现）");
+      }
       await deviceCode.fill(process.env.TEST_VERIFICATION_CODE ?? "");
       await expect(deviceSubmit).toBeEnabled();
       await attachShot(page, "025 首次设备验证表单已填写");
