@@ -15,7 +15,7 @@
 
 - 测试资产按功能测试包聚合，目录与文件布局（含各目录 Git 边界、`review-id` 命名与覆盖更新约定）以 `docs/FAST-TRACK.md`「功能测试包结构」为准，此处不重复维护。
 - `src/`、`scripts/`、`skills/`、`sources/`、`experience/` 为跨功能共享目录，不移动到测试包。
-- 不保留旧正式工作流的测试请求、评审记录、门禁、manifest、运行档案或正式执行链路；当前工作流的长期结论仅为可提交的 `test-reports/<report-id>.md`。`artifacts/current/<report-id>/` 是该请求全部用例的最终聚合 Allure（每用例仅最后一次结果与最终失败诊断），不保留中间轮次；`review/`、`runtime/` 均为本地数据、不提交 Git，边界以 `docs/FAST-TRACK.md`「功能测试包结构」为准。提交信息沿用 `type(scope): 中文摘要` 格式。
+- 不保留旧正式工作流的测试请求、评审记录、门禁、manifest、运行档案或正式执行链路；当前工作流的长期结论仅为可提交的 `test-reports/<report-id>.md`。`artifacts/current/<report-id>/` 是该请求全部用例的最终聚合 Allure（每用例仅最后一次结果与最终失败诊断），不保留中间轮次；测试结束将结果追加到 `testpacks/artifacts/allure-dashboard/` 的共享 Allure 首页。首页固定按“执行日期 / report-id / 业务模块 / 业务场景”展示，执行日期以完成时间优先且不从 report-id 推断，剔除技术路径；结果池只保留最近 5 个请求，独立历史保留最近 50 次完成快照，并复用该首页的本地服务。`review/`、`runtime/` 均为本地数据、不提交 Git，边界以 `docs/FAST-TRACK.md`「功能测试包结构」为准。提交信息沿用 `type(scope): 中文摘要` 格式。
 
 ## 用例表与审核
 

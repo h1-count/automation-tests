@@ -12,8 +12,9 @@ const allureCli = path.join(rootDirectory, "node_modules", ".bin", process.platf
 const caseIdPattern = /OP-[A-Z]+-\d{3}/g;
 const { requestArtifactDirectories } = await import("./support/request-report-location.mjs");
 const { hasGeneratedData, readRequestPlan, validateRequestPlan } = await import("./support/test-request-plan.mjs");
-const { startReportServer, stopReportServer } = await import("./support/report-server.mjs");
+const { ensureReportServer, stopReportServer } = await import("./support/report-server.mjs");
 const { loadExecutionContract } = await import("./support/test-execution-contract.mjs");
+const { mergeRequestIntoAllureDashboard } = await import("./support/allure-dashboard.mjs");
 
 async function collectSpecs(directory) {
   const entries = await fs.readdir(directory, { withFileTypes: true });
@@ -85,6 +86,15 @@ function resultKeys(result, packDirectories) {
   return packPath && ids.length ? ids.map((id) => `${packPath}:${id}`) : [];
 }
 
+// Allure Playwright 将 test.info().attach() 放在所属步骤中，而非一定置于结果根节点。
+// 聚合请求级结果时必须保留两种位置的附件，否则清理 attempt 后报告会显示 missed。
+function collectAttachments(node, collected = []) {
+  if (!node || typeof node !== "object") return collected;
+  if (Array.isArray(node.attachments)) collected.push(...node.attachments);
+  for (const step of node.steps ?? []) collectAttachments(step, collected);
+  return collected;
+}
+
 async function mergeAttemptIntoAggregate(directories, packDirectories) {
   let entries;
   try { entries = await fs.readdir(directories.attemptResultsDirectory, { withFileTypes: true }); } catch { return; }
@@ -100,11 +110,24 @@ async function mergeAttemptIntoAggregate(directories, packDirectories) {
     const previousFiles = [...new Set(keys.flatMap((key) => index[key]?.files ?? []))];
     await Promise.all(previousFiles.map((file) => fs.rm(path.join(directories.resultsDirectory, file), { force: true })));
     const files = [];
-    for (const attachment of result.attachments ?? []) {
+    const copiedSources = new Map();
+    for (const attachment of collectAttachments(result)) {
       if (!attachment.source) continue;
-      const source = path.join(directories.attemptResultsDirectory, attachment.source);
-      const targetName = `${canonical}--${attachment.source}`;
-      try { await fs.copyFile(source, path.join(directories.resultsDirectory, targetName)); attachment.source = targetName; files.push(targetName); } catch { /* 缺失附件不影响结果 */ }
+      const originalSource = attachment.source;
+      let targetName = copiedSources.get(originalSource);
+      if (!targetName) {
+        const source = path.join(directories.attemptResultsDirectory, originalSource);
+        targetName = `${canonical}--${path.basename(originalSource)}`;
+        try {
+          await fs.copyFile(source, path.join(directories.resultsDirectory, targetName));
+          files.push(targetName);
+          copiedSources.set(originalSource, targetName);
+        } catch {
+          // 结果 JSON 仍保留原始 source，Allure 会将真实缺失附件标记为 missed。
+          continue;
+        }
+      }
+      attachment.source = targetName;
     }
     const resultName = `${canonical}-result.json`;
     await fs.writeFile(path.join(directories.resultsDirectory, resultName), JSON.stringify(result), "utf8");
@@ -200,23 +223,36 @@ function runPlaywright(specPath, passthroughArguments, requestDirectory, caseIds
 }
 
 // 全量 Allure 明细（含录屏/trace）仅在 artifacts/current/<report-id>/ 中重建。
-// Allure 3 已移除 --clean：生成前先删输出目录；历史由独立 JSONL 限制为最近 20 次。
-async function generateAllureReport(requestDirectories) {
-  const { resultsDirectory, reportDirectory } = requestDirectories;
+// Allure 3 已移除 --clean：生成前先删输出目录；请求级历史默认 20 次，共享首页单独保留 50 次。
+async function generateAllureReport({
+  resultsDirectory,
+  reportDirectory,
+  historyPath,
+  currentDirectory,
+  historyLimit = 20,
+  reportName = "开放平台自动化测试报告"
+}) {
   try {
     const hasResults = await fs.stat(resultsDirectory).then(() => true).catch(() => false);
     if (!hasResults) return 0;
     await fs.rm(reportDirectory, { recursive: true, force: true });
-    await fs.mkdir(path.dirname(requestDirectories.historyPath), { recursive: true });
+    await fs.mkdir(path.dirname(historyPath), { recursive: true });
     const exitCode = await runCommand(
       allureCli,
-      ["generate", resultsDirectory, "--output", reportDirectory, "--config", path.join(rootDirectory, "allurerc.mjs"), "--history-limit", "20"],
+      [
+        "generate",
+        `--output=${reportDirectory}`,
+        `--config=${path.join(rootDirectory, "allurerc.mjs")}`,
+        `--name=${reportName}`,
+        `--history-limit=${historyLimit}`,
+        resultsDirectory
+      ],
       "生成全量 Allure 明细",
-      { ALLURE_HISTORY_PATH: requestDirectories.historyPath }
+      { ALLURE_HISTORY_PATH: historyPath, ALLURE_REPORT_NAME: reportName }
     );
-    if (exitCode === 0) {
+    if (exitCode === 0 && currentDirectory) {
       await fs.writeFile(
-        path.join(requestDirectories.currentDirectory, "index.html"),
+        path.join(currentDirectory, "index.html"),
         "<!doctype html><meta http-equiv=\"refresh\" content=\"0; url=allure-report/index.html\">",
         "utf8"
       );
@@ -383,11 +419,6 @@ if (!(await probeLocalDevServer())) {
       if (removedReports.length > 0) {
         process.stdout.write(`已清理 ${removedReports.length} 个已完成的旧 Allure 临时报告：${removedReports.join("、")}\n`);
       }
-      // 复测前置检查：仅关闭同一 report-id 的上一轮服务，避免影响并发请求。
-      const previousServer = await stopReportServer(expectedDirectories.currentDirectory);
-      if (previousServer.stopped) {
-        process.stdout.write(`已关闭上一轮报告服务（pid ${previousServer.pid}，端口 ${previousServer.port}）\n`);
-      }
       if (runMode === "initial_full") await fs.rm(expectedDirectories.durableReportPath, { force: true });
       // 当前诊断目录只保存本轮证据；复测的历史结果由 Markdown 报告合并保存。
       const caseCatalog = contracts.flatMap((contract) => contract.caseIds.map((caseId) => ({
@@ -431,15 +462,21 @@ if (!(await probeLocalDevServer())) {
         "生成长期 Markdown 报告"
       );
       failed ||= summaryExitCode !== 0;
-      // 自动拉起常驻报告服务并输出可点击链接（复测时运行器会先自动关闭本服务）。
+      // 所有请求的最终证据合入共享首页；共享锁保证并发完成的请求不会相互覆盖。
       try {
-        const server = await startReportServer(requestDirectories.currentDirectory);
+        const dashboard = await mergeRequestIntoAllureDashboard({
+          rootDirectory,
+          requestDirectories,
+          reportId,
+          generate: generateAllureReport
+        });
+        const server = await ensureReportServer(dashboard.dashboardDirectory);
         process.stdout.write(
-          `报告服务已启动（后台常驻）：\n` +
-          `  当前 Allure：${server.detailUrl}\n`
+          `共享 Allure 首页已更新（保留最近 ${dashboard.requestCount}/5 个请求）：\n` +
+          `  ${server.detailUrl}\n`
         );
       } catch (error) {
-        process.stderr.write(`报告服务启动失败：${error instanceof Error ? error.message : String(error)}\n可手动打开：npm run report:allure -- --report-id ${reportId} --pack ${path.relative(rootDirectory, packSet[0])}\n`);
+        process.stderr.write(`共享 Allure 首页更新失败：${error instanceof Error ? error.message : String(error)}\n本请求明细仍可手动打开：npm run report:allure -- --report-id ${reportId} --pack ${path.relative(rootDirectory, packSet[0])}\n`);
       }
       process.exitCode = failed ? 1 : 0;
     } finally {

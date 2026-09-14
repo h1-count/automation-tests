@@ -5,6 +5,8 @@ import path from "node:path";
 import test from "node:test";
 import { buildRequestReport } from "../../scripts/build-request-report.mjs";
 import { requestArtifactDirectories } from "../../scripts/support/request-report-location.mjs";
+import { discoverReportServerDirectories } from "../../scripts/support/report-server.mjs";
+import { mergeRequestIntoAllureDashboard } from "../../scripts/support/allure-dashboard.mjs";
 
 async function writeCurrent(directory, results) {
   const resultDirectory = path.join(directory, "allure-results");
@@ -80,4 +82,66 @@ test("单包和多包按公共目录拆分长期报告，并按请求标识隔�
   assert.equal(many.durableReportPath, "/workspace/testpacks/web/open-platform/test-reports/flow-001.md");
   assert.equal(many.currentDirectory, "/workspace/testpacks/web/open-platform/artifacts/current/flow-001");
   assert.equal(many.historyPath, "/workspace/testpacks/web/open-platform/runtime/allure-history/flow-001.jsonl");
+});
+
+test("只发现请求级 current 目录中已登记的报告服务", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "report-server-discovery-"));
+  try {
+    const active = path.join(root, "web", "open-platform", "demo", "artifacts", "current", "request-001");
+    await fs.mkdir(active, { recursive: true });
+    await fs.writeFile(path.join(active, "manifest.json"), "{}\n");
+    await fs.writeFile(path.join(active, "report-server.json"), "{}\n");
+    await fs.mkdir(path.join(root, "web", "open-platform", "demo", "artifacts", "current", "allure-results"), { recursive: true });
+    await fs.writeFile(path.join(root, "web", "open-platform", "demo", "artifacts", "current", "allure-results", "report-server.json"), "{}\n");
+    assert.deepEqual(await discoverReportServerDirectories(root), [active]);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("共享 Allure 首页保留最近五个请求，并使用完成日期和业务层级", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "allure-dashboard-"));
+  try {
+    let dashboardResult;
+    for (let index = 1; index <= 6; index += 1) {
+      const request = path.join(root, "request", String(index));
+      const results = path.join(request, "allure-results");
+      const attachment = `shot-${index}.png`;
+      await fs.mkdir(results, { recursive: true });
+      const manifest = index === 6
+        ? { startedAt: "2026-08-01T00:00:00.000Z", finishedAt: "2026-09-06T00:00:00.000Z" }
+        : { startedAt: `2026-09-0${index}T00:00:00.000Z` };
+      await fs.writeFile(path.join(request, "manifest.json"), JSON.stringify(manifest));
+      await fs.writeFile(path.join(results, attachment), `image-${index}`);
+      await fs.writeFile(path.join(results, `case-${index}-result.json`), JSON.stringify({
+        name: `OP-X-00${index}`,
+        titlePath: ["iot-automation-tests", "web", "open-platform", "demo", "demo.spec.ts", "演示功能", "演示场景"],
+        labels: [{ name: "titlePath", value: " > iot-automation-tests > web > open-platform > demo > demo.spec.ts > 演示功能 > 演示场景" }],
+        steps: [{ attachments: [
+          { name: "截图", source: attachment, type: "image/png" },
+          { name: "已回收的旧附件", source: "missing-attachment.txt", type: "text/plain" }
+        ] }]
+      }));
+      dashboardResult = await mergeRequestIntoAllureDashboard({
+        rootDirectory: root,
+        requestDirectories: { manifestPath: path.join(request, "manifest.json"), resultsDirectory: results },
+        reportId: `request-${index}`
+      });
+    }
+    const dashboard = path.join(root, "testpacks", "artifacts", "allure-dashboard");
+    assert.equal(dashboardResult.historyLimit, 50);
+    assert.equal(dashboardResult.reportName, "开放平台自动化测试报告（最近 5 个请求）");
+    const registry = JSON.parse(await fs.readFile(path.join(dashboard, "registry.json"), "utf8"));
+    assert.equal(registry.requests.length, 5);
+    assert.deepEqual(registry.requests.map((item) => item.reportId), ["request-6", "request-5", "request-4", "request-3", "request-2"]);
+    const files = await fs.readdir(path.join(dashboard, "allure-results"));
+    assert.ok(files.every((file) => !file.includes("request-1")));
+    const resultFile = files.find((file) => file.endsWith("case-6-result.json"));
+    const result = JSON.parse(await fs.readFile(path.join(dashboard, "allure-results", resultFile), "utf8"));
+    assert.deepEqual(result.titlePath, ["执行日期：2026-09-06", "request-6", "演示功能", "演示场景"]);
+    assert.ok(await fs.access(path.join(dashboard, "allure-results", result.steps[0].attachments[0].source)).then(() => true));
+    assert.equal("source" in result.steps[0].attachments[1], false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });

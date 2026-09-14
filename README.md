@@ -15,7 +15,7 @@ npm run report:allure -- --report-id <请求报告标识> --pack <功能包>
 FAST_BASE_URL=https://open-platform-test.ikingcity.com/ npm run test:fast
 ```
 
-新功能先创建 `testpacks/<type>/<project>/<feature>/` 功能测试包：在包内维护 `cases.md`，审核后编写同包的 `<feature>.spec.ts`，并更新 `conclusion.md`。长期结论归档为公共目录下、可提交的 `test-reports/<请求标识>.md`；当前请求的 Allure 保留全部用例的最终状态，补测只替换命中用例，最终失败才保留诊断媒体；下一次新请求会回收已完成的旧临时目录。
+新功能先创建 `testpacks/<type>/<project>/<feature>/` 功能测试包：在包内维护 `cases.md`，审核后编写同包的 `<feature>.spec.ts`，并更新 `conclusion.md`。长期结论归档为公共目录下、可提交的 `test-reports/<请求标识>.md`；当前请求的 Allure 保留全部用例的最终状态，补测只替换命中用例，最终失败才保留诊断媒体。测试结束后会更新并打开共享 Allure 首页：标题固定为“开放平台自动化测试报告（最近 5 个请求）”，按“执行日期 / 请求标识 / 业务模块 / 业务场景”组织套件；首页展示最近 5 个请求、历史快照保留最近 50 次，服务会被后续请求复用。请求级明细仍可通过 `npm run report:allure` 单独打开。
 
 默认以有头浏览器运行。
 

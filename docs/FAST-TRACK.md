@@ -39,6 +39,8 @@ FAST_BASE_URL=https://open-platform-test.ikingcity.com/ npm run test:fast
 | `artifacts/current/<report-id>/` | 指定请求的请求级最终 Allure：全部用例的最后结果与最终失败诊断；补测只替换命中用例，不保留中间轮次 | 不提交 |
 | `runtime/allure-history/<report-id>.jsonl` | 指定请求的 Allure 3 紧凑历史，自动限制最近 20 次，用于趋势和不稳定用例判断；不含完整 HTML 或媒体 | 不提交 |
 
+跨请求的共享首页固定在 `testpacks/artifacts/allure-dashboard/`：其中 `allure-results/` 只保留首页展示的最近 5 个请求，`allure-history.jsonl` 独立保留最近 50 次完成快照，`report-server.json` 是该首页唯一可复用的本地服务登记文件；均为本地数据，不提交。
+
 ### 加载测试上下文
 
 生成用例前，以及用户确认 Excel 后、开始页面探索或执行测试前，都先加载知识库与经验库：
@@ -141,7 +143,16 @@ test("首页登录入口可见", async ({ page }) => {
 
 修复脚本后运行 `npm run test:fast:repair -- --report-id <标识>`。它从该报告的机器数据取出失败、非通过和未执行用例，递归补齐 `execution.json` 中的同包前置用例，再以 `--grep` 精确复测；复测失败立即结束。复测全部通过后，运行器依据报告中已确认的跨包依赖，全量回归命中功能包及其下游包。首次使用必须先用普通 `test:fast` 完整执行一次建立报告基线；旧报告仍可阅读，但不能作为局部复测来源。
 
-Allure 原始结果、HTML、Trace、视频与截图存在公共目录的 `artifacts/current/<report-id>/`，但主入口始终是请求级最终聚合：首次全量写入全部用例，补测只替换命中用例；通过补测会删除该用例此前失败的诊断材料，最终失败才保留其最后一次 Trace、视频和截图。中间 attempt 在合并后立即删除。每次新请求启动时，会回收同一公共目录下没有运行锁的旧请求目录。`npm run report:allure -- --report-id <标识> --pack <功能包> [--pack <功能包> ...]` 打开该请求的完整最终 Allure。Allure 3 的 `runtime/allure-history/<report-id>.jsonl` 独立保留该请求最近 20 次紧凑历史，不包含媒体。`npm run report:request -- <标识>` 输出长期 Markdown 路径。同一标识被另一运行占用时会直接失败，避免并发复测写坏同一份 Markdown 报告。截图、视频、Trace 和报告不得包含真实密码、Token、密钥、Cookie 或其他可复用凭据；对外分享前必须人工检查媒体内容。
+Allure 原始结果、HTML、Trace、视频与截图存在公共目录的 `artifacts/current/<report-id>/`，但请求级明细始终是最终聚合：首次全量写入全部用例，补测只替换命中用例；通过补测会删除该用例此前失败的诊断材料，最终失败才保留其最后一次 Trace、视频和截图。中间 attempt 在合并后立即删除。每个请求结束后，运行器会把其最终结果复制到 `testpacks/artifacts/allure-dashboard/` 的共享首页输入池，重建首页并复用该目录唯一的 `report-server.json` 服务。
+
+共享首页展示规则（生成器必须遵守）：
+
+- 标题固定为“开放平台自动化测试报告（最近 5 个请求）”。
+- 每条用例只使用四层：`执行日期：YYYY-MM-DD / report-id / 业务模块 / 业务场景`。必须剔除工程根目录、平台目录、功能目录、`.spec.ts` 文件名及其他技术路径；业务模块或场景已有的自然层级可以保留。
+- 执行日期优先取 `manifest.finishedAt`，其次 `manifest.startedAt`，绝不从 report-id 推断。因此 `product-edit-chain-20260910` 在 2026-09-14 实际执行时，应归入“执行日期：2026-09-14”。
+- 首页结果池按完成时间只保留最新 5 个请求；同一 report-id 的补测替换旧结果。`allure-history.jsonl` 独立保留最新 50 次请求完成快照，不含媒体；被展示池淘汰的请求不会令其历史快照失效。
+
+合并与重建由锁串行保护，所以并行测试即使同时结束也不会相互覆盖。请求级临时目录可在后续请求启动时正常回收，不影响已复制到共享首页的结果。`npm run report:allure -- --report-id <标识> --pack <功能包> [--pack <功能包> ...]` 仍可单独启动并输出该请求完整最终 Allure 的本地链接。Allure 3 的 `runtime/allure-history/<report-id>.jsonl` 独立保留该请求最近 20 次紧凑历史，不包含媒体。`npm run report:request -- <标识>` 输出长期 Markdown 路径。同一标识被另一运行占用时会直接失败，避免并发复测写坏同一份 Markdown 报告。截图、视频、Trace 和报告不得包含真实密码、Token、密钥、Cookie 或其他可复用凭据；对外分享前必须人工检查媒体内容。
 
 ### 提示类断言（规则正本）
 
