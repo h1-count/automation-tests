@@ -7,21 +7,106 @@
       "name": "可达性与主流程",
       "objects": [
         {
-          "id": "c01-existing-cases",
-          "name": "可达性与主流程（现有用例基线）",
+          "id": "c01-menu-entry",
+          "name": "侧边菜单入口进入产品开发列表（入口=「产品接入→产品开发」｜正路径｜从入口进入；2026-09-11 对象矩阵核对补行）",
           "evidence": [
-            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「产品开发首页 P0」章节）、前端源码 `web-open-platform/src/pages/integration/product/ProductManagement.vue`、`components/ProductFilter.vue`、`src/routes/integration.ts`、`src/support/recordGeneratedData.ts`、`experience/general.md`、`experience/open-platform.md`；查重比对 create-product 包（首页基础渲染、创建向导、入口/登录、列表回查已覆盖——本包不重复设计主流程创建）。"
+            "需求文档「产品开发首页P0」章节（首页为产品接入主入口页面）、create-product 包 cases.md OP-PROD-002（短信登录并进入产品开发首页，2026-09-02 执行实证，入口链路由该包覆盖）、experience/open-platform.md 跨包登录态复用约定"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "查重划界至 create-product 包 OP-PROD-002（2026-09-02 实证短信登录后进入产品开发首页，入口链路由该包覆盖）；本包 OP-PMGT-001 以已登录直达 URL 验证页面可达，不重复设计入口用例。若入口菜单结构调整须重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（查重划界至 create-product 包入口用例），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-direct-url",
+          "name": "已登录直达 /integration/product/management（正路径｜绕过菜单直达）",
+          "evidence": [
+            "前端源码 `src/routes/integration.ts`（integration-product-management 子路由注册）、2026-09-03/09-07 执行实证（直达可达，OP-PMGT-001 步骤1）"
           ],
           "disposition": "covered",
           "caseIds": [
-            "OP-PMGT-001",
-            "OP-PMGT-004",
-            "OP-PMGT-006",
+            "OP-PMGT-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一入口导航对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-list-render",
+          "name": "列表容器渲染（标题「产品开发」+五步流程描述文案+搜索区五控件（筛选器/排序下拉/关键字输入/下载/创建产品）+表头 10 列）（入口=列表页｜正路径｜直达进入后静态核对）",
+          "evidence": [
+            "需求文档「产品开发首页P0」第1~4点与第6点（筛选产品/排序方式/搜索产品/下载/创建的产品列表）、`web-open-platform/src/pages/integration/product/ProductManagement.vue`（搜索区与操作列模板）、`components/ProductFilter.vue`（五分区+badge+清除×）、2026-09-03 探索实证与 2026-09-11 源码复核"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "纯展示与静态渲染核对对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-ledger-echo",
+          "name": "create-product 台账既有合成产品回显（最新 at0672/自动化测试产品1789026290672 行在列，不创建产品——用户指令 2026-09-11）",
+          "evidence": [
+            "create-product 包台账 `testpacks/web/open-platform/create-product/runtime/generated-data.json`（末条 runId 1789026290672/at0672/2026-09-10）、用户指令（2026-09-11：不创建产品，基于台账既有产品操作）、2026-09-03/09-07 执行实证（台账回显）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "固定台账对象回显核对（本轮最新 at0672），无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-create-entry",
+          "name": "创建产品入口跳转（入口=【创建产品】按钮｜正路径｜从入口进入；本轮只观察跳转、不在向导内选择或提交——用户指令 2026-09-11）",
+          "evidence": [
+            "需求文档「产品开发首页P0」第5点（创建产品入口：点击【创建产品】，进入创建产品的流程）、`ProductManagement.vue` 创建产品按钮、create-product 包 cases.md（向导主流程已由该包覆盖）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-006"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一入口跳转观察对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-phase-jump",
+          "name": "操作列跳转基础配置页（继续开发/开发详情→/integration/product/{id}/basic，五步步骤条渲染）（入口=列表操作列链接｜正路径｜从入口进入）",
+          "evidence": [
+            "需求文档「产品开发首页P0」第6.12点（操作列：继续开发 OR 开发详情）、`ProductManagement.vue` L75-79（三态链接）与 handleContinueDev/redevelop 跳转、product-basic 包 OP-PBSC-001（阶段页落点已实证）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
             "OP-PMGT-007"
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单一跳转链路对象，链接文案随产品状态的变化另见 c05-action-state-mapping，无参数交叉组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -34,19 +119,110 @@
       "name": "字段与输入规则",
       "objects": [
         {
-          "id": "c02-existing-cases",
-          "name": "字段与输入规则（现有用例基线）",
+          "id": "c02-keyword-values",
+          "name": "搜索区·关键字输入框取值类（表单=关键字搜索框｜取值类：台账名称片段/台账 Model/台账产品型号/不存在串/空值恢复）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "需求文档「产品开发首页P0」第3点（搜索产品：支持产品model、产品名称、产品型号输入模糊搜索）、`ProductManagement.vue` L22（placeholder「Model/名称/型号」）、2026-09-03/09-07 执行实证（回车触发、命中与空态行为）；2026-09-11 对象矩阵核对补 Model 取值行（旧用例仅名称/型号）"
           ],
           "disposition": "covered",
           "caseIds": [
-            "OP-PMGT-002",
+            "OP-PMGT-002"
+          ],
+          "combinationDesign": {
+            "strategy": "direct_enumeration",
+            "rationale": "单参数（关键字取值类）5 个等价类逐行映射 OP-PMGT-002 数据编号 D01（台账名称片段 1789026290672）/D02（台账 Model at0635.light.at0672，2026-09-11 补）/D03（台账产品型号 at0672）/D04（不存在串 zzz-not-exist 负向）/D05（清空恢复全量），均为模糊查询的独立取值类。",
+            "validCombinationCount": 5,
+            "parameters": [
+              {
+                "name": "关键字取值类",
+                "values": [
+                  "台账产品名称片段（1789026290672，正向命中）",
+                  "台账产品 Model 全值（at0635.light.at0672，正向命中）",
+                  "台账产品型号（at0672，正向命中）",
+                  "不存在的合成串（zzz-not-exist，负向空列表）",
+                  "空值（清空后恢复全量）"
+                ],
+                "evidence": "需求文档「产品开发首页P0」第3点（model/名称/型号模糊搜索）+ ProductManagement.vue 关键字输入框 + 台账最新记录 at0672 字段值"
+              }
+            ],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-filter-fields",
+          "name": "筛选器弹窗×字段×取值类（表单=筛选器弹窗｜字段=品类/开发状态/开发方式/通讯方式/设备类型｜取值类：取消不应用/各维度选中命中/无匹配空态/清除全部）",
+          "evidence": [
+            "需求文档「产品开发首页P0」第1点（筛选范围：品类/开发状态/开发方式/通讯方式/设备类型，触发条件=点击【筛选器】显示弹窗）、`components/ProductFilter.vue`（五分区+badge show-zero=false+hasSelection 清除×）、2026-09-03 探索实证（品类 12 tabs/开发状态 7 项/开发方式 4 项/通讯方式 11 项/设备类型 3 项，底部 取消/确定）；2026-09-11 对象矩阵核对补 取消/品类/开发方式/设备类型/无匹配空态 行（旧用例仅 开发状态+通讯方式+清除）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
             "OP-PMGT-003"
           ],
           "combinationDesign": {
+            "strategy": "direct_enumeration",
+            "rationale": "单参数（筛选场景取值类）8 个等价场景逐行映射 OP-PMGT-003 数据编号 D01（取消不应用）/D02（开发状态=开发中命中）/D03（叠加通讯方式=WiFi）/D04（叠加品类=照明）/D05（叠加开发方式=开放协议接入）/D06（叠加设备类型=普通设备）/D07（开发状态=已上线负向空态）/D08（清除全部恢复全量）；各维度取值以台账最新产品 at0672 的台账属性为命中基准。",
+            "validCombinationCount": 8,
+            "parameters": [
+              {
+                "name": "筛选场景取值类",
+                "values": [
+                  "取消不应用（打开弹窗后取消，列表不过滤）",
+                  "开发状态=开发中（台账产品命中）",
+                  "通讯方式=WiFi（组合过滤命中）",
+                  "品类=照明（台账品类 照明-灯）",
+                  "开发方式=开放协议接入（台账值）",
+                  "设备类型=普通设备（台账值）",
+                  "开发状态=已上线（负向，台账无已上线产品→空列表）",
+                  "清除全部选中（× 后恢复全量）"
+                ],
+                "evidence": "需求文档「产品开发首页P0」第1点五维筛选 + ProductFilter.vue 分区实现 + create-product 台账 at0672 属性（照明-灯/开放协议接入/普通设备）+ 2026-09-03 探索字典项清单"
+              }
+            ],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-sort-values",
+          "name": "搜索区·排序选择器取值类（表单=排序下拉｜取值类=需求 4 个字典项：创建时间倒序（默认）/创建时间正序/更新时间倒序/更新时间正序）",
+          "evidence": [
+            "需求文档「产品开发首页P0」第2点（排序方式：创建时间倒序（默认）、创建时间正序、更新时间倒序、更新时间正序）、`ProductManagement.vue` L13-14/L114（timeSort 默认 1、字典 S_PRODUCT_TIME_SORT）、2026-09-03 探索实证（下拉打开确认 ≥2 项、默认「创建时间倒序」）；2026-09-11 对象矩阵核对由单次切换改为 4 字典项全枚举"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-004"
+          ],
+          "combinationDesign": {
+            "strategy": "direct_enumeration",
+            "rationale": "单参数（排序方式取值）4 个字典项逐行映射 OP-PMGT-004 数据编号 D01（创建时间正序）/D02（更新时间倒序）/D03（更新时间正序）/D04（切回创建时间倒序默认态）；每项断言列表刷新与对应时间列单调性。",
+            "validCombinationCount": 4,
+            "parameters": [
+              {
+                "name": "排序方式取值",
+                "values": [
+                  "创建时间正序（可见行创建时间单调递增）",
+                  "更新时间倒序（可见行最后更新时间单调不增）",
+                  "更新时间正序（可见行最后更新时间单调递增）",
+                  "创建时间倒序（默认还原，首行为最新产品）"
+                ],
+                "evidence": "需求文档「产品开发首页P0」第2点四项排序 + ProductManagement.vue S_PRODUCT_TIME_SORT 字典 + 2026-09-03 默认值实证"
+              }
+            ],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-list-columns",
+          "name": "列表列回显（表单=产品列表｜字段=产品信息（名称+品类）/Model/开发方式/产品型号/通讯方式/设备类型/开发状态/创建时间/最后更新时间｜取值=台账最新产品 at0672 记录值逐列核对）",
+          "evidence": [
+            "需求文档「产品开发首页P0」第6.3~6.11点（产品信息/开发方式/产品型号/通讯方式/设备类型/开发状态/创建时间/更新时间展示要求）、`ProductManagement.vue` 列模板与字典名映射、create-product 台账 at0672 记录（照明-灯/开放协议接入/at0672/at0635.light.at0672/普通设备）；2026-09-11 对象矩阵核对由「表头齐全」细化为台账逐列值核对"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-001"
+          ],
+          "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "只读回显核对，取值固定为台账记录值，无取值类组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -59,16 +235,57 @@
       "name": "唯一性与重复操作",
       "objects": [
         {
-          "id": "c03-not-applicable",
-          "name": "唯一性与重复操作（当前包无独立对象）",
+          "id": "c03-delete-cancel",
+          "name": "删除确认弹窗取消分支（可重复动作=点击「删除」｜触发方式=弹窗取消不确认；2026-09-11 对象矩阵核对补行）",
           "evidence": [
-            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「产品开发首页 P0」章节）、前端源码 `web-open-platform/src/pages/integration/product/ProductManagement.vue`、`components/ProductFilter.vue`、`src/routes/integration.ts`、`src/support/recordGeneratedData.ts`、`experience/general.md`、`experience/open-platform.md`；查重比对 create-product 包（首页基础渲染、创建向导、入口/登录、列表回查已覆盖——本包不重复设计主流程创建）。"
+            "`ProductManagement.vue` L215-227（confirm 确认弹窗，取消不调用删除接口）、需求文档「产品开发首页P0」第6.12.2点（删除需确认）；2026-09-03/09-07 执行实证（确认分支），取消分支此前无用例行"
           ],
-          "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-008"
+          ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单一负分支核对（取消→无写入、行保留），无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c03-delete-once",
+          "name": "删除后行消失不可重复删除（可重复动作=点击「删除」｜触发方式=确认删除后；2026-09-11 对象矩阵核对补行）",
+          "evidence": [
+            "`ProductManagement.vue` handleDelete 成功后刷新列表（L215-227）、2026-09-03/09-07/09-10 三轮执行实证（删除成功后该行从列表消失，行级删除入口随行消失）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-008"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单状态断言（行消失→不可重复删），无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c03-repeat-read-actions",
+          "name": "查询/导出类读动作重复触发幂等（可重复动作=关键字回车查询/筛选确认/排序切换/点击下载｜触发方式=重复触发；均为读操作，无平台数据副作用）",
+          "evidence": [
+            "`ProductManagement.vue`（queryData 均为 queryIntegrationProducts/exportIntegrationProductList 读接口）、2026-09-03/09-07 执行实证（OP-PMGT-002 步骤1~4 连续查询、OP-PMGT-003 重复确认筛选、OP-PMGT-004 重复切换排序均正常返回）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-002",
+            "OP-PMGT-003",
+            "OP-PMGT-004",
+            "OP-PMGT-005"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "读操作幂等核对（各用例步骤链已含重复触发），无参数交叉组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -81,16 +298,70 @@
       "name": "成功、异常与边界",
       "objects": [
         {
-          "id": "c04-not-applicable",
-          "name": "成功、异常与边界（当前包无独立对象）",
+          "id": "c04-search-empty",
+          "name": "关键字搜索无结果空态（负向：不存在串→空列表）",
           "evidence": [
-            "cases.md：上下文结论与范围外声明"
+            "需求文档「产品开发首页P0」第3点（模糊搜索）、2026-09-03 探索实证（不存在串 0 行）"
           ],
-          "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-002"
+          ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单场景负向核对（取值类建模已在 c02-keyword-values 的 D04），不重复建模。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-filter-nomatch",
+          "name": "筛选无匹配空态（负向：开发状态=已上线，台账产品均非已上线→空列表；2026-09-11 对象矩阵核对由隐含改显式）",
+          "evidence": [
+            "需求文档「产品开发首页P0」第1.2.2点（开发状态筛选）与「开发状态」第4点七态（台账产品均为 开发中/送审中，无已上线样本→空态可稳定构造）、2026-09-03 探索实证（开发状态字典 7 项含「已上线」）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-003"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单场景负向核对（取值类建模已在 c02-filter-fields 的 D07），不重复建模。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-export-signal",
+          "name": "导出成功信号与下载事件观察（成功提示「导出成功」；下载事件视环境注解）",
+          "evidence": [
+            "`ProductManagement.vue` L184（ElMessage.success('导出成功')）、2026-09-03 执行实证（提示出现）与 2026-09-07 复测（下载事件出现，产品列表-2026-09-07.xlsx）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-005"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单场景成功信号核对，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-pagination",
+          "name": "分页边界与批量操作（需求：产品列表每 10 条分页；企业未上线产品上限 40 个）",
+          "evidence": [
+            "需求文档「产品开发首页P0」第6.1~6.2点（每 10 条分页、未上线企业创建上限 40 个）、2026-09-11 台账核对（当前列表可见产品 < 10 条，单页）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "当前可见产品数不足一页（每 10 条分页仅单页），翻页边界与批量场景无法构造；构造须批量创建数十个产品，违背最少写入原则。分页控件状态由 OP-PMGT-001 注解观察；待产品数超 10 条后重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（边界场景无法构造），不建模参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -103,19 +374,68 @@
       "name": "权限、状态与导航",
       "objects": [
         {
-          "id": "c05-existing-cases",
-          "name": "权限、状态与导航（现有用例基线）",
+          "id": "c05-unauth-direct",
+          "name": "未登录直达 /integration/product/management（负路径｜绕过入口直达；2026-09-11 对象矩阵核对补行）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "`src/routes/integration.ts`（permission: '/integration' meta）、`src/permission.ts`（router.beforeEach 全局守卫）、create-product 包 OP-PROD-001（2026-09-01 执行实证：同树 create/management 路由未登录重定向登录页）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "路由守卫为平台级机制（permission meta + 全局 beforeEach），与 create/management 同树同机制，create-product 包 OP-PROD-001 已实证未登录重定向登录页；登录态用例属 login-register/create-product 包，本包运行时复用 runtime/auth-state.json。若守卫机制变更须重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（机制已由同树路由实证），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-action-state-mapping",
+          "name": "操作列按开发状态映射链接（开发中→「继续开发」、送审中→「开发详情」；testFailed→「重新开发」见范围外；2026-09-11 补真实台账状态样本对照）",
+          "evidence": [
+            "需求文档「产品开发首页P0」第6.12.1点（开发中/测试未通过显示继续开发，其余显示开发详情）、`ProductManagement.vue` L75-79（三态模板）、2026-09-03 探索与 2026-09-07 执行实证（at8438 送审中仅「开发详情」）；台账样本：at9300 开发中、at8438 送审中"
           ],
           "disposition": "covered",
           "caseIds": [
-            "OP-PMGT-006",
             "OP-PMGT-007"
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "状态映射为源码固定渲染规则（accessStatus 单值决定链接文案），台账可见样本覆盖两态对照，无参数交叉组合空间。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-delete-visibility",
+          "name": "开发状态约束「删除」可见性（仅 开发中/测试未通过 展示删除；送审中等仅「开发详情」不可删除；2026-09-11 对象矩阵核对补独立对象行）",
+          "evidence": [
+            "`ProductManagement.vue` L80/L174（isDeleteable=['developing','testFailed']）、需求文档「产品开发首页P0」第6.12.2点与「开发状态」第2点（送审中不可删除）、2026-09-07 执行实证（at8438 送审中无「删除」）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-007"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单状态可见性核对（deleteableStatus 单值判定），无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-redevelop",
+          "name": "重新开发（testFailed→resetProductToDevelop 写入重置产品状态并跳转基础配置）",
+          "evidence": [
+            "`ProductManagement.vue` L75/L195（testFailed 显示「重新开发」→resetProductToDevelop）、需求文档「开发状态」第4点（测试未通过：产品配置可修改、可删除、显示重新开发）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "当前台账无 testFailed 状态产品（样本构造须走产品测试链路的测试不通过负向用例），且重新开发属重置写入动作（会把产品重置回开发态），违背最少写入原则；状态流转本身由产品测试链路包覆盖。若台账出现 testFailed 产品须重新评估并补用例。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（无状态样本且属重置写入），不建模参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -128,16 +448,32 @@
       "name": "验证码、登录态与特殊能力",
       "objects": [
         {
-          "id": "c06-not-applicable",
-          "name": "验证码、登录态与特殊能力（当前包无独立对象）",
+          "id": "c06-login-state",
+          "name": "登录态前置与失效处理（本包所有用例的会话前提）",
           "evidence": [
-            "cases.md：上下文结论与范围外声明"
+            "`experience/open-platform.md`（登录/注册用例属 login-register 包；产品开发页面需登录态）、`experience/general.md` 跨包登录态复用模式（runtime/auth-state.json 仅存本地不入 Git，失效时重新登录刷新）"
           ],
           "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "reason": "登录、图形验证码与短信验证码用例由 login-register 功能包覆盖（25 条全量通过），create-product 包 OP-PROD-002 覆盖登录态建立与复用；本包运行时复用 runtime/auth-state.json，不重复设计登录用例。",
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "范围外对象（查重划界至 login-register/create-product 包），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c06-captcha",
+          "name": "图形/短信验证码环节（产品开发列表页内）",
+          "evidence": [
+            "`ProductManagement.vue` 与 `components/ProductFilter.vue` 全文（无验证码调用，2026-09-11 源码复核）、`experience/open-platform.md`（验证码仅出现在登录/注册链路，人工协助点选模式）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "产品开发列表页无验证码环节（源码核对）；验证码场景仅存在于登录/注册链路，由 login-register 包按人工协助点选模式覆盖。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（页面无此能力），不建模参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -150,24 +486,90 @@
       "name": "数据写入与后续处理",
       "objects": [
         {
-          "id": "c07-existing-cases",
-          "name": "数据写入与后续处理（现有用例基线）",
+          "id": "c07-delete-write",
+          "name": "删除合成测试产品写入（本包唯一写对象：确认删除 1 个台账合成产品→「删除成功」+行消失；6 包执行链收尾的清理性写入——用户指令 2026-09-11；含弹窗取消负分支不写入）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "需求文档「产品开发首页P0」第6.12.2点（开发中/测试未通过可删除，需确认）、`ProductManagement.vue` L215-227（确认弹窗→删除成功→刷新）、`src/support/recordGeneratedData.ts`（写入台账唯一通道）、用户指令（2026-09-11：删除类用例保持「仅删除合成测试产品」口径，作为链路收尾清理性写入）"
           ],
           "disposition": "covered",
           "caseIds": [
+            "OP-PMGT-008"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "写入内容为候选规则实选的单一合成产品删除（确认/取消两分支），非参数组合；高风险写入场景已按人工补充口径列于 manualSupplementCaseIds。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-PMGT-008"
+            ]
+          }
+        },
+        {
+          "id": "c07-write-target",
+          "name": "写入对象限定（删除候选=台账 ∩ 当前列表可见 ∩ 非最新产品 ∩ 操作列「删除」可见；最新 at0672 受保护保留给五步阶段包；绝不删除真实数据；2026-09-11 台账状态下预期候选 at9300）",
+          "evidence": [
+            "create-product 包台账 `runtime/generated-data.json`（12 条记录，末条 at0672/2026-09-10）、本包 `runtime/generated-data.json`（9 条删除记录，at4829/at7006 已于 2026-09-10 删除）、本包 conclusion.md 产品生命周期约定、2026-09-07 执行实证（at8438 送审中不可删→新增删除可见条件）、用户指令（2026-09-11）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-008"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "对象限定为前置约束（候选按规则运行时实选、写入目标唯一），非参数组合；写入用例已列于 manualSupplementCaseIds。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-PMGT-008"
+            ]
+          }
+        },
+        {
+          "id": "c07-ledger-append",
+          "name": "删除记录台账化与只增不删（本包 runtime/generated-data.json 追加 runId/产品名/Model/删除时间，kind=open-platform-product-deletion；台账缺 Model 的历史记录取行内 Model 单元格实测值；任何清理不得波及台账）",
+          "evidence": [
+            "`src/support/recordGeneratedData.ts`（appendProductDeletionRecord）、本包 `runtime/generated-data.json`（历史 9 条记录在案）、`experience/general.md` 台账保护教训（增量累积台账只追加、不删除、不清空）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-008"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "台账化是写入用例的固定后续处置步骤，非参数组合；写入用例已列于 manualSupplementCaseIds。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-PMGT-008"
+            ]
+          }
+        },
+        {
+          "id": "c07-negative-no-write",
+          "name": "查询/筛选/排序/导出/入口跳转为读操作无服务端写入；删除确认弹窗取消分支不产生删除写入",
+          "evidence": [
+            "`ProductManagement.vue`（queryData/exportIntegrationProductList 为读接口；confirm 取消不调用删除接口）、2026-09-03/09-07 执行实证（no_write 用例全量通过，平台数据无变化）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PMGT-002",
+            "OP-PMGT-003",
+            "OP-PMGT-004",
+            "OP-PMGT-005",
             "OP-PMGT-006",
             "OP-PMGT-008"
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "负向场景为「预期无写入」断言，无参数组合；涉及删除提交风险的用例已列于 manualSupplementCaseIds。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": [],
             "manualSupplementCaseIds": [
-              "OP-PMGT-006",
               "OP-PMGT-008"
             ]
           }

@@ -120,18 +120,83 @@ test.describe("开放平台产品功能定义", () => {
   }
 
   /** 从列表进入台账最新产品的指定阶段页（继续开发先落 basic，再切到目标阶段）。 */
+
+  // 2026-09-14 状态前置守卫：台账产品被链路推进到「送审中」后，功能定义页模板区受限
+  //（R4 实证：卡片栅格退化为 1 张、无 template-actions，模板选择/功能点编辑全被锁）。
+  // 模板/功能点类用例开头先探测，受限 → skip + 注解原因；正常态照常执行。
+  async function skipIfTemplateLocked(page: Page) {
+    const cards = page.locator(".template-card");
+    await cards.first().waitFor({ state: "visible", timeout: 15_000 }).catch(() => {});
+    const cardCount = await cards.count();
+    const actionsVisible = await page.locator(".template-actions").first().isVisible().catch(() => false);
+    if (cardCount > 0 && cardCount < 2 && !actionsVisible) {
+      test.info().annotations.push({
+        type: "状态守卫跳过",
+        description: `模板卡片数=${cardCount} 且无 template-actions——产品处于送审中等非开发态，模板/功能点操作被锁（链路前序包写入成功推进状态的正确业务结果），编辑类验证需产品回到开发态后重跑`
+      });
+      test.skip(true, "产品非开发态，模板/功能点操作受限");
+    }
+  }
+
   async function gotoLatestPhase(page: Page, latest: ProductRecord, phase: string) {
     await gotoWithRetry(page, `/integration/product/management`);
     await page.locator(".product-center").waitFor({ state: "visible", timeout: 45_000 });
     await page.waitForTimeout(2_000);
-    const row = page.locator(".ep-table__body:visible").last().locator("tbody tr").filter({ hasText: latest.productName }).first();
-    await expect(row).toBeVisible({ timeout: 20_000 });
+    // 2026-09-14 平台产品数增长突破单页 10 条（共 19 条）：台账最新产品可能落在第 2 页。
+    // 第 1 页未命中时用列表搜索（只读动作）定位，不改变用例断言语义。
+    let row = page.locator(".ep-table__body:visible").last().locator("tbody tr").filter({ hasText: latest.productName }).first();
+    if (!(await row.isVisible().catch(() => false))) {
+      await page.getByPlaceholder(/Model\/名称\/型号/u).fill(latest.productName);
+      await page.getByRole("button", { name: "搜索", exact: true }).click();
+      await page.waitForTimeout(3_000);
+      row = page.locator(".ep-table__body:visible").last().locator("tbody tr").filter({ hasText: latest.productName }).first();
+    }
+    await expect(row, `台账最新产品 ${latest.productName} 应经列表（必要时搜索）可见`).toBeVisible({ timeout: 20_000 });
     await row.getByText(/继续开发|开发详情/u).click();
     await page.waitForURL(/\/integration\/product\/\d+\/basic/u, { timeout: 30_000 });
     if (!page.url().endsWith(`/${phase}`)) {
       await gotoWithRetry(page, page.url().replace(/\/basic$/, `/${phase}`));
     }
     await page.waitForTimeout(3_000);
+  }
+
+  /**
+   * 前置兜底：确保台账最新产品已选标准模板（cases.md 前置「依赖 OP-PFNC-003 或历史运行」）。
+   * 供 OP-PFNC-009/010 复用：先刷新恢复服务端选中态；仍无模板时按 cases.md 010 步骤1「若无则先按 OP-PFNC-003 选择」
+   * 执行兜底选择——该写入借用 OP-PFNC-003 契约，经台账 helper 只增不删记入本包台账并注解留痕。
+   */
+  async function ensureTemplateSelected(page: Page, latest: ProductRecord): Promise<void> {
+    if (await page.locator(".selected-template").isVisible().catch(() => false)) return;
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(3_000);
+    if (await page.locator(".selected-template").isVisible().catch(() => false)) return;
+
+    // 前置兜底：按 OP-PFNC-003 选择标准模板（先确保处于卡片栅格）。
+    const reselect = page.locator(".template-actions .template-detail");
+    if (await reselect.isVisible().catch(() => false)) {
+      await reselect.click();
+      await page.waitForTimeout(1_000);
+    }
+    const cards = page.locator(".template-card");
+    const stdCard = cards.nth(1);
+    const tplName = ((await stdCard.innerText()).replace(/\s+/g, " ").replace(/^标准\s*/, "")).trim();
+    await stdCard.click();
+    await expect(page.getByText("功能模板保存成功", { exact: true }).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".selected-template")).toBeVisible({ timeout: 20_000 });
+    const record: FuncTplRecord = {
+      runId: Date.now(),
+      productName: latest.productName,
+      productModel: latest.assignedProductModel ?? latest.productModel,
+      templateName: tplName,
+      templateBadge: "标准",
+      savedAt: new Date().toISOString(),
+    };
+    const { recordGeneratedProductFuncTpl } = await import("../../../../src/support/recordGeneratedData");
+    await recordGeneratedProductFuncTpl(record);
+    test.info().annotations.push({
+      type: "写入台账",
+      description: `前置兜底借用 OP-PFNC-003：为 ${latest.productName} 选择标准模板「${tplName}」，记入本包台账 runId=${record.runId}`
+    });
   }
 
   const pageMain = (page: Page) => page.locator("main");
@@ -200,13 +265,14 @@ test.describe("开放平台产品功能定义", () => {
   test.describe("模板与功能点", () => {
     test.use({ storageState: authStatePath });
 
-    // 覆盖 OP-PFNC-002：功能模板卡片区（no_write）。
-    test("OP-PFNC-002 功能模板卡片区", async ({ page }) => {
+    // 覆盖 OP-PFNC-002：功能模板卡片区（自定义优先）（no_write）。
+    test("OP-PFNC-002 功能模板卡片区（自定义优先）", async ({ page }) => {
       test.setTimeout(150_000);
       const records = await readCreateProductLedger();
       test.expect(records.length).toBeGreaterThan(0);
       const latest = records[records.length - 1];
       await gotoLatestPhase(page, latest, "function");
+      await skipIfTemplateLocked(page);
 
       // 若已选（历史运行），点重新选择进入卡片栅格（纯客户端状态）。
       const reselect = page.locator(".template-actions .template-detail");
@@ -232,22 +298,54 @@ test.describe("开放平台产品功能定义", () => {
       await attachShot(page, "模板卡片区");
     });
 
-    // 覆盖 OP-PFNC-003：选择标准模板自动生成功能点（写入台账）。
-    test("OP-PFNC-003 选择标准模板自动生成功能点", async ({ page }) => {
+    // 覆盖 OP-PFNC-008：已登录直达功能定义页（绕过产品列表入口）（no_write；cases.md 模块「页面结构」，与 001/002 同域，
+    // 放此复用本 describe 的 storageState 上下文与导航助手；声明顺序与 cases.md 快速索引一致）。
+    test("OP-PFNC-008 已登录直达功能定义页（绕过产品列表入口）", async ({ page }) => {
+      test.setTimeout(150_000);
+      const records = await readCreateProductLedger();
+      test.expect(records.length).toBeGreaterThan(0);
+      const latest = records[records.length - 1];
+
+      // 步骤 1：从产品列表进入台账最新产品开发页（先落 basic），记录 URL 中的产品数字 ID。
+      await gotoLatestPhase(page, latest, "basic");
+      const basicUrl = page.url();
+      expect(basicUrl, "开发页应落在基础配置阶段").toMatch(/\/integration\/product\/\d+\/basic/u);
+      const productId = basicUrl.match(/\/integration\/product\/(\d+)\/basic/u)?.[1] ?? "";
+      test.expect(productId, "应能从 URL 读取产品数字 ID").not.toBe("");
+      test.info().annotations.push({ type: "探索注解", description: `台账最新产品「${latest.productName}」产品数字 ID=${productId}` });
+
+      // 步骤 2：地址栏直达 /integration/product/{id}/function（不经产品列表与基础配置阶段），断言渲染正常且无重定向。
+      // URL 宽松匹配含 /function 段（路由 /integration/product/:id/function）；执行时若与实际不符会失败并留 trace 供注解。
+      await gotoWithRetry(page, `/integration/product/${productId}/function`);
+      await expect(page).toHaveURL(new RegExp(`/integration/product/${productId}/function`, "u"), { timeout: 20_000 });
+      await page.waitForTimeout(3_000);
+      await expect(page.url(), "直达后应停留功能定义页（无重定向回 /basic）").toContain("/function");
+      await expect(pageMain(page)).toContainText("选择产品功能模板");
+      await expect(pageMain(page)).toContainText("编辑产品功能");
+      await attachShot(page, "直达功能定义页");
+    });
+
+    // 覆盖 OP-PFNC-003：选择标准模板自动生成功能点（写入台账；组合设计 D01=未选模板首选 / D02=已选经「重新选择」重选，
+    // 两组合共用本幂等分支，体内按 D01/D02 步骤锚点注释）。
+    test("OP-PFNC-003 选择标准模板自动生成功能点（写入）", async ({ page }) => {
       test.setTimeout(240_000);
       const records = await readCreateProductLedger();
       test.expect(records.length).toBeGreaterThan(0);
       const latest = records[records.length - 1];
       await gotoLatestPhase(page, latest, "function");
+      await skipIfTemplateLocked(page);
 
-      // 幂等：若已选模板（历史运行），点重新选择回到卡片栅格（服务端随后会被重新选择覆盖写入）。
+      // D01/D02 幂等分支（cases.md 组合设计 direct_enumeration：模板类型×选择前状态过滤后 2 条有效组合）：
+      // D01=未选模板首选；D02=已选模板经「重新选择」重选（服务端覆盖写入，可逆幂等）。
+      // 若历史运行已选模板（D02 前态），先执行 D02·步骤1：点「重新选择」回卡片栅格（客户端清空选中态，服务端模板保留）；
+      // 未选（D01 前态）则直接进入 D01·步骤2。
       const reselect = page.locator(".template-actions .template-detail");
       if (await reselect.isVisible().catch(() => false)) {
         await reselect.click();
         await page.waitForTimeout(1_000);
       }
 
-      // 步骤 1：点击第一张标准模板卡片（探索实证：第 2 张，名为「灯带恒压驱动器」）。
+      // D01·步骤2 / D02·步骤2：点击第一张标准模板卡片（探索实证：第 2 张，名为「灯带恒压驱动器」；服务端覆盖写入）。
       const cards = page.locator(".template-card");
       const stdCard = cards.nth(1);
       const tplName = ((await stdCard.innerText()).replace(/\s+/g, " ").replace(/^标准\s*/, "")).trim();
@@ -256,7 +354,7 @@ test.describe("开放平台产品功能定义", () => {
       // toast 功能模板保存成功（瞬态，点击后立即等文本）。
       await expect(page.getByText("功能模板保存成功", { exact: true }).first()).toBeVisible({ timeout: 15_000 });
 
-      // 步骤 2：选中态 + 三个列表出现数据。
+      // D01·步骤3 / D02·步骤3：观察自动生成——选中态 + 三个功能列表出现数据（标准模板自动加入功能点）。
       await expect(page.locator(".selected-template")).toBeVisible({ timeout: 20_000 });
       await expect(page.locator(".template-actions .template-detail")).toBeVisible();
       await page.waitForTimeout(2_500);
@@ -347,12 +445,13 @@ test.describe("开放平台产品功能定义", () => {
     });
 
     // 覆盖 OP-PFNC-006：删除一个功能点（写入台账）。
-    test("OP-PFNC-006 删除一个功能点", async ({ page }) => {
+    test("OP-PFNC-006 删除一个功能点（写入）", async ({ page }) => {
       test.setTimeout(240_000);
       const records = await readCreateProductLedger();
       test.expect(records.length).toBeGreaterThan(0);
       const latest = records[records.length - 1];
       await gotoLatestPhase(page, latest, "function");
+      await skipIfTemplateLocked(page);
       if (!(await page.locator(".selected-template").isVisible().catch(() => false))) {
         await page.reload({ waitUntil: "domcontentloaded" });
         await page.waitForTimeout(3_000);
@@ -407,6 +506,60 @@ test.describe("开放平台产品功能定义", () => {
       });
     });
 
+    // 覆盖 OP-PFNC-009：删除确认弹窗「取消」不删除（no_write；cases.md 对象矩阵「删除动作×取消触发」行；
+    // 源码 FuncActionList/FuncEventList：取消走 catch("cancel") 分支，不调 deleteProductFunction、无成功 toast；
+    // 前置同 004~006「依赖 OP-PFNC-003 或历史运行」，无模板时经 ensureTemplateSelected 按 003 兜底）。
+    test("OP-PFNC-009 删除确认弹窗「取消」不删除", async ({ page }) => {
+      test.setTimeout(180_000);
+      const records = await readCreateProductLedger();
+      test.expect(records.length).toBeGreaterThan(0);
+      const latest = records[records.length - 1];
+      await gotoLatestPhase(page, latest, "function");
+      await skipIfTemplateLocked(page);
+      await ensureTemplateSelected(page, latest);
+
+      // 步骤 1：找带「删除」链接的功能点行（non-Required；必选行无删除入口）并点击 → 「删除确认」弹窗。
+      const propList = page.locator(".func-property-list").first();
+      const rows = propList.locator(".ep-table__body:visible tbody tr");
+      await rows.first().waitFor({ state: "visible", timeout: 20_000 });
+      const rowCountBefore = await rows.count();
+      let targetRow = null;
+      let targetName = "";
+      for (let i = 0; i < rowCountBefore; i += 1) {
+        const r = rows.nth(i);
+        if (await r.getByText("删除", { exact: true }).isVisible().catch(() => false)) {
+          targetRow = r;
+          targetName = (await r.innerText()).split("\n")[0];
+          break;
+        }
+      }
+      test.expect(targetRow, "应存在可删除（非必选）的功能点行").toBeTruthy();
+      test.info().annotations.push({ type: "探索注解", description: `取消删除目标功能点：「${targetName}」（当前属性列表行数 ${rowCountBefore}）` });
+      await targetRow!.getByText("删除", { exact: true }).click();
+      const confirmDlg = page.locator(".ep-message-box:visible").last();
+      await confirmDlg.waitFor({ state: "visible", timeout: 15_000 });
+      // 弹窗文案为语义断言（cases.md：实际文案注解记录；不以文案精确匹配为通过条件，被引用时预检返回警告文案，注解兜底）。
+      const confirmText = (await confirmDlg.innerText()).replace(/\s+/g, " ");
+      test.expect(confirmText).toContain("删除");
+      test.info().annotations.push({ type: "探索注解", description: `删除确认弹窗文案（实证）：${confirmText.slice(0, 120)}` });
+      await attachShot(page, "删除确认弹窗取消前");
+
+      // 步骤 2：点「取消」→ 弹窗关闭、该行仍在（行数不变）、无「功能已删除」类 toast（无删除写入）。
+      await confirmDlg.getByRole("button", { name: "取消", exact: true }).click();
+      await expect(confirmDlg).toBeHidden({ timeout: 10_000 });
+      await expect(page.getByText("功能已删除", { exact: false })).toHaveCount(0);
+      await page.waitForTimeout(2_000);
+      const rowCountAfter = await rows.count();
+      expect(rowCountAfter, "「取消」后属性列表行数不变（无删除写入）").toBe(rowCountBefore);
+      await expect(targetRow!).toBeVisible();
+      await attachShot(page, "删除取消后列表");
+    });
+  });
+
+  // cases.md 模块「守卫与导航」（007/010/011）；声明顺序与快速索引一致。
+  test.describe("守卫与导航", () => {
+    test.use({ storageState: authStatePath });
+
     // 覆盖 OP-PFNC-007：未选模板切换页面守卫（no_write，纯客户端状态）。
     test("OP-PFNC-007 未选模板切换页面守卫", async ({ page }) => {
       test.setTimeout(180_000);
@@ -414,6 +567,7 @@ test.describe("开放平台产品功能定义", () => {
       test.expect(records.length).toBeGreaterThan(0);
       const latest = records[records.length - 1];
       await gotoLatestPhase(page, latest, "function");
+      await skipIfTemplateLocked(page);
       if (!(await page.locator(".selected-template").isVisible().catch(() => false))) {
         await page.reload({ waitUntil: "domcontentloaded" });
         await page.waitForTimeout(3_000);
@@ -440,6 +594,64 @@ test.describe("开放平台产品功能定义", () => {
       await page.waitForTimeout(1_000);
       await expect(guardText).toBeHidden();
       await expect(page.url()).toContain("/function");
+    });
+
+    // 覆盖 OP-PFNC-010：已选模板「下一步」进入交互配置页（no_write 导航；cases.md 对象矩阵「下一步正向跳转」行）。
+    // 源码注解（ProductIntegration.vue handleNextStep）：存在「TODO: 删除跳过交互配置逻辑」，当前实现从 /function
+    // 点「下一步」实际落点为 /develop（设备开发，跳过交互配置段 /interactive）。cases.md 断言为「URL 不再以 /function
+    // 结尾（预期含 interaction 语义，实际路径注解记录）」，故落点 URL 宽松匹配 develop|interactive 路由段、实际落点注解留痕；
+    // saveStage 会以相同模板 id 幂等覆盖保存（无新增数据，台账不新增记录）。
+    test("OP-PFNC-010 已选模板「下一步」进入交互配置页", async ({ page }) => {
+      test.setTimeout(180_000);
+      const records = await readCreateProductLedger();
+      test.expect(records.length).toBeGreaterThan(0);
+      const latest = records[records.length - 1];
+      await gotoLatestPhase(page, latest, "function");
+      await skipIfTemplateLocked(page);
+
+      // 步骤 1：确认已选模板（选中卡片与「重新选择」可见；若无则先按 OP-PFNC-003 选择）。
+      await ensureTemplateSelected(page, latest);
+      await expect(page.locator(".template-actions .template-detail")).toBeVisible();
+
+      // 步骤 2：点页脚「下一步」→ 无守卫弹窗，离开 /function 进入下一阶段（交互配置）页。
+      await page.getByRole("button", { name: "下一步", exact: true }).click();
+      const guardText = page.getByText(/您还没有选择功能点/u).first();
+      await expect(guardText, "已选模板不应触发切换守卫").toBeHidden({ timeout: 10_000 });
+      await page.waitForURL(/\/integration\/product\/\d+\/(develop|interactive)/u, { timeout: 30_000 });
+      test.expect(page.url(), "应离开功能定义页").not.toContain("/function");
+      test.info().annotations.push({
+        type: "探索注解",
+        description: `「下一步」落点实证：${page.url()}（交互配置段为 /interactive；当前源码跳过交互配置 → /develop）`
+      });
+      await expect(pageMain(page)).toBeVisible();
+      await attachShot(page, "下一步落点页");
+    });
+
+    // 覆盖 OP-PFNC-011：页脚「上一步」返回基础配置页（no_write；cases.md 对象矩阵「上一步反向跳转」行；
+    // 同 010：saveStage 会以相同模板 id 幂等覆盖保存，无新增数据）。
+    test("OP-PFNC-011 页脚「上一步」返回基础配置页", async ({ page }) => {
+      test.setTimeout(180_000);
+      const records = await readCreateProductLedger();
+      test.expect(records.length).toBeGreaterThan(0);
+      const latest = records[records.length - 1];
+      await gotoLatestPhase(page, latest, "function");
+      await expect(page.url()).toContain("/function");
+
+      // 步骤 1：点页脚「上一步」（function 为第 2 阶段，页脚有上一步）。若客户端模板选中态缺失（历史未选），
+      // saveStage 守卫弹窗出现时按「切换页面」继续（无写入；与 007 实证的「留在页面」分支互为补充）。
+      await page.getByRole("button", { name: "上一步", exact: true }).click();
+      await page.waitForTimeout(1_500);
+      const guardText = page.getByText(/您还没有选择功能点/u).first();
+      if (await guardText.isVisible().catch(() => false)) {
+        test.info().annotations.push({ type: "探索注解", description: "客户端模板选中态缺失触发 saveStage 守卫，按「切换页面」继续返回基础配置页（不产生写入）" });
+        await page.getByRole("button", { name: "切换页面", exact: true }).click();
+      }
+      await page.waitForURL(/\/integration\/product\/\d+\/basic/u, { timeout: 30_000 });
+      await page.waitForTimeout(2_000);
+      await expect(page.url()).toContain("/basic");
+      await expect(pageMain(page)).toBeVisible();
+      await expect(page.getByText(latest.productName, { exact: true }).first()).toBeVisible();
+      await attachShot(page, "上一步返回基础配置页");
     });
   });
 });

@@ -7,20 +7,114 @@
       "name": "可达性与主流程",
       "objects": [
         {
-          "id": "c01-existing-cases",
-          "name": "可达性与主流程（现有用例基线）",
+          "id": "c01-enter-from-list",
+          "name": "①入口进入×正向：从产品列表「继续开发」进入台账最新产品（当前 at0672）功能定义页",
           "evidence": [
-            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「功能定义」章节）、前端源码 `web-open-platform/src/pages/integration/product/ProductPhaseFunction.vue`、`components/IptModuleSelect.vue`、`components/function/FuncPropertyList.vue`（事件/动作列表同构）、`src/support/recordGeneratedData.ts`、`experience/general.md`、`experience/open-platform.md`；查重比对 product-basic 包（阶段容器、下一步守卫已覆盖）。"
+            "需求文档「功能定义」章节（前提条件：已创建产品、完成基础配置）；前端源码 ProductPhaseFunction.vue（阶段路由 /function）；2026-09-03 执行实证（conclusion.md：gotoLatestPhase 列表行进入）。",
+            "create-product 台账 testpacks/web/open-platform/create-product/runtime/generated-data.json 最新记录：自动化测试产品1789026290672 / at0672 / model at0635.light.at0672（2026-09-10 创建，用户指令：不创建产品，编辑该既有产品）。"
           ],
           "disposition": "covered",
-          "caseIds": [
-            "OP-PFNC-001",
-            "OP-PFNC-004",
-            "OP-PFNC-007"
-          ],
+          "caseIds": ["OP-PFNC-001"],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单一入口导航对象，无参数交叉影响。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-direct-url-access",
+          "name": "①绕过入口直达×正向：已登录直达 /integration/product/{id}/function（不经产品列表与基础配置阶段）",
+          "evidence": [
+            "前端源码 ProductPhaseFunction.vue（阶段页独立路由，可直达）；对象矩阵核对（2026-09-11）：直达路径不出现在任何页面操作序列中，须单独成行（同 create-product 包 OP-PROD-003 步骤4 模式）。",
+            "spec 实现锚点：gotoLatestPhase 以 URL 重写 /basic→/function 直达（2026-09-03 实证可行）。"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PFNC-008"],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一直达导航对象，无参数交叉影响。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-unauthed-access",
+          "name": "①绕过入口直达×负向：未登录直达功能定义页",
+          "evidence": [
+            "前端源码 permission.ts（路由守卫，未登录重定向登录页）；查重：create-product 包 OP-PROD-001 已覆盖未登录访问 /integration/product/management 与 /create 重定向登录页，跨包不重复设计。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "登录守卫为全站路由级能力，已由 create-product 包 OP-PROD-001 覆盖（查重跨包去重）；本包只做已登录编辑链路。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-template-select-mainpath",
+          "name": "①选择功能模板主路径：模板类型 × 选择前状态（组合对象）",
+          "evidence": [
+            "需求文档「功能定义」章节（产品功能模板：结合通讯方式/品类/设备类型显示；选择模板即确定必选功能）；前端源码 IptModuleSelect.vue（自定义 badge 卡片排第一、标准卡片在后，选中态+重新选择）。",
+            "2026-09-03 执行实证（conclusion.md）：选择标准模板「灯带恒压驱动器」→ toast「功能模板保存成功」→ 三列表有数据；幂等重跑（重新选择后再选）同样通过。",
+            "对象矩阵核对（2026-09-11）：模板类型（标准/自定义）× 选择前状态（未选/已选）存在交互（已选态才出现「重新选择」链路），按组合触发判定走 direct_enumeration。"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PFNC-003"],
+          "combinationDesign": {
+            "strategy": "direct_enumeration",
+            "rationale": "2 个参数（模板类型×选择前状态），全组合 4 条，业务约束过滤后 2 条（≤12），逐条映射 D01/D02。",
+            "validCombinationCount": 2,
+            "parameters": [
+              {
+                "name": "模板类型",
+                "values": ["标准模板", "自定义模板"],
+                "evidence": "需求文档「功能定义」章节（模板内含必选/非必选功能；自定义功能为 P2）；源码 IptModuleSelect.vue（自定义 code=custom 卡片与标准卡片）。"
+              },
+              {
+                "name": "选择前状态",
+                "values": ["未选模板", "已选其他模板"],
+                "evidence": "源码 ProductPhaseFunction.vue/IptModuleSelect.vue（未选态 el-empty，已选态显示选中卡片+重新选择链接）；2026-09-03 首跑+幂等重跑实证。"
+              }
+            ],
+            "constraints": [
+              "自定义模板全流程范围外（含 code=custom 选择链路与自建功能点，覆盖成本高，见 cases.md 范围外声明），本轮仅枚举标准模板；故 有效组合=标准模板×未选（D01）+ 标准模板×已选（D02）=2 条"
+            ]
+          }
+        },
+        {
+          "id": "c01-template-cards",
+          "name": "①模板卡片区展示（自定义优先的纯展示对象）",
+          "evidence": [
+            "前端源码 IptModuleSelect.vue（卡片栅格、badge、图片）；2026-09-03 实证（conclusion.md）：7 张卡片（自定义功能排第一 + 6 标准模板）。"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PFNC-002"],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "纯展示对象，无参数交叉影响。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-empty-state",
+          "name": "①未选模板编辑区空态与顶部提示区",
+          "evidence": [
+            "前端源码 ProductPhaseFunction.vue（未选模板 el-empty「请选择产品功能模板」；顶部提示「设备开发和高级配置都与产品功能定义有关」+「点我查看」新窗口）。",
+            "本包台账无 at0672 模板选择记录（2026-09-11 核对），空态预期大概率成立；已选态按既有约定转注解。"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PFNC-001"],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单状态展示对象，无参数交叉影响。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -33,16 +127,49 @@
       "name": "字段与输入规则",
       "objects": [
         {
-          "id": "c02-not-applicable",
-          "name": "字段与输入规则（当前包无独立对象）",
+          "id": "c02-page-input-fields",
+          "name": "②功能定义页可编辑输入字段盘点（表单×字段）",
           "evidence": [
-            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「功能定义」章节）、前端源码 `web-open-platform/src/pages/integration/product/ProductPhaseFunction.vue`、`components/IptModuleSelect.vue`、`components/function/FuncPropertyList.vue`（事件/动作列表同构）、`src/support/recordGeneratedData.ts`、`experience/general.md`、`experience/open-platform.md`；查重比对 product-basic 包（阶段容器、下一步守卫已覆盖）。"
+            "前端源码 ProductPhaseFunction.vue + FuncPropertyList.vue（编辑区为模板卡片+三个只读列表，列头 操作=详情+删除，无编辑入口）；需求文档「功能定义」章节的「编辑功能」弹窗（属性名 20 字符、标识符字符集等）未在本页实现。",
+            "对象矩阵核对（2026-09-11）：本页无文本输入表单，字段取值类对象整体无 UI 正路径。"
           ],
           "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "reason": "页面实证无可编辑输入字段：功能点编辑弹窗未实现（操作列仅 详情+删除），需求与实现差异已记录在 conclusion.md；如后续实现编辑链路须另立用例。",
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "范围外对象，无参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-batch-add-dialog-fields",
+          "name": "②「添加属性/事件/方法」批量添加弹窗字段校验（模板内非必选功能点多选）",
+          "evidence": [
+            "需求文档「功能定义」章节（添加属性功能弹窗：只显示模板内非必选功能点，支持多选）；既有 cases.md 范围外声明（留待后续增强）。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "弹窗内部多选与字段校验覆盖成本高且历史轮已显式声明范围外；本轮对象矩阵核对维持该结论，如需覆盖另立用例。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-custom-func-fields",
+          "name": "②「自定义属性」自建功能点表单字段（自定义模板链路）",
+          "evidence": [
+            "需求文档「功能定义」章节（自定义功能 P2：仅模组+sdk/开放协议/云云接入可自定义）；源码 ProductPhaseFunction.vue（code=custom 隐藏批量添加按钮、保留「自定义属性」）；既有范围外声明。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "自定义模板全流程范围外（选择 code=custom 后逐个自建功能点的创建弹窗链路覆盖成本高，既有声明继续有效）；本轮仅覆盖标准模板。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -55,16 +182,33 @@
       "name": "唯一性与重复操作",
       "objects": [
         {
-          "id": "c03-not-applicable",
-          "name": "唯一性与重复操作（当前包无独立对象）",
+          "id": "c03-reselect-template",
+          "name": "③可重复动作=选择功能模板，触发方式=已选状态下经「重新选择」再次选择（覆盖写入幂等）",
           "evidence": [
-            "cases.md：上下文结论与范围外声明"
+            "2026-09-03 执行实证（conclusion.md）：幂等设计——003 重跑时先点「重新选择」回栅格再重选标准模板（服务端覆盖写入，可逆），台账模板选择×2（首跑+幂等重跑）。",
+            "对象矩阵核对（2026-09-11）：该触发方式原折叠在 003 幂等前置中未显式成行，本轮显式列出并由 OP-PFNC-003 的 D02 数据行覆盖。"
           ],
-          "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "disposition": "covered",
+          "caseIds": ["OP-PFNC-003"],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单一动作的重复触发核对（已由 c01-template-select-mainpath 的 D02 组合承载），无额外参数交叉。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c03-repeat-click",
+          "name": "③可重复动作=模板卡片点击/删除按钮，触发方式=快速连点（防重复提交）",
+          "evidence": [
+            "前端源码 ProductPhaseFunction.vue/IptModuleSelect.vue（未发现按钮 loading/防重复实现证据）；对象矩阵核对（2026-09-11）：按实现事实核对触发方式后无稳定可断言预期。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "源码无防重复实现证据，写入按钮连点的预期终态无实证（可能产生重复覆盖写入），构造与断言成本高且风险高；如需覆盖先探索确认实现再另立用例。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -77,19 +221,80 @@
       "name": "成功、异常与边界",
       "objects": [
         {
-          "id": "c04-existing-cases",
-          "name": "成功、异常与边界（现有用例基线）",
+          "id": "c04-template-select-success",
+          "name": "④成功：标准模板选择成功（toast+必选/可选功能点自动加入三列表）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "2026-09-03 执行实证（conclusion.md）：toast「功能模板保存成功」；属性（断电勿扰/色温/开关/亮度…）、事件、动作三列表均有数据；标准模板自动加入全部可选功能点并刷新列表。"
           ],
           "disposition": "covered",
-          "caseIds": [
-            "OP-PFNC-001",
-            "OP-PFNC-003"
-          ],
+          "caseIds": ["OP-PFNC-003"],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单场景成功路径，无参数交叉影响。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-delete-success",
+          "name": "④成功：删除非必选功能点（预检→确认→toast→行消失）",
+          "evidence": [
+            "需求文档「功能定义」章节（非必选功能支持删除）；2026-09-03 实证（conclusion.md）：预检 queryProductFunctionUsageInfo →「删除确认」ElMessageBox → toast「功能已删除，请及时保存更改。」，删除即时生效。"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PFNC-006"],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单场景成功路径，无参数交叉影响。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-delete-cancel",
+          "name": "④异常/负向：删除确认弹窗「取消」（中断删除，列表不变）",
+          "evidence": [
+            "源码 ProductPhaseFunction.vue/FuncPropertyList.vue（删除走 ElMessageBox 确认/取消双按钮）；对象矩阵核对（2026-09-11）：原用例集只覆盖「确定」分支，「取消」分支单独成行补用例。"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PFNC-009"],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单场景负向分支，无参数交叉影响。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-delete-referenced",
+          "name": "④异常：功能点被引用时的删除预检警告分支",
+          "evidence": [
+            "源码删除链路前置预检 queryProductFunctionUsageInfo（被引用时显示引用警告而非默认确认文案）；既有 006 步骤1 已含「若被引用则显示引用警告文案，注解」兜底。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "构造「功能点被引用」前置需交互配置/场景联动等跨模块写入，超出本包边界；OP-PFNC-006 以注解记录实际弹窗文案兜底，分支级用例如需覆盖另立场景。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-guard-no-template",
+          "name": "④异常：未选模板时点击「下一步」被守卫拦截",
+          "evidence": [
+            "源码 saveStage 守卫（弹「您还没有选择功能点，确定要切换页面吗？」，句尾双句号为源码原样）；2026-09-03 实证一致。"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PFNC-007"],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单场景异常分支，无参数交叉影响。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -102,16 +307,96 @@
       "name": "权限、状态与导航",
       "objects": [
         {
-          "id": "c05-not-applicable",
-          "name": "权限、状态与导航（当前包无独立对象）",
+          "id": "c05-footer-prev",
+          "name": "⑤页脚「上一步」跳转：功能定义页→基础配置页",
           "evidence": [
-            "cases.md：上下文结论与范围外声明"
+            "2026-09-03 实证（conclusion.md）：function 页页脚为 上一步/下一步/取消（无保存按钮）；对象矩阵核对（2026-09-11）：入口互跳原未成行，补用例。"
           ],
-          "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "disposition": "covered",
+          "caseIds": ["OP-PFNC-011"],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单一跳转对象，无参数交叉影响。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-footer-next-selected",
+          "name": "⑤页脚「下一步」正向跳转：已选模板→交互配置页",
+          "evidence": [
+            "需求文档「产品开发流程」（基础配置—功能定义—交互配置—…）与「功能定义完成」判定（选择了功能模板即完成该模块）；2026-09-03 实证页脚下一步按钮存在；对象矩阵核对（2026-09-11）：正向跳转原未成行，补用例。"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PFNC-010"],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一跳转对象，无参数交叉影响。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-footer-next-guard",
+          "name": "⑤页脚「下一步」守卫分支：未选模板→留在页面",
+          "evidence": [
+            "源码 saveStage 守卫双按钮（留在页面/切换页面）；2026-09-03 实证「留在页面」关闭弹窗仍在本页。"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PFNC-007"],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一守卫分支对象，无参数交叉影响。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-guard-switch-branch",
+          "name": "⑤页脚「下一步」守卫分支：未选模板→「切换页面」强制跳转",
+          "evidence": [
+            "源码 saveStage 守卫提供「切换页面」按钮；该分支跳转终点页面行为无实证。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "跳转终点页面行为无实证（待探索确认），且无模板状态强跳可能产生脏流程状态；待确认：跳转终点与终态页面行为，探索后另立用例。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-function-status",
+          "name": "⑤功能定义状态与版本标识（版本1—开发中；审核中/已上线流转）",
+          "evidence": [
+            "需求文档「功能定义」章节（功能版本：版本1—开发中；申请测试上线后状态自动流转审核中→已上线）；页面实证（conclusion.md）未记录该标识的渲染位置。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "状态流转需申请产品/固件测试上线触发（跨模块、影响产品生命周期，硬边界禁止高风险动作）；「版本1—开发中」标识渲染位置无页面实证，待确认：标识是否渲染及位置。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-iteration-version",
+          "name": "⑤功能迭代「新建版本」（需求 P2：版本2—开发中自动复制原版本）",
+          "evidence": [
+            "需求文档「功能定义」章节（功能迭代 P2：功能定义上线后可新建版本）。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "前置需功能定义已上线，台账最新产品 at0672 生命周期为开发中，前置条件在本轮数据链路内不可满足；待功能定义上线链路覆盖后另立用例。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -124,16 +409,33 @@
       "name": "验证码、登录态与特殊能力",
       "objects": [
         {
-          "id": "c06-not-applicable",
-          "name": "验证码、登录态与特殊能力（当前包无独立对象）",
+          "id": "c06-login-state",
+          "name": "⑥登录态获取/复用/失效重建（编辑链路前置）",
           "evidence": [
-            "cases.md：上下文结论与范围外声明"
+            "查重：login-register 包已覆盖短信登录、图形验证码人工点选与登录态建立（OP-AUTH-002/017 等）；本包 spec 已实现 restoreSession 复用多包 auth-state.json + 短信登录兜底（2026-09-03 实证）。",
+            "SKILL「跨包登录态复用」模式：登录功能已覆盖时其他包不重复设计登录用例，运行时复用 runtime/auth-state.json。"
           ],
           "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "reason": "登录链路整体由 login-register 包覆盖（跨包查重），本包按跨包登录态复用模式读取 runtime/auth-state.json（仅本地，不入 Git），失效时按该包用例重建登录态。",
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "范围外对象（跨包已覆盖），无参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c06-captcha",
+          "name": "⑥图形验证码人工点选（登录/发短信时强制弹出）",
+          "evidence": [
+            "experience/open-platform.md（获取验证码与密码登录强制点选文字图形验证码 tacVerify，前端无测试旁路）；查重同上，由 login-register 包覆盖。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "验证码交互属登录链路，由 login-register 包覆盖；本包仅在复用登录态失效需要重建时被动经历，不单独设计。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（跨包已覆盖），无参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -146,26 +448,70 @@
       "name": "数据写入与后续处理",
       "objects": [
         {
-          "id": "c07-existing-cases",
-          "name": "数据写入与后续处理（现有用例基线）",
+          "id": "c07-template-select-write",
+          "name": "⑦写入：选择标准模板（updateProductConfig 保存模板+必选/可选功能点自动加入；台账 kind=open-platform-product-func-tpl）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "2026-09-03 实证（conclusion.md）：选择模板即写入，toast「功能模板保存成功」，台账追加模板选择记录（只增不删）；src/support/recordGeneratedData.ts 为唯一写入通道。",
+            "写入对象为台账最新产品（当前 at0672，用户指令：不创建产品、编辑既有产品；服务端覆盖写入可逆）。"
           ],
           "disposition": "covered",
-          "caseIds": [
-            "OP-PFNC-003",
-            "OP-PFNC-006"
-          ],
+          "caseIds": ["OP-PFNC-003"],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单一写入动作（组合维度已由 c01-template-select-mainpath 承载），无额外参数交叉。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": [],
-            "manualSupplementCaseIds": [
-              "OP-PFNC-003",
-              "OP-PFNC-006"
-            ]
+            "manualSupplementCaseIds": ["OP-PFNC-003"]
+          }
+        },
+        {
+          "id": "c07-delete-write",
+          "name": "⑦写入（不可逆）：删除非必选功能点（deleteProductFunction；台账 kind=open-platform-product-func-delete）",
+          "evidence": [
+            "2026-09-03 实证（conclusion.md）：删除即时生效（无二次保存步骤），台账追加删除记录（只增不删）；删除对象仅限台账最新产品的标准模板功能点（重新选择模板可恢复）。"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PFNC-006"],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一写入动作，无参数交叉影响。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": ["OP-PFNC-006"]
+          }
+        },
+        {
+          "id": "c07-custom-template-write",
+          "name": "⑦写入：选择自定义模板（code=custom）",
+          "evidence": [
+            "源码 IptModuleSelect.vue/ProductPhaseFunction.vue（自定义模板卡片存在且可选，选择即写入）；既有范围外声明（自定义模板全流程）。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "自定义模板全流程（含选择写入与自建功能点）范围外，覆盖成本高（既有声明继续有效）；本轮写入仅覆盖标准模板链路。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c07-required-func-delete",
+          "name": "⑦写入：删除必选功能点（需求：必选功能不可删除）",
+          "evidence": [
+            "需求文档「功能定义」章节（必选功能：选择模板后确定，不可删除）；2026-09-03 实证：仅 non-Required 行有删除链接，必选行无删除入口。"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "UI 无删除入口（需求约束与实现一致），无正路径可测；接口级绕过属跨层测试范围外。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
           }
         }
       ]

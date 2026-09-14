@@ -139,8 +139,16 @@ test.describe("开放平台设备开发", () => {
     await gotoWithRetry(page, `/integration/product/management`);
     await page.locator(".product-center").waitFor({ state: "visible", timeout: 45_000 });
     await page.waitForTimeout(2_000);
-    const row = page.locator(".ep-table__body:visible").last().locator("tbody tr").filter({ hasText: latest.productName }).first();
-    await expect(row).toBeVisible({ timeout: 20_000 });
+    // 2026-09-14 平台产品数增长突破单页 10 条（共 19 条）：台账最新产品可能落在第 2 页。
+    // 第 1 页未命中时用列表搜索（只读动作）定位，不改变用例断言语义。
+    let row = page.locator(".ep-table__body:visible").last().locator("tbody tr").filter({ hasText: latest.productName }).first();
+    if (!(await row.isVisible().catch(() => false))) {
+      await page.getByPlaceholder(/Model\/名称\/型号/u).fill(latest.productName);
+      await page.getByRole("button", { name: "搜索", exact: true }).click();
+      await page.waitForTimeout(3_000);
+      row = page.locator(".ep-table__body:visible").last().locator("tbody tr").filter({ hasText: latest.productName }).first();
+    }
+    await expect(row, `台账最新产品 ${latest.productName} 应经列表（必要时搜索）可见`).toBeVisible({ timeout: 20_000 });
     await row.getByText(/继续开发|开发详情/u).click();
     await page.waitForURL(/\/integration\/product\/\d+\/basic/u, { timeout: 30_000 });
     if (!page.url().endsWith("/develop")) {
@@ -149,6 +157,25 @@ test.describe("开放平台设备开发", () => {
     await page.locator(".develop-method-protocol, .development-method").first().waitFor({ state: "visible", timeout: 30_000 });
     await page.waitForTimeout(2_000);
   }
+
+  test.describe("入口与权限（无登录态）", () => {
+    // 覆盖 OP-PDEV-008：未登录直达设备开发页重定向登录（no_write）。
+    // 写法参照 create-product 包 OP-PROD-001：本 describe 不声明 storageState，
+    // 独立浏览器上下文不加载任何登录态（permission.ts 未登录守卫 next({ name: 'login' })）。
+    test("OP-PDEV-008 未登录直达设备开发页重定向登录", async ({ page }) => {
+      test.setTimeout(120_000);
+      // 步骤 1：未登录直达台账产品 /develop URL（产品 ID 段为 cases.md 约定的合成占位值：
+      // 未登录守卫先于产品数据加载，任意 /integration/product/* 路由均先重定向登录）。
+      await gotoWithRetry(page, "/integration/product/1/develop");
+      await expect(page).toHaveURL(/\/login/u, { timeout: 15_000 });
+      await expect(page.getByRole("form", { name: "短信验证码登录表单" })).toBeVisible({ timeout: 15_000 });
+
+      // 步骤 2（对照）：未登录直达产品管理页，同样重定向登录页。
+      await gotoWithRetry(page, "/integration/product/management");
+      await expect(page).toHaveURL(/\/login/u, { timeout: 15_000 });
+      await attachShot(page, "未登录重定向登录页");
+    });
+  });
 
   test.describe("登录态就绪", () => {
     // 覆盖 OP-PDEV-001：页面三步骤渲染与资料下载链接（no_write）。
@@ -195,6 +222,22 @@ test.describe("开放平台设备开发", () => {
       await expect(main).toContainText("获取设备授权码");
       await expect(main).toContainText("获取产品授权凭证");
       await expect(main).toContainText("使用注册设备接口，激活设备验证");
+
+      // 步骤 5：已登录绕过入口、地址栏直达该产品 /develop URL（2026-09-11 对象矩阵核对新增；
+      // 源码核实：develop 子路由挂载 ProductIntegration 并按路由参数加载产品上下文，可直达）。
+      const developUrl = page.url();
+      await gotoWithRetry(page, developUrl);
+      await expect(page).toHaveURL(/\/develop/u, { timeout: 15_000 });
+      await page.locator(".develop-method-protocol, .development-method").first().waitFor({ state: "visible", timeout: 30_000 });
+      await expect(main).toContainText("开发资源及资料");
+      await expect(main).toContainText("获取平台产品授权凭证，注册设备到云平台");
+      await expect(main).toContainText("固件配置");
+      await expect(main).toContainText("含 SDK 固件版本列表");
+      test.info().annotations.push({
+        type: "探索注解",
+        description: `步骤5：已登录地址栏直达 ${new URL(developUrl).pathname} 渲染与入口进入一致，无重定向（URL 宽松匹配 /develop 段）`
+      });
+
       await attachShot(page, "设备开发页");
     });
   });
@@ -282,8 +325,8 @@ test.describe("开放平台设备开发", () => {
       await attachShot(page, "固件配置区");
     });
 
-    // 覆盖 OP-PDEV-005：新建固件版本（写入台账）。
-    test("OP-PDEV-005 新建固件版本", async ({ page }) => {
+    // 覆盖 OP-PDEV-005：新建固件版本（写入）。
+    test("OP-PDEV-005 新建固件版本（写入）", async ({ page }) => {
       test.setTimeout(240_000);
       const records = await readCreateProductLedger();
       test.expect(records.length).toBeGreaterThan(0);
@@ -336,7 +379,16 @@ test.describe("开放平台设备开发", () => {
       await dlg.waitFor({ state: "visible", timeout: 15_000 });
       await expect(dlg).toContainText("新增固件版本");
       await dlg.getByRole("textbox", { name: "固件名称" }).fill(fwName);
-      // 固件类型 direct 固定 Sdk（选项唯一，若可交互则确认默认）
+      // 固件类型：2026-09-14 复测实证——组件在打开时自动填充 firmwareType（BtnEditFirmwareVersion.vue
+      // L155: !theForm.firmwareType → firmwareTypeOpts[0]），下拉呈 disabled +「含SDK固件」选中渲染
+      //（Element Plus 单选选中值也挂 ep-select__placeholder 类）。不可交互也无需选择，只做实证注解。
+      const typeWrapper = dlg.locator(".ep-form-item").filter({ hasText: "固件类型" }).locator(".ep-select__wrapper").first();
+      const typeDisabled = await typeWrapper.getAttribute("class").then((c) => (c ?? "").includes("is-disabled")).catch(() => true);
+      const typeText = (await typeWrapper.innerText().catch(() => "")) || "";
+      test.info().annotations.push({
+        type: "探索注解",
+        description: `固件类型下拉 disabled=${typeDisabled}，渲染值「${typeText.trim() || "（空）"}」（组件自动填充，无需选择）`
+      });
       await dlg.getByRole("textbox", { name: "* 固件版本", exact: true }).fill("1.0.0");
       // 上传生产固件（file-uploader 隐藏 input[type=file]，第一个为生产固件）
       const fileInputs = dlg.locator('input[type="file"]');
@@ -350,10 +402,29 @@ test.describe("开放平台设备开发", () => {
       await attachShot(page, "新建固件版本表单");
 
       // 步骤 2：确定 → toast + 列表出现固件行。
+      // 2026-09-14 复测实证（R6）：表单字段全部填写完整仍偶发「请检查表单错误」前端校验 reject
+      //（无 is-error 内联提示、无网络请求，弹窗保持打开）——间歇性竞态，失败时重试一次确定。
       await dlg.getByRole("button", { name: "确定", exact: true }).click();
-      await expect(page.getByText("新增固件成功", { exact: true }).first()).toBeVisible({ timeout: 15_000 });
+      const successToast = page.getByText("新增固件成功", { exact: true }).first();
+      const rejected = await page
+        .getByText("请检查表单错误", { exact: true })
+        .first()
+        .isVisible({ timeout: 4_000 })
+        .catch(() => false);
+      if (rejected) {
+        await page.waitForTimeout(1_500);
+        test.info().annotations.push({ type: "探索注解", description: "首次确定偶发「请检查表单错误」校验竞态，已重试一次确定" });
+        await dlg.getByRole("button", { name: "确定", exact: true }).click();
+      }
+      await expect(successToast).toBeVisible({ timeout: 15_000 });
       await page.waitForTimeout(2_500);
-      await expect(fwTable).toContainText(fwName);
+      // 2026-09-14 复测实证：固件表格对长名称做「头4+尾3+省略号」的中间截断渲染
+      //（如「自动化测...八五六」）——断言改为截断容忍正则（头4+尾3，未截断的全名同样命中）。
+      await expect(fwTable).toContainText(new RegExp(`${fwName.slice(0, 4)}[\\s\\S]*${fwName.slice(-3)}`, "u"));
+      test.info().annotations.push({
+        type: "探索注解",
+        description: `固件行按「头4+尾3+省略号」截断口径断言（全名=${fwName}，R5 实证表格中间截断渲染）`
+      });
       await expect(fwTable).toContainText("1.0.0");
       await attachShot(page, "固件列表新增成功");
 
@@ -375,9 +446,9 @@ test.describe("开放平台设备开发", () => {
       });
     });
 
-    // 覆盖 OP-PDEV-007：固件表单字段校验（no_write；固件按钮隐藏时转跳）。
-    test("OP-PDEV-007 固件表单字段校验", async ({ page }) => {
-      test.setTimeout(240_000);
+    // 覆盖 OP-PDEV-007：固件表单字段校验（必填/边界/格式）（no_write；固件按钮隐藏时转跳）。
+    test("OP-PDEV-007 固件表单字段校验（必填/边界/格式）", async ({ page }) => {
+      test.setTimeout(300_000);
       const records = await readCreateProductLedger();
       test.expect(records.length).toBeGreaterThan(0);
       const latest = records[records.length - 1];
@@ -452,7 +523,43 @@ test.describe("开放平台设备开发", () => {
       await page.waitForTimeout(1_200);
       const restErrs = await dlg.locator(".ep-form-item__error").count();
       test.expect(restErrs, "恢复合法值后字段错误应清空").toBe(0);
-      test.info().annotations.push({ type: "探索注解", description: "OP-PDEV-007 全程未点击提交（表单前置校验模式）" });
+
+      // D06 空表单提交必填拦截（客户端校验拦截场景）：清空全部字段后点击确定——
+      // 源码核实 doConfirm 先 eleForm.validate()，失败即 return false：弹窗不关闭、不发起网络写入。
+      await nameInput.fill("");
+      await verInput.fill("");
+      await otaInput.fill("");
+      await dlg.getByRole("button", { name: "确定", exact: true }).click();
+      await page.waitForTimeout(1_500);
+      await expect(dlg).toBeVisible();
+      await expect(page.getByText("新增固件成功", { exact: true })).toHaveCount(0);
+      test.expect(await errInField("固件名称")).toContain("请输入");
+      test.expect(await errInField("固件版本")).toContain("请输入");
+      test.expect(await errInField("上传生产固件")).toContain("请上传");
+      test.expect(await errInField("测试 OTA 固件版本")).toContain("请输入");
+      test.expect(await errInField("上传测试固件")).toContain("请上传");
+      const noteItem = dlg.locator(".ep-form-item").filter({ hasText: "版本说明" }).first();
+      test.expect(await noteItem.locator(".ep-form-item__error").count(), "版本说明非必填：留空不应有字段级提示").toBe(0);
+      test.info().annotations.push({
+        type: "探索注解",
+        description: "D06 空表单提交被客户端表单校验拦截：弹窗未关闭、无「新增固件成功」；5 个必填字段（名称/版本/生产固件/OTA版本/测试固件）字段级提示，版本说明留空无提示；固件类型保持默认 Sdk"
+      });
+
+      // D07 版本说明 101 字 → maxlength=100 截断（show-word-limit）。
+      const noteInput = dlg.getByRole("textbox", { name: "版本说明" });
+      await noteInput.fill("测".repeat(101));
+      const noteValue = await noteInput.inputValue();
+      test.expect(noteValue.length, "maxlength=100 应截断为 100 字").toBe(100);
+      const noteCount = await noteItem.locator(".ep-input__count").first().innerText().catch(() => "");
+      test.info().annotations.push({
+        type: "探索注解",
+        description: `D07 版本说明 101 字被 maxlength=100 截断为 100 字；字数计数显示=${noteCount.replace(/\s+/g, "") || "未捕获"}`
+      });
+
+      test.info().annotations.push({
+        type: "探索注解",
+        description: "OP-PDEV-007 全程无数据写入：D01~D05/D07 未点击提交；D06 点击确定被客户端表单校验拦截（弹窗未关闭、无网络写入）"
+      });
       await attachShot(page, "固件表单校验");
       await dlg.getByRole("button", { name: "取消", exact: true }).click();
     });

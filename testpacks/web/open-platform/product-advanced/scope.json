@@ -7,20 +7,109 @@
       "name": "可达性与主流程",
       "objects": [
         {
-          "id": "c01-existing-cases",
-          "name": "可达性与主流程（现有用例基线）",
+          "id": "c01-cards-entry",
+          "name": "列表进入台账最新产品高级配置卡片首页（入口=产品管理列表「继续开发」→/basic→/advanced｜正路径｜从入口进入）",
           "evidence": [
-            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「高级配置」章节）、前端源码 `web-open-platform/src/pages/integration/product/ProductPhaseAdvanced.vue`（卡片分发）、`AdvSceneConfig.vue`（场景联动）、`AdvMessageConfig.vue`（消息推送）、`components/BtnCreateMessageFromTpl.vue`（套用模板）、`components/BtnEditSceneConf.vue`（新建自动化表单，931 行）、`experience/general.md`、`experience/open-platform.md`；查重比对 authcode/procurement 包（申请上线类动作不重复）。"
+            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`「高级配置」章节 L1016-1018（前提条件：成功创建产品、完成功能定义；该模块为选填项）与「产品开发流程」L116/L324-340、`web-open-platform/src/routes/integration.ts` L106-112（/integration/product/:id/advanced 路由，permission '/integration'）、2026-09-03 探索与执行实证（cases.md 上下文结论①）、create-product 包台账 `testpacks/web/open-platform/create-product/runtime/generated-data.json`（本轮操作对象 at0672）"
           ],
           "disposition": "covered",
           "caseIds": [
-            "OP-PADV-001",
+            "OP-PADV-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一入口导航对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-cards-render",
+          "name": "高级配置卡片首页渲染（场景联动配置/消息推送配置两卡片+描述文案+「可选」徽标+功能定义文档提示+卡片入口箭头）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/ProductPhaseAdvanced.vue` L15-30（function-doc-tip + advCardList 渲染）、L56-73（两卡片数据：title/description/status=可选）、`components/AdvancedItemCard.vue` L8-24（status tag 与 footer 入口箭头）、需求文档「高级配置」L1017（功能：场景联动设置、消息推送配置）、2026-09-03 执行实证（卡片文案与徽标）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "纯展示与静态渲染核对对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-scene-entry",
+          "name": "点击「场景联动配置」卡片进入子页（入口=卡片｜正路径｜从入口进入）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/ProductPhaseAdvanced.vue` L89-103（switchCard push integration-product-phase-advanced-scene）、`AdvSceneConfig.vue` L2-9（AdvancedConfigContainer 标题/描述）、2026-09-03 执行实证（子页渲染与面包屑）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-002"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一卡片入口导航对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-message-entry",
+          "name": "点击「消息推送配置」卡片进入子页（入口=卡片｜正路径｜从入口进入）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/ProductPhaseAdvanced.vue` L89-103（switchCard push integration-product-phase-advanced-message）、`AdvMessageConfig.vue` L2-14（AdvancedConfigContainer 标题/描述/操作区）、2026-09-03 执行实证"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-003"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一卡片入口导航对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-subpage-direct-url",
+          "name": "子页 URL 直达（/advanced/scene、/advanced/message 绕过卡片入口，已登录直达路径行）",
+          "evidence": [
+            "`web-open-platform/src/routes/integration.ts` L113-133（scene/message 子路由独立注册，同 permission meta）、`ProductPhaseAdvanced.vue` L105-112（watchEffect 按 route.path 第 5 段解析激活卡片，直达 URL 同样激活面包屑）、2026-09-11 对象矩阵核对新增（既有用例仅覆盖卡片点击入口，无直达路径行）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-006"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "直达导航核对对象（读 URL→渲染+面包屑断言），无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-breadcrumb-return",
+          "name": "子页面包屑返回卡片首页（入口=面包屑「高级配置」｜正路径｜从入口进入；scene 与 message 两个子页分别成行核对）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/ProductPhaseAdvanced.vue` L3-13（advanced-bread 面包屑，switchCard() 无参返回卡片首页）、L89-102（无参 switchCard push integration-product-phase-advanced）、2026-09-03 执行实证（场景联动页面包屑返回）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
             "OP-PADV-002",
             "OP-PADV-003"
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单一导航链路（两个子页同一面包屑机制，分别由 002/003 步骤核对），无参数交叉组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -33,16 +122,78 @@
       "name": "字段与输入规则",
       "objects": [
         {
-          "id": "c02-not-applicable",
-          "name": "字段与输入规则（当前包无独立对象）",
+          "id": "c02-tpl-dialog-structure",
+          "name": "套用模板弹窗结构渲染（标题「套用消息推送模板」+选用标准消息提示文案+表头 消息文案/触发条件/推送规则）",
           "evidence": [
-            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「高级配置」章节）、前端源码 `web-open-platform/src/pages/integration/product/ProductPhaseAdvanced.vue`（卡片分发）、`AdvSceneConfig.vue`（场景联动）、`AdvMessageConfig.vue`（消息推送）、`components/BtnCreateMessageFromTpl.vue`（套用模板）、`components/BtnEditSceneConf.vue`（新建自动化表单，931 行）、`experience/general.md`、`experience/open-platform.md`；查重比对 authcode/procurement 包（申请上线类动作不重复）。"
+            "`web-open-platform/src/pages/integration/product/components/BtnCreateMessageFromTpl.vue` L2（dialog-title 套用消息推送模板，宽 1200）、L4-6（alert「选用标准消息,无需审核即可上线;根据功能定义已自动匹配以下标准消息。」）、L17-42（表头 消息文案[标题/内容]/触发条件/推送规则[推送方式/推送间隔/用户可关闭]）、2026-09-03 探索实证（conclusion.md：alert+模板表格实证）"
           ],
-          "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-005"
+          ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "纯展示结构核对对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-tpl-selection-values",
+          "name": "套用模板弹窗勾选集合取值类（表单=套用模板弹窗×字段=模板勾选集合：非空=确定放行；空=拦截「请选择至少一个模板」且弹窗不关闭）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/components/BtnCreateMessageFromTpl.vue` L8-16（selection 多选表）、L109-128（doConfirm：空集合 ElMessage.error('请选择至少一个模板') 且 return false 弹窗不关闭；非空走 applyFunctionMessageTpl 成功 toast「新增成功」）、需求文档「高级配置·套用模板」L1076-1080（支持多选添加，点击【确定】添加成功）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-004",
+            "OP-PADV-005"
+          ],
+          "combinationDesign": {
+            "strategy": "direct_enumeration",
+            "rationale": "单参数（模板勾选集合取值类）2 个等价类逐行映射数据编号：D01（非空=勾选≥1 条标准模板，OP-PADV-004 步骤1）/D02（空=不勾选直接确定，OP-PADV-005 步骤2）；无业务约束剔除。",
+            "validCombinationCount": 2,
+            "parameters": [
+              {
+                "name": "模板勾选集合取值类",
+                "values": [
+                  "非空（勾选≥1 条标准模板，确定放行）",
+                  "空（不勾选，确定被拦截）"
+                ],
+                "evidence": "BtnCreateMessageFromTpl.vue doConfirm 空集合拦截分支 L109-128 + 需求文档「套用模板」多选添加规则 L1076-1080"
+              }
+            ],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-msg-row-value-render",
+          "name": "消息推送列表行级取值渲染（推送方式多值字典渲染/推送间隔 秒|分 单位/消息内容 3 行截断省略/审核状态三态 tag）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/AdvMessageConfig.vue` L20-44（content text-ellipsis rows=3、pushType 字典渲染 getPushTypeName、approveStatus 1=审核中/2=审核成功/其余=审核失败、pushInterval+intervalUnit 秒|分）、`components/TplTriggerRender.vue`（触发条件列渲染）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "行级取值渲染依赖含数据的消息行样本；待确认：环境在线标准模板数据（2026-09-03 实证 totalCount=0），无法构造行级取值样本；表头/字段结构核对已由 OP-PADV-003 步骤3 覆盖，行级渲染规则源码已核对，数据补充后重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（无行级数据样本可构造），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-tpl-dialog-pagination",
+          "name": "套用模板弹窗模板列表分页（auto-pagination，doSearch 固定 pageSize=10）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/components/BtnCreateMessageFromTpl.vue` L8-16（search-table auto-pagination）、L73-90（doSearch pageNo/pageSize=10 查询 queryMessageTplTemplateList）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "分页行为需环境存在 >10 条在线标准模板才能构造翻页；待确认：环境模板数据量级（当前 totalCount=0），暂不设计；数据补充后重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（环境数据量级不足，无法构造），不建模参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -55,16 +206,32 @@
       "name": "唯一性与重复操作",
       "objects": [
         {
-          "id": "c03-not-applicable",
-          "name": "唯一性与重复操作（当前包无独立对象）",
+          "id": "c03-tpl-confirm-repeat",
+          "name": "套用模板「确定」重复触发（可重复动作=弹窗确定提交｜触发方式=连点/请求期重复点击）",
           "evidence": [
-            "cases.md：上下文结论与范围外声明"
+            "`web-open-platform/src/components/DialogTrigger.vue` L54-65（确定/取消按钮 :loading=loading :disabled 绑定 btnCancelDisabled/btnConfirmDisabled）、L206-214（doConfirm 请求期 loading=true 置位、返回 false 不关闭）、L141-146（btnCancelDisabled/btnConfirmDisabled 计算属性 loading 期禁用）"
           ],
           "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "reason": "源码实证 DialogTrigger 确认链路请求期 loading 置位并禁用确定/取消按钮（防重复提交已实现），成功后弹窗关闭、无重复提交窗口；构造连点窗口需在线模板数据且违背最少写入原则（每次成功确定都会套用一条模板），不另设用例。后续若 DialogTrigger 防重复实现变更须重新评估。",
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "范围外对象（防重复已由源码实现实证，窗口无法稳定构造），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c03-tpl-delete-repeat",
+          "name": "消息模板删除重复触发（可重复动作=删除提交｜触发方式=同一行二次删除）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/AdvMessageConfig.vue` L128-141（doDeleteTpl 确认后 deleteFunctionMessageTpl→成功 refresh 刷新列表，行消失后行内删除入口不复存在）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "删除成功后行消失、行内删除入口不复存在（doDeleteTpl 成功后 refresh 重载列表），同一对象无法二次删除；服务端幂等语义需求未定义，无法稳定构造重复删除场景，不另设用例。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（重复触发入口随删除消失，无法稳定构造），不建模参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -77,10 +244,10 @@
       "name": "成功、异常与边界",
       "objects": [
         {
-          "id": "c04-existing-cases",
-          "name": "成功、异常与边界（现有用例基线）",
+          "id": "c04-tpl-empty-select",
+          "name": "套用模板空选拦截（负向：提示「请选择至少一个模板」+弹窗不关闭+列表无新增）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "`web-open-platform/src/pages/integration/product/components/BtnCreateMessageFromTpl.vue` L109-115（空集合 ElMessage.error 且 return false→DialogTrigger 不关闭）、2026-09-03 执行实证（空选拦截提示实证）"
           ],
           "disposition": "covered",
           "caseIds": [
@@ -88,7 +255,59 @@
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单一负向场景核对，取值类组合已在 c02-tpl-selection-values 建模（direct_enumeration D01/D02），本行是空取值的异常结果视角，不重复建模。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-tpl-delete-cancel",
+          "name": "删除确认弹窗取消分支（负向：确认弹窗出现→取消→弹窗关闭、行保留、无「删除成功」提示、无写入）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/AdvMessageConfig.vue` L128-131（confirm(`确认删除模板消息 ${tpl.title}`, '删除消息模板')，取消分支不发起删除请求）、2026-09-11 对象矩阵核对新增（既有用例仅覆盖确定分支，取消分支为 2026-09-11 补充步骤 OP-PADV-004 步骤3）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-004"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一弹窗分支核对（取消无写入），无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-tpl-delete-confirm",
+          "name": "删除确认弹窗确定分支（正向：行消失+toast「删除成功」）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/AdvMessageConfig.vue` L129-140（确定→deleteFunctionMessageTpl→ElMessage.success('删除成功')→refresh）、需求文档「高级配置」L1100-1103（点击【删除】显示删除确认，点击【确定】删除成功，平台不再推送此消息）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-004"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一正向删除场景核对（与取消分支为同一弹窗的两条固定路径，源码固定路径按单场景设计），无参数交叉组合空间。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-scene-row-states",
+          "name": "场景联动行状态样本（validFlag=0 失败行红底+警示图标「该场景配置已失败，请立即删除。」、驳回原因 lastApproveStatus=3、开发中自定义行删除入口、标准自动化自动生成行）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/AdvSceneConfig.vue` L28-33/L106-111（validFlag=0 行红底 scene-item-not-valid+警示 tooltip）、L80-82/L157-159（驳回原因 lastApproveStatus===3）、L83-91/L160-168（删除仅 开发中且自定义 行）、L15（标准自动化由功能点自动生成）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "行级状态样本依赖平台侧数据（标准自动化由功能定义自动生成、失败态/驳回态由审核链路产生），无法在测试内主动构造；现状由 OP-PADV-002 步骤3 以注解观察（行数、删除入口开放范围、失败行如出现）；场景联动删除确认弹窗（「删除操作不可恢复，请确认删除。」）依赖开发中自定义行样本，同属注解观察，不单独设写入用例；数据样本出现后重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（行级状态样本无法主动构造，注解观察），不建模参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -101,16 +320,85 @@
       "name": "权限、状态与导航",
       "objects": [
         {
-          "id": "c05-not-applicable",
-          "name": "权限、状态与导航（当前包无独立对象）",
+          "id": "c05-container-back-btn",
+          "name": "子页页脚「返回上一级」返回（router.back()；scene 与 message 两个子页分别成行核对）",
           "evidence": [
-            "cases.md：上下文结论与范围外声明"
+            "`web-open-platform/src/pages/integration/product/components/AdvancedConfigContainer.vue` L20-34（footer「返回上一级」按钮与 controls 渲染）、L87-99（goBack→router.back()）、2026-09-11 对象矩阵核对新增（既有用例仅覆盖面包屑返回，页脚按钮为源码核对发现的独立导航对象）"
           ],
-          "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-002",
+            "OP-PADV-003"
+          ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单一导航链路（两个子页共用容器组件，分别由 002/003 步骤核对），无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-apply-online-entry",
+          "name": "场景联动页页脚「申请上线」按钮在位（不点击，仅入口观察）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/AdvSceneConfig.vue` L305-311（controls=[{title:'申请上线',action:'online'}]）、`AdvancedConfigContainer.vue` L23-32（controls 渲染为页脚按钮）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-002"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "入口在位性核对对象；提交流程为独立范围外对象（见 c05-apply-online-submit），无参数交叉。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-apply-online-submit",
+          "name": "「申请上线」提交流程（applySceneConfigOnline，前置产品状态 已上线/开发中 校验，错误码 81006/50040 warning 分支，成功 toast「上线申请已提交」）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/AdvSceneConfig.vue` L313-348（doAction('online')：accessStatus 校验 alert 提示、applySceneConfigOnline、81006/50040 分支）、需求文档「申请上线 P0」L1209 起（上线申请为全局提交动作）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "上线申请为全局提交动作，影响产品生命周期（场景联动/消息推送进入审核态），台账测试产品须保持开发态（生命周期约定见 product-management conclusion）；归属产品上线流程非本包，本包仅断言按钮在位且不点击（OP-PADV-002 步骤5）；查重口径与既有范围外声明一致。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（全局提交动作依赖产品生命周期前置），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-msg-row-state-controls",
+          "name": "消息行状态驱动控件（推送状态开关仅审核成功可开、切换 toast「消息模板状态切换成功」；编辑在审核中禁用；审核状态三态 tag 行级渲染）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/AdvMessageConfig.vue` L46-61（el-switch :disabled=\"row.approveStatus !== 2\" :before-change=updatePushStatus）、L143-162（updatePushStatus toast「消息模板状态切换成功」）、L66（编辑 :disabled=\"row.approveStatus === 1\"）、L35-41（审核状态三态 tag）、需求文档 L1094-1096（只有当消息推送通过审核测试，才可以开启推送，其他情况按钮置灰）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "行级控件可用性样本依赖含审核状态的消息行（审核中/审核成功），待确认：环境在线标准模板与审核状态数据（2026-09-03 实证 totalCount=0）；开关切换属在线推送链路且写入产品推送配置；源码禁用/渲染规则已核对，现状由 OP-PADV-003 步骤3 注解观察，数据补充后重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（无审核状态行样本可构造），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-unauth-direct",
+          "name": "未登录直达 /advanced 及子页（负路径｜绕过入口直达）",
+          "evidence": [
+            "`web-open-platform/src/routes/integration.ts` L106-133（advanced 及 scene/message 子路由均 permission '/integration' meta）、`src/permission.ts`（全局 beforeEach 守卫）、create-product 包 OP-PROD-001（2026-09-01 执行实证：同树 create/management 路由未登录重定向登录页）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "路由守卫为平台级机制（permission meta + 全局 beforeEach），advanced 树与 create/management 同机制，create-product 包 OP-PROD-001 已实证未登录重定向登录页；登录态用例属 login-register/create-product 包，本包运行时复用 runtime/auth-state.json。若守卫机制变更须重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（机制已由同树路由实证），不建模参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -123,16 +411,50 @@
       "name": "验证码、登录态与特殊能力",
       "objects": [
         {
-          "id": "c06-not-applicable",
-          "name": "验证码、登录态与特殊能力（当前包无独立对象）",
+          "id": "c06-login-state",
+          "name": "登录态前置与失效处理（本包所有用例的会话前提）",
           "evidence": [
-            "cases.md：上下文结论与范围外声明"
+            "`experience/open-platform.md`（登录/注册用例属 login-register 包；产品开发页面需登录态）、`experience/general.md` 跨包登录态复用模式（runtime/auth-state.json 仅存本地不入 Git，失效时重新登录刷新）、本包 product-advanced.spec.ts 共享登录态候选链（只读核对，本轮不修改）"
           ],
           "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "reason": "登录、图形验证码与短信验证码用例由 login-register 功能包覆盖（25 条全量通过），create-product 包覆盖登录态建立与复用；本包运行时复用 runtime/auth-state.json，不重复设计登录用例。",
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "范围外对象（查重划界至 login-register/create-product 包），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c06-captcha",
+          "name": "图形/短信验证码环节（高级配置页面链路内）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/ProductPhaseAdvanced.vue`、`AdvSceneConfig.vue`、`AdvMessageConfig.vue`、`components/BtnCreateMessageFromTpl.vue` 全文（无验证码/tacVerify 调用）、`experience/open-platform.md`（验证码仅出现在登录/注册链路，人工协助点选模式）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "高级配置页面链路无验证码环节（源码核对）；验证码场景仅存在于登录/注册链路，由 login-register 包按人工协助点选模式覆盖。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（页面无此能力），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c06-doc-link-new-window",
+          "name": "「点我查看」新窗口打开功能定义文档（window.open _blank 特殊能力：新标签 /service-support/home?path=product-development/...-define，路由 auth:false 免授权）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/ProductPhaseAdvanced.vue` L81-87（handleOpenFunctionDoc：router.resolve service-support-home + query path，window.open(href,'_blank')）、`src/routes/service-support.ts` L5-23（/service-support/home 路由 auth:false）、2026-09-03 探索实证（el-link @click 新窗口，无 href，a11y 树为文本节点）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一外链新窗口行为核对（点击→新标签 URL 断言），无参数交叉组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -145,10 +467,10 @@
       "name": "数据写入与后续处理",
       "objects": [
         {
-          "id": "c07-existing-cases",
-          "name": "数据写入与后续处理（现有用例基线）",
+          "id": "c07-tpl-apply-delete-write",
+          "name": "套用模板写入与删除（applyFunctionMessageTpl 套用 1 条标准模板→列表新增行→取消删除分支（无写入）→确认删除；写入对象为台账最新产品的消息推送配置）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "`web-open-platform/src/pages/integration/product/components/BtnCreateMessageFromTpl.vue` L109-128（doConfirm→applyFunctionMessageTpl→toast「新增成功」）、`AdvMessageConfig.vue` L128-141（doDeleteTpl 确认删除）、`src/support/recordGeneratedData.ts`（写入台账唯一通道，recordGeneratedMessageTpl / recordGeneratedMessageTplDelete）、需求文档「套用模板」L1076-1080、2026-09-03 执行实证（套用/删除链路 helpers 就位）"
           ],
           "disposition": "covered",
           "caseIds": [
@@ -156,7 +478,71 @@
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "写入内容为固定合成策略（套用 1 条平台标准模板→即删，合成可逆），非参数组合；高风险写入场景已按人工补充口径列于 manualSupplementCaseIds。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-PADV-004"
+            ]
+          }
+        },
+        {
+          "id": "c07-write-target",
+          "name": "写入对象限定（仅 create-product 台账最新合成产品，本轮为 2026-09-10 创建的 at0672/自动化测试产品1789026290672；不创建产品；禁止触碰其他产品）",
+          "evidence": [
+            "`testpacks/web/open-platform/create-product/runtime/generated-data.json`（台账末条：runId 1789026290672/at0672/2026-09-10，records 共 12 条）、`experience/open-platform.md` 跨包数据链路（下游包只使用台账中的合成记录）、用户指令（2026-09-11：不创建产品，编辑台账最新产品）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-004"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "对象限定为前置约束（写入目标唯一，全部用例前置条件声明台账最新产品），非参数组合；涉及写入的高风险用例已列于 manualSupplementCaseIds。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-PADV-004"
+            ]
+          }
+        },
+        {
+          "id": "c07-negative-no-write",
+          "name": "负向路径不产生服务端写入（套用模板空选拦截/删除确认取消分支：弹窗拦截或关闭、列表行数不变、无「删除成功」提示）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/components/BtnCreateMessageFromTpl.vue` L109-115（空选拦截 return false 不发起 apply 请求）、`AdvMessageConfig.vue` L128-131（confirm 取消分支不发起 delete 请求）、2026-09-03 执行实证（空选拦截列表无变化）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-004",
+            "OP-PADV-005"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "负向场景为「预期无写入」断言，无参数组合；与本对象相邻的写入高风险用例已列于 manualSupplementCaseIds。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-PADV-004"
+            ]
+          }
+        },
+        {
+          "id": "c07-ledger-append",
+          "name": "写入记录台账化与只增不删（本包 runtime/generated-data.json 追加 kind=open-platform-message-tpl / open-platform-message-tpl-delete 记录；台账不得清理波及）",
+          "evidence": [
+            "`experience/general.md` 台账保护教训（增量累积台账只追加、不删除、不清空）、`src/support/recordGeneratedData.ts`（recordGeneratedMessageTpl / recordGeneratedMessageTplDelete）、本包 conclusion.md（helpers 已就位，首轮因环境模板缺失无台账记录）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PADV-004"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "台账化是写入用例的固定后续处置步骤，非参数组合；写入用例已列于 manualSupplementCaseIds。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": [],

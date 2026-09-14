@@ -21,6 +21,18 @@
     },
     "OP-PFNC-007": {
       "dependsOn": []
+    },
+    "OP-PFNC-008": {
+      "dependsOn": []
+    },
+    "OP-PFNC-009": {
+      "dependsOn": []
+    },
+    "OP-PFNC-010": {
+      "dependsOn": []
+    },
+    "OP-PFNC-011": {
+      "dependsOn": []
     }
   }
 }

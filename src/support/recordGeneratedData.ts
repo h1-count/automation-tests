@@ -198,6 +198,29 @@ export async function recordGeneratedProductBasicEdit(data: GeneratedProductBasi
   });
 }
 
+export type GeneratedProductBasicRevertData = {
+  runId: number;
+  productName: string;
+  productModel: string;
+  /** 还原的字段（当前仅产品名称）。 */
+  field: string;
+  /** 被拒绝/回退的尝试值（台账另一既有产品名称）。 */
+  attemptedValue: string;
+  restoredAt: string;
+};
+
+/** 产品基本配置还原写入记录（product-basic 包 OP-PBSC-010 回退路径；只记实际写入成功，正常拒绝路径不产生写入、不留痕）。 */
+export async function recordGeneratedProductBasicRevert(data: GeneratedProductBasicRevertData): Promise<void> {
+  await appendRecord({
+    testType: "web",
+    platform: "open-platform",
+    feature: "product-basic",
+    kind: "open-platform-product-basic-revert",
+    runId: data.runId,
+    payload: data
+  });
+}
+
 export type GeneratedProductFuncTplData = {
   runId: number;
   productName: string;

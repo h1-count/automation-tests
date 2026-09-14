@@ -7,20 +7,108 @@
       "name": "可达性与主流程",
       "objects": [
         {
-          "id": "c01-existing-cases",
-          "name": "可达性与主流程（现有用例基线）",
+          "id": "c01-stage-entry",
+          "name": "列表「继续开发」进入台账最新产品基础配置阶段页（入口=产品管理列表｜正路径｜从入口进入）",
           "evidence": [
-            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「基础配置」章节）、前端源码 `web-open-platform/src/pages/integration/product/ProductPhaseBasic.vue`、`ProductIntegration.vue`、`components/ProductMetaInfo.vue`、`components/BtnProductSwitch.vue`、`components/BtnPublishProduct.vue`、`src/routes/integration.ts`、`src/support/recordGeneratedData.ts`、`experience/general.md`、`experience/open-platform.md`；查重比对 create-product 包（创建向导已覆盖，本包从向导创建后的阶段页开始）与 product-management 包（列表与入口跳转用例已覆盖）。"
+            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「基础配置P0」前提条件：已创建产品）、`web-open-platform/src/routes/integration.ts` L62/L70-75（/integration/product/:id/basic 路由）、`experience/open-platform.md`（create-product 台账供下游包读取）"
           ],
           "disposition": "covered",
           "caseIds": [
-            "OP-PBSC-001",
-            "OP-PBSC-006",
-            "OP-PBSC-007"
+            "OP-PBSC-001"
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单一入口导航对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-stage-container",
+          "name": "阶段容器渲染（标题+开发状态tag+MetaInfo五项+五步步骤条+页脚按钮组+申请上线入口在位）（入口=阶段页｜正路径｜从入口进入）",
+          "evidence": [
+            "需求文档「产品信息统一显示」（展示要素：产品名称、开发状态、切换产品按钮、PID、开发方式、品类、通讯方式、更新时间）、`web-open-platform/src/pages/integration/product/ProductIntegration.vue`、`components/ProductMetaInfo.vue`、`components/BtnPublishProduct.vue`、2026-09-03 探索与执行实证（cases.md 上下文结论①）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "纯展示与静态渲染核对对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-switch-dialog",
+          "name": "切换产品弹窗正路径（打开→列表渲染→切换→URL/标题随动→切回）（入口=标题区「切换产品」icon｜正路径｜从入口进入）",
+          "evidence": [
+            "需求文档「产品信息统一显示」第2点（点击【切换产品】，可以来回切换不同已创建的产品）、`web-open-platform/src/pages/integration/product/components/BtnProductSwitch.vue`"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-006"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一弹窗交互链路，搜索与选择子步骤由 OP-PBSC-006 步骤内覆盖，无独立参数交叉空间。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-switch-search-empty",
+          "name": "切换产品弹窗关键字搜索负路径（不存在串→空态提示）（入口=弹窗关键字搜索框｜负路径｜从入口进入）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/components/BtnProductSwitch.vue`（关键字过滤与空态）、2026-09-03 探索实证（弹窗搜索与列表结构）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-006"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单字段负路径核对，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-publish-entry",
+          "name": "申请上线入口在位且未就绪可点击（抽屉内完成度引导，不提交）（入口=操作区「申请上线」按钮｜正路径｜从入口进入）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/components/BtnPublishProduct.vue`（两步抽屉：确认提审项/申请上线）、2026-09-03 执行实证（未就绪产品可点击，抽屉内引导）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "入口在位性核对对象；抽屉提交流程为独立范围外对象（见 c05-publish-drawer-submit），无参数交叉。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-cancel-return",
+          "name": "页脚「取消」返回产品管理列表与未保存修改丢弃（入口=页脚「取消」按钮｜正路径｜从入口进入；2026-09-11 对象矩阵核对新增）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/ProductIntegration.vue` L290-297（handleCancel→resetActivateConfig 后 router.push 产品管理列表，无守卫）、`web-open-platform/src/store/product/useProductConfigStore.ts` L262（resetActivateConfig 为空实现）、`ProductPhaseBasic.vue` onActivated→initData 重新拉取已保存值"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-011"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一导航链路（取消→列表→重进回显），无参数交叉组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -33,22 +121,162 @@
       "name": "字段与输入规则",
       "objects": [
         {
-          "id": "c02-existing-cases",
-          "name": "字段与输入规则（现有用例基线）",
+          "id": "c02-readonly-fields",
+          "name": "基础配置表单·只读字段取值回显（Model/产品型号 disabled 且与台账一致；设备类型/语音控制 select disabled）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "需求文档「基础配置P0」第2点（已创建产品后：PID、开发方式、产品model、所属品类、产品型号、通讯方式、设备类型即确定，不可编辑）、`web-open-platform/src/pages/integration/product/ProductPhaseBasic.vue` L9-32（disabled 绑定）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-002"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "只读回显核对，取值固定为台账记录，无取值类组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-product-name-values",
+          "name": "基础配置表单·产品名称取值类（空/2字低于需求下限3/61字超限触发60字DOM截断）",
+          "evidence": [
+            "需求文档「基础配置P0」第3点（产品名称：60字符之内，中文、英文、数字，必填）、`web-open-platform/src/utils/ValidationRuleBuilder.ts` L526-563（productName 校验器长度/字符校验注释为空实现）、`ProductPhaseBasic.vue` L41（minlength=3 maxlength=60 DOM 属性）、2026-09-03 执行实证（2字前端放行由服务端拒绝）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-004"
+          ],
+          "combinationDesign": {
+            "strategy": "direct_enumeration",
+            "rationale": "单参数（产品名称取值类）3 个等价类逐行映射 OP-PBSC-004 数据编号 D01（空）/D02（2字）/D03（61字超限截断），D04 为还原步骤非取值类。",
+            "validCombinationCount": 3,
+            "parameters": [
+              {
+                "name": "产品名称取值类",
+                "values": [
+                  "空（必填拦截）",
+                  "2字（低于需求下限3，前端放行）",
+                  "61字（超限，DOM 截断为 60）"
+                ],
+                "evidence": "需求文档「基础配置P0」60字符内必填 + ValidationRuleBuilder productName 空实现实证 + maxlength=60"
+              }
+            ],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-netconfig-field",
+          "name": "基础配置表单·配网方式字段（空态 placeholder/已选回显/查看详情弹窗）",
+          "evidence": [
+            "需求文档「基础配置P0」第6点（选择配网方式：根据不同的通讯方式对应不同的配网方式）、`ProductPhaseBasic.vue` L44-59（el-select + 查看详情 link）、`ProductIntegration.vue` 无关；弹窗结构 2026-09-03 实证（联网方式和配网方式对应关系表 10 行）"
           ],
           "disposition": "covered",
           "caseIds": [
             "OP-PBSC-002",
-            "OP-PBSC-004",
-            "OP-PBSC-005",
+            "OP-PBSC-003"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单状态对象（控件在位/弹窗展示核对）；选项集来自字典接口 queryNetworkingType，选项全集核对依赖字典数据快照，不构成参数交叉空间。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-conditional-fields",
+          "name": "基础配置表单·条件字段取值联动（WiFi/蓝牙名称 requireApName 3-24；可挂载的网关 parentGatewaies 多选且显示即必填）",
+          "evidence": [
+            "`ProductPhaseBasic.vue` L79-97（v-if=networkingConf?.requireApName / v-if=networkingConf?.parentGatewaies，网关显示时 rules.parentModel required）、L389-391（onNetConfigChange 清空 parentModel）",
+            "需求文档「基础配置P0」第5点（配网引导配置：网关/热点名称/蓝牙名称）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "条件字段取值联动依赖特定配网方式选项（requireApName/parentGatewaies 字典数据）与网关产品数据，且网关字段显示即必填会引入额外写入前置，违背最少写入原则；显隐现状由 OP-PBSC-002 步骤3 注解观察，条件字段 3-24 校验与网关必填取值留待具备网关产品数据后补充。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（联动取值依赖外部字典与网关数据），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-vendor-url-maxlen",
+          "name": "基础配置表单·厂商标识1/2 与详情页URL 超长截断（maxlength 64/64/255）",
+          "evidence": [
+            "`ProductPhaseBasic.vue` L100-126（thirdId1/thirdId2 maxlength=64、detailPagePictureUrl maxlength=255，show-word-limit）、rules L396-398（maxlen 64/64/255）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-005"
+          ],
+          "combinationDesign": {
+            "strategy": "direct_enumeration",
+            "rationale": "单参数（超长取值字段）2 个等价类逐行映射 OP-PBSC-005 数据编号 D01（厂商标识1 70字符>64）/D02（详情页URL 260字符>255）；还原步骤为非取值行。",
+            "validCombinationCount": 2,
+            "parameters": [
+              {
+                "name": "超长取值字段",
+                "values": [
+                  "厂商标识1（70字符，超 64 上限）",
+                  "详情页URL（260字符，超 255 上限）"
+                ],
+                "evidence": "ProductPhaseBasic.vue maxlength 属性与 rules maxlen 定义"
+              }
+            ],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-image-fields",
+          "name": "基础配置表单·产品拟物图/配网引导图上传字段（合成 1080x1080 透明 PNG，<2MB）",
+          "evidence": [
+            "需求文档「基础配置P0」第4/5点（图片格式：1080*1080，2MB之内，透明底）、`ProductPhaseBasic.vue` L133-162（file-uploader size-limit=2MB limit=1 tip 1080x1080 透明底 PNG）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-009"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单字段上传链路核对（补传成功路径）；规格边界（超2MB/非1080x1080/非透明底）的拒绝路径见 c04-image-spec 范围外声明，无参数交叉建模空间。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-guide-text-values",
+          "name": "基础配置表单·配网文案字段（空=必填拦截；合成值≤200=输入与字数统计）",
+          "evidence": [
+            "需求文档「基础配置P0」第5点（配网文案：200字符之内）、`ProductPhaseBasic.vue` L168-178（textarea maxlength=200）、rules L395（guidePageDes required）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
             "OP-PBSC-008",
             "OP-PBSC-009"
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单状态字段：空值拦截与合法值输入分别由 OP-PBSC-008/009 的负正向场景覆盖（场景归属 C04），字段本身无参数交叉空间。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-brand-field",
+          "name": "基础配置表单·所属企业品牌字段（需求列有，源码表单项已注释不渲染）",
+          "evidence": [
+            "需求文档「基础配置P0」第3点（所属企业品牌：20字符之内，下拉选择/选填）、`ProductPhaseBasic.vue` L61-73（el-form-item 所属企业品牌 整段注释，不渲染；rules 中 enterBrand 规则保留但无对应控件）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "源码实证该表单项已注释、页面上不存在（rules 残留不构成可交互对象）；后续源码恢复渲染时须重新评估并补用例。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（控件未渲染，无可交互对象），不建模参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -61,16 +289,43 @@
       "name": "唯一性与重复操作",
       "objects": [
         {
-          "id": "c03-not-applicable",
-          "name": "唯一性与重复操作（当前包无独立对象）",
+          "id": "c03-name-unique-edit",
+          "name": "产品名称唯一性·编辑保存提交（改为与台账既有产品同名→保存被服务端拒绝）（可重复动作=保存提交｜触发方式=提交保存请求；2026-09-11 由创建场景改为编辑场景，创建向导唯一性由 create-product 包 OP-PROD-013 覆盖）",
           "evidence": [
-            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「基础配置」章节）、前端源码 `web-open-platform/src/pages/integration/product/ProductPhaseBasic.vue`、`ProductIntegration.vue`、`components/ProductMetaInfo.vue`、`components/BtnProductSwitch.vue`、`components/BtnPublishProduct.vue`、`src/routes/integration.ts`、`src/support/recordGeneratedData.ts`、`experience/general.md`、`experience/open-platform.md`；查重比对 create-product 包（创建向导已覆盖，本包从向导创建后的阶段页开始）与 product-management 包（列表与入口跳转用例已覆盖）。"
+            "需求文档「基础配置P0」第3点（企业内保证唯一性）、`ProductPhaseBasic.vue` L428-474（saveStage→pconfStore.saveActivateConfig 服务端保存链路）、create-product 包 cases.md OP-PROD-013（2026-09-02 执行实证：错误码 10524→「产品名称重复」，创建链路唯一性由服务端强制；编辑链路共用产品服务、以本轮实证为准）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-010"
+          ],
+          "combinationDesign": {
+            "strategy": "direct_enumeration",
+            "rationale": "单参数（编辑保存的产品名称取值）2 个等价类逐行映射 OP-PBSC-010 数据编号 D01（与台账既有产品重复）/D02（原名称还原）。",
+            "validCombinationCount": 2,
+            "parameters": [
+              {
+                "name": "编辑保存产品名称取值",
+                "values": [
+                  "与台账既有产品重复",
+                  "原产品名称（还原取值）"
+                ],
+                "evidence": "需求文档「基础配置P0」企业内保证唯一性 + create-product OP-PROD-013 错误码 10524 实证"
+              }
+            ],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c03-save-repeat-clicks",
+          "name": "保存提交重复触发（连点/双击保存按钮）（可重复动作=保存提交｜触发方式=连点）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/ProductIntegration.vue` L65（保存按钮无 :loading 绑定）、L234/L335-339（loading ref 置位复位但未绑定任何控件，无请求期禁用）"
           ],
           "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "reason": "源码实证保存按钮无请求期禁用（loading 未绑定控件），连点/双击场景难以稳定构造且违背最少写入原则（每次点击都会触发 saveActivateConfig 请求）；与 create-product 包 2026-09-02 对同类对象的范围外声明口径一致。后续若源码补上防重复实现，须重新评估并补用例。",
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "范围外对象（无防重复实现且难以稳定构造），不建模参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -83,20 +338,124 @@
       "name": "成功、异常与边界",
       "objects": [
         {
-          "id": "c04-existing-cases",
-          "name": "成功、异常与边界（现有用例基线）",
+          "id": "c04-name-boundary",
+          "name": "产品名称边界与错误提示（空必填/2字前端放行/61字DOM截断）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "同 c02-product-name-values 依据（需求文档 + ValidationRuleBuilder 空实现 + maxlength DOM 属性 + 2026-09-03 执行实证）"
           ],
           "disposition": "covered",
           "caseIds": [
-            "OP-PBSC-004",
-            "OP-PBSC-008",
+            "OP-PBSC-004"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "取值类组合设计已在 c02-product-name-values 建模（direct_enumeration，D01-D03），本行是对同一对象组的异常边界视角，不重复建模。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-vendor-url-truncate",
+          "name": "超长字段截断边界（厂商标识 64/详情页URL 255）",
+          "evidence": [
+            "同 c02-vendor-url-maxlen 依据（ProductPhaseBasic.vue maxlength 属性与 rules）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-005"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "取值类组合设计已在 c02-vendor-url-maxlen 建模（direct_enumeration，D01-D02），本行不重复建模。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-required-missing-save",
+          "name": "必填缺失保存拦截（负向：safeSaveConfig 仅 toast+内联错误，不弹守卫、无写入）",
+          "evidence": [
+            "`ProductIntegration.vue` L131-181（safeSaveConfig 校验失败仅 ElMessage.error，非 Error 异常提示「请修改表单中的错误」）、2026-09-03 执行实证（cases.md OP-PBSC-008 与 conclusion.md 保存链路差异节）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-008"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单场景负向核对（缺失态自建、幂等），无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-guard-branches",
+          "name": "阶段切换守卫双分支（前端校验失败=「您有修改还未保存。…」；服务端拒绝=「自动保存时发生错误: …」；留在页面/切换页面按钮）",
+          "evidence": [
+            "`ProductPhaseBasic.vue` L428-474（saveStage 两个 confirm 分支）、`ProductIntegration.vue` switchConfigStage→autoSaveStage、2026-09-03 执行实证（OP-PBSC-007 以 2 字产品名实证服务端拒绝分支）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-007"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "守卫分支为同一动作的两种提示渲染（源码固定两条路径），按单场景设计，无参数交叉组合空间。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-save-success",
+          "name": "补齐必填保存成功（正向：toast「配置保存成功」，not-change 不提示）",
+          "evidence": [
+            "`ProductIntegration.vue` L145-149（resp.message !== 'not-change' 时 ElMessage.success('配置保存成功')）、2026-09-03 执行实证（OP-PBSC-009 补齐 at8438 四字段保存成功）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
             "OP-PBSC-009"
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单场景正向写入核对（幂等补齐+变体文案），字段取值为固定合成策略而非参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-duplicate-reject",
+          "name": "编辑保存唯一性拒绝（服务端负向：唯一性错误提示、无成功提示、URL 不变）",
+          "evidence": [
+            "同 c03-name-unique-edit 依据（需求唯一性要求 + 错误码 10524 创建链路实证）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-010"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "取值组合设计已在 c03-name-unique-edit 建模（direct_enumeration，D01-D02），本行是同一对象的异常结果视角，不重复建模。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-image-spec",
+          "name": "图片规格服务端校验拒绝路径（超2MB/非1080x1080/非透明底 PNG 被拒）",
+          "evidence": [
+            "`ProductPhaseBasic.vue` L133-162（file-uploader size-limit/ tip 规格提示）、2026-09-03 执行实证（合成 1080x1080 透明 PNG 被服务端接受，conclusion.md 写入与数据说明）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "2026-09-03 实证服务端对合成规格图友好（接受），拒绝路径无法稳定构造；规格校验仅在 OP-PBSC-009 执行时以注解观察，不作为独立断言。后续若平台收紧上传校验，须重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（拒绝路径无法稳定构造），不建模参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -109,16 +468,101 @@
       "name": "权限、状态与导航",
       "objects": [
         {
-          "id": "c05-not-applicable",
-          "name": "权限、状态与导航（当前包无独立对象）",
+          "id": "c05-unauth-direct",
+          "name": "未登录直达 /integration/product/{id}/basic（负路径｜绕过入口直达）",
           "evidence": [
-            "cases.md：上下文结论与范围外声明"
+            "`web-open-platform/src/routes/integration.ts` L75（permission: '/integration' meta）、`src/permission.ts` L18（router.beforeEach 全局守卫）、create-product 包 OP-PROD-001（2026-09-01 执行实证：同树 create/management 路由未登录重定向登录页）"
           ],
           "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "reason": "路由守卫为平台级机制（permission meta + 全局 beforeEach），与 create/management 同树同机制，create-product 包 OP-PROD-001 已实证重定向登录页；登录态用例属 login-register/create-product 包，本包运行时复用 runtime/auth-state.json。若守卫机制变更须重新评估。",
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "范围外对象（机制已由同树路由实证），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-step-nav-guard",
+          "name": "步骤条导航与「下一步」守卫链路（阶段完成度拦截 validateStageCompleteStatus toast）",
+          "evidence": [
+            "`ProductIntegration.vue` L192-231（validateStageCompleteStatus：required 阶段未完成返回名称数组→toast 拦截）、L268-278（handleNextStep 跳过 Interactive）、2026-09-03 执行实证（OP-PBSC-007 步骤3 落点注解）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-001",
+            "OP-PBSC-007"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一导航链路核对（步骤条渲染+下一步守卫拦截），无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-prev-hidden",
+          "name": "首阶段「上一步」不渲染（阶段容器页脚状态）",
+          "evidence": [
+            "`ProductIntegration.vue` L61（v-if=configStepIndex > 0 上一步）、2026-09-03 执行实证（首阶段不渲染）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单状态渲染核对，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-publish-drawer-submit",
+          "name": "申请上线抽屉提交流程（协议确认、提审提交、状态流转）",
+          "evidence": [
+            "`web-open-platform/src/pages/integration/product/components/BtnPublishProduct.vue`（两步抽屉）、需求文档「产品信息统一显示」开发流程（完成必选项+通过产品测试才可申请上线）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "提审提交依赖五阶段全部完成且产品进入审核状态，台账测试产品须保持开发态（生命周期约定见 product-management conclusion）；本包仅断言入口在位且可点击（OP-PBSC-001 步骤4），提交链路由具备完整阶段数据后的专项覆盖。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（依赖五阶段完成与状态流转前置），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-lifecycle-readonly",
+          "name": "非可编辑生命周期状态（accessStatus ∉ developing/testFailed）下表单禁用与保存静默跳过",
+          "evidence": [
+            "`web-open-platform/src/store/product/useProductConfigStore.ts` L52（isEditable=['developing','testFailed']）、`ProductIntegration.vue` L136-140（isEditable 为假时 safeSaveConfig 直接 resolve 跳过）、`ProductPhaseBasic.vue` L396（isDisabled=!isEditable）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "台账测试产品保持开发态（developing），无审核中/已上线等状态样本，构造此类状态须走产品测试/上线链路（属后续包范围）；状态流转本身由产品测试/上线链路包覆盖。若台账出现非开发态产品，须重新评估。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（无状态样本可构造），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-next-to-function",
+          "name": "基础配置完成后「下一步」成功跳转功能定义页",
+          "evidence": [
+            "`ProductIntegration.vue` L268-278（handleNextStep）、`switchConfigStage`（保存成功后 loadProductConfigStageStatus 并切换阶段）、本包 conclusion.md 后续关注（下一步成功后进入功能定义页）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "成功跳转的落点页（功能定义阶段页）由 product-function 功能包覆盖；本包 OP-PBSC-007 已覆盖「下一步」触发的守卫链路（负路径），成功跳转不再重复设计。查重划界见 cases.md 上下文来源。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（落点页属后续包），不建模参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -131,16 +575,50 @@
       "name": "验证码、登录态与特殊能力",
       "objects": [
         {
-          "id": "c06-not-applicable",
-          "name": "验证码、登录态与特殊能力（当前包无独立对象）",
+          "id": "c06-login-state",
+          "name": "登录态前置与失效处理（本包所有用例的会话前提）",
           "evidence": [
-            "cases.md：上下文结论与范围外声明"
+            "`experience/open-platform.md`（登录/注册用例属 login-register 包；产品开发页面需登录态）、`experience/general.md` 跨包登录态复用模式（runtime/auth-state.json 仅存本地不入 Git，失效时重新登录刷新）"
           ],
           "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "reason": "登录、图形验证码与短信验证码用例由 login-register 功能包覆盖（25 条全量通过），create-product 包 OP-PROD-002 覆盖登录态建立与复用；本包运行时复用 runtime/auth-state.json，不重复设计登录用例。",
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "范围外对象（查重划界至 login-register/create-product 包），不建模参数组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c06-file-upload-control",
+          "name": "file-uploader 上传特殊控件（隐藏 input[type=file]、2MB 前端限制、上传回显链路）",
+          "evidence": [
+            "`ProductPhaseBasic.vue` L133-162（file-uploader size-limit=2MB limit=1 layout=card-list）、`web-open-platform/src/components/ui/FileUploader.vue`（组件契约）、`experience/general.md`（隐藏控件属降级定位合法情形）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-009"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一控件链路核对（合成图上传→缩略图回显），规格边界见 c04-image-spec 范围外声明，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c06-captcha",
+          "name": "图形/短信验证码环节（基础配置页内）",
+          "evidence": [
+            "`ProductPhaseBasic.vue` 与 `ProductIntegration.vue` 全文（无验证码调用）、`experience/open-platform.md`（验证码仅出现在登录/注册链路，人工协助点选模式）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "基础配置页面无验证码环节（源码核对）；验证码场景仅存在于登录/注册链路，由 login-register 包按人工协助点选模式覆盖。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象（页面无此能力），不建模参数组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -153,26 +631,91 @@
       "name": "数据写入与后续处理",
       "objects": [
         {
-          "id": "c07-existing-cases",
-          "name": "数据写入与后续处理（现有用例基线）",
+          "id": "c07-edit-save-write",
+          "name": "编辑保存写入（为台账最新产品补齐 配网方式/配网文案变体值/两张图 并保存；数据经 src/support/recordGeneratedData.ts 记入本包 runtime/generated-data.json，kind=open-platform-product-basic-edit，只增不删）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "`src/support/recordGeneratedData.ts`（写入台账唯一通道）、本包 `runtime/generated-data.json`（既有 2 条记录示例）、2026-09-03 执行实证（补齐 at8438 四字段保存成功并台账化）",
+            "需求文档「基础配置P0」第3/4/5/6点（需补充的产品基本信息与保存行为）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-009"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "写入内容为固定合成策略（必填补齐+变体文案），非参数组合；高风险写入场景已按人工补充口径列于 manualSupplementCaseIds。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-PBSC-009",
+              "OP-PBSC-010"
+            ]
+          }
+        },
+        {
+          "id": "c07-write-target",
+          "name": "写入对象限定（仅 create-product 台账最新合成产品，本轮为 2026-09-10 创建的 at0672/自动化测试产品1789026290672；禁止触碰其他产品；不创建产品）",
+          "evidence": [
+            "`testpacks/web/open-platform/create-product/runtime/generated-data.json`（台账末条：runId 1789026290672/at0672/2026-09-10）、`experience/open-platform.md` 跨包数据链路（下游包只使用台账中的合成记录）、用户指令（2026-09-11：不创建产品，编辑台账最新产品）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-009",
+            "OP-PBSC-010"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "对象限定为前置约束（写入目标唯一），非参数组合；涉及写入的高风险用例已列于 manualSupplementCaseIds。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
+              "OP-PBSC-009",
+              "OP-PBSC-010"
+            ]
+          }
+        },
+        {
+          "id": "c07-negative-no-write",
+          "name": "负向路径不产生服务端写入（必填拦截仅 toast/守卫留在页面/唯一性拒绝，URL 与数据不变）",
+          "evidence": [
+            "`ProductIntegration.vue` L131-181（safeSaveConfig 失败仅提示）、`ProductPhaseBasic.vue` L428-474（saveStage 留在页面分支 return、不落库）、2026-09-03 执行实证（008 拦截无写入）"
           ],
           "disposition": "covered",
           "caseIds": [
             "OP-PBSC-007",
             "OP-PBSC-008",
-            "OP-PBSC-009"
+            "OP-PBSC-010"
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "负向场景为「预期无写入」断言，无参数组合；唯一性拒绝提交的风险处置已列于 manualSupplementCaseIds。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": [],
             "manualSupplementCaseIds": [
-              "OP-PBSC-007",
-              "OP-PBSC-008",
+              "OP-PBSC-010"
+            ]
+          }
+        },
+        {
+          "id": "c07-ledger-append",
+          "name": "编辑记录台账化与只增不删（本包 runtime/generated-data.json 追加 runId/产品名/Model/字段/保存时间；台账不得清理波及）",
+          "evidence": [
+            "`experience/general.md` 台账保护教训（增量累积台账只追加、不删除、不清空）、`src/support/recordGeneratedData.ts`、本包 `runtime/generated-data.json`（历史 2 条记录在案）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PBSC-009"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "台账化是写入用例的固定后续处置步骤，非参数组合；写入用例已列于 manualSupplementCaseIds。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": [],
+            "manualSupplementCaseIds": [
               "OP-PBSC-009"
             ]
           }

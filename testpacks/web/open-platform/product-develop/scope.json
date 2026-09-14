@@ -7,19 +7,110 @@
       "name": "可达性与主流程",
       "objects": [
         {
-          "id": "c01-existing-cases",
-          "name": "可达性与主流程（现有用例基线）",
+          "id": "c01-develop-page-entry",
+          "name": "设备开发页入口进入（产品列表「继续开发/开发详情」→ 配置页 → 设备开发阶段）",
           "evidence": [
-            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「设备开发」章节）、前端源码 `web-open-platform/src/pages/integration/product/ProductPhaseDevelop.vue`、`components/DevelopMethodProtocol.vue`（本包产品为开放协议接入→direct→协议直连分支）、`components/DevelopFirmareTable.vue`、`components/BtnEditFirmwareVersion.vue`、`src/utils/ValidationRuleBuilder.ts`（version 规则）、`experience/general.md`、`experience/open-platform.md`；查重比对 authcode 包（授权码申请写入在该包覆盖）与 device-ota 包（设备侧 OTA 在批4覆盖）。"
+            "前端源码 `src/routes/integration.ts`（integration-product-phase-develop 子路由）、`src/pages/integration/product/ProductIntegration.vue`（阶段条 switchConfigStage → gotoRoute）；2026-09-03 执行实证（conclusion.md：三步骤渲染完整）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PDEV-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一路径导航对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-develop-page-direct",
+          "name": "已登录绕过入口直达 /develop URL（访问方式=绕过直达）",
+          "evidence": [
+            "前端源码 `src/routes/integration.ts`（develop 为 ProductIntegration 子路由，路径参数 :id）、`ProductIntegration.vue`（setProductId(route.params.id) 按路由参数加载产品上下文）；2026-09-11 对象矩阵核对补行"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PDEV-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一路径导航对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-develop-page-unauthed",
+          "name": "未登录直达 /develop（路径负向）",
+          "evidence": [
+            "前端源码 `src/permission.ts`（未登录 `next({ name: 'login' })` 重定向登录页）；2026-09-11 对象矩阵核对补行"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PDEV-008"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一路径导航对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-page-structure",
+          "name": "设备开发页三步骤与资料/注册区渲染（direct 分支）",
+          "evidence": [
+            "前端源码 `ProductPhaseDevelop.vue`（devType 分发）、`DevelopMethodProtocol.vue`（三垂直步骤、DMStepBox、下载文档 el-link target=_blank、BtnApplyAuthCode、meta-field-group 授权凭证、DEVICE_REGISTER_URL）；`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`「设备开发 P0——开放协议直连接入」；2026-09-03 执行实证"
           ],
           "disposition": "covered",
           "caseIds": [
             "OP-PDEV-001",
+            "OP-PDEV-002",
+            "OP-PDEV-003"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "纯展示渲染对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-firmware-list-structure",
+          "name": "固件配置区与固件表结构渲染（7 列表头）",
+          "evidence": [
+            "前端源码 `DevelopFirmareTable.vue`（search-form note、search-table 七列：固件名称/固件key、固件版本、固件状态、测试 OTA 固件版本、版本说明、上传时间、操作）；需求「固件列表显示」；2026-09-03 执行实证（表头 7 列齐全）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
             "OP-PDEV-004"
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "纯展示渲染对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c01-firmware-view",
+          "name": "固件版本查看链路（只读抽屉/弹窗回显与关闭）",
+          "evidence": [
+            "前端源码 `DevelopFirmareTable.vue`（操作列 BtnEditFirmwareVersion title=查看 readonly）、`BtnEditFirmwareVersion.vue`（readonly 表单禁用、queryFirmwareVersionDetail 回显）；2026-09-03 执行实证（查看抽屉回显正常）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PDEV-006"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一只读链路对象，无参数交叉组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -32,18 +123,86 @@
       "name": "字段与输入规则",
       "objects": [
         {
-          "id": "c02-existing-cases",
-          "name": "字段与输入规则（现有用例基线）",
+          "id": "c02-firmware-form-validation",
+          "name": "新增固件版本表单「校验字段 × 取值类」校验矩阵（7 字段逐字段列行）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "前端源码 `BtnEditFirmwareVersion.vue` rules（固件名称 required().text()、固件版本 required().version()、生产固件 required().upload()、OTA 版本 required().version().versionNewer()、测试固件 upload().required()、版本说明 text()）、`ValidationRuleBuilder.ts`（text 字符集、version `^\\d+(\\.\\d+)+$`、versionNewer 比较）、el-input maxlength 32/100 截断；2026-09-03 执行实证（D01~D05）；2026-09-11 对象矩阵核对补「空值必填」「版本说明长度上限」两行"
           ],
           "disposition": "covered",
           "caseIds": [
-            "OP-PDEV-007"
+            "OP-PDEV-007",
+            "OP-PDEV-005"
+          ],
+          "combinationDesign": {
+            "strategy": "direct_enumeration",
+            "parameters": [
+              {
+                "name": "校验字段",
+                "values": [
+                  "固件名称",
+                  "固件版本",
+                  "测试OTA固件版本",
+                  "上传生产固件",
+                  "上传测试固件",
+                  "版本说明"
+                ],
+                "evidence": "BtnEditFirmwareVersion.vue rules：7 个表单字段中固件类型为固定值不入组合，其余 6 字段各自携带 required/text/version/upload 组合规则"
+              },
+              {
+                "name": "取值类",
+                "values": [
+                  "空值",
+                  "非法字符集或格式",
+                  "长度上限",
+                  "合法值"
+                ],
+                "evidence": "SKILL 等价类+边界值压缩：必填空值、字符集/格式负向、maxlength 边界、合法值恢复"
+              }
+            ],
+            "constraints": [
+              "固件类型 direct 固定 Sdk 唯一选项且下拉禁用（firmwareTypeOpts.length<=1），无可变取值，不入组合",
+              "OTA 版本格式类取值与固件版本共用同一 version() 校验器（ValidationRuleBuilder），合并为一条格式等价类（D03）",
+              "OTA 版本上限类按业务约束取「不大于生产版本」（versionNewer），属比较规则而非长度边界（D04）",
+              "版本说明无必填与字符集规则（rules 仅 text），留空即合法态，留空无提示并入 D06 观察",
+              "固件名称无长度下限校验（rules 未配置长度规则，input minlength 属性不参与 async-validator），不存在下限负向组合",
+              "上传字段无字符集/长度规则，仅保留空值必填（D06）与合法上传（OP-PDEV-005 步骤 1 承载）两类"
+            ],
+            "validCombinationCount": 16,
+            "rationale": "2 参数（校验字段×取值类），参数 ≤2 按组合触发判定走直接枚举；约束过滤后 16 条有效组合映射 D01–D07：D06 一次空表单断言 5 个必填提示+版本说明留空无提示（6 条组合），D05 恢复合法值合并名称/版本/OTA 三个合法组合（3 条），合法上传 2 条由 OP-PDEV-005 步骤 1 承载，其余 D01/D02/D03/D04/D07 各 1 条。"
+          }
+        },
+        {
+          "id": "c02-firmware-type-fixed",
+          "name": "固件类型 direct 固定 Sdk（唯一选项、下拉禁用）",
+          "evidence": [
+            "前端源码 `BtnEditFirmwareVersion.vue` firmwareTypeMap（direct: [FirmwareType.Sdk]）与 el-select :disabled=\"firmwareTypeOpts.length <= 1\"；2026-09-03 执行实证注解（direct 开发方式固件类型唯一为 Sdk）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PDEV-004",
+            "OP-PDEV-005"
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单状态固定值对象（选项唯一且禁用），无可变参数。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c02-credential-display",
+          "name": "授权凭证四项（Model/Product Key/Product Secret/Vendor Code）与注册接口地址展示",
+          "evidence": [
+            "前端源码 `DevelopMethodProtocol.vue`（meta-field-group 四项 text-copy + 注册接口地址 text-copy + alert 提示）；需求「产品授权凭证」「注册设备」；2026-09-03 执行实证（四项有值且与台账 Model 一致）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PDEV-002"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "纯展示只读对象，无参数交叉组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -56,16 +215,80 @@
       "name": "唯一性与重复操作",
       "objects": [
         {
-          "id": "c03-not-applicable",
-          "name": "唯一性与重复操作（当前包无独立对象）",
+          "id": "c03-firmware-submit-repeat",
+          "name": "新建固件版本确认按钮连点/慢网重复提交（触发方式=连点/重试）",
           "evidence": [
-            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「设备开发」章节）、前端源码 `web-open-platform/src/pages/integration/product/ProductPhaseDevelop.vue`、`components/DevelopMethodProtocol.vue`（本包产品为开放协议接入→direct→协议直连分支）、`components/DevelopFirmareTable.vue`、`components/BtnEditFirmwareVersion.vue`、`src/utils/ValidationRuleBuilder.ts`（version 规则）、`experience/general.md`、`experience/open-platform.md`；查重比对 authcode 包（授权码申请写入在该包覆盖）与 device-ota 包（设备侧 OTA 在批4覆盖）。"
+            "前端源码 `src/components/DialogTrigger.vue`（doConfirm 全程置 loading，确认按钮 :loading + :disabled=\"btnConfirmDisabled\" = disabled || loading，请求期禁用）；2026-09-11 对象矩阵核对新增行"
           ],
           "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
+          "reason": "确认按钮请求期 loading 禁用（源码 btnConfirmDisabled = disabled || loading），连点无法产生重复提交；且固件新建为一次性写入（提交成功后新建按钮按 canAllFirmware 隐藏），无重复提交场景。",
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "范围外对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c03-firmware-name-uniqueness",
+          "name": "固件名称唯一性（唯一性维度=固件名称）",
+          "evidence": [
+            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`「新建固件版本」（无唯一性约束条款，固件以固件id为唯一标识）；前端源码 BtnEditFirmwareVersion.vue rules（名称仅 required+text，无唯一性前置）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "需求未定义固件名称唯一约束（固件唯一标识为固件id）；验证重复名称需二次写入，而新建按钮提交成功后即隐藏，场景无法稳定构造且违背最少写入原则。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c03-dialog-reopen-reset",
+          "name": "重复打开新建固件弹窗（触发方式=重复点击「新建版本」）",
+          "evidence": [
+            "前端源码 `BtnEditFirmwareVersion.vue` doInit（弹窗打开时 theForm 置空重置，readonly/编辑态才回填）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "重复打开仅触发表单置空重置（doInit），无业务状态变化与独立断言价值；弹窗内表单校验由 OP-PDEV-007 覆盖。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c03-download-link-repeat",
+          "name": "下载文档链接重复点击（触发方式=重复点击）",
+          "evidence": [
+            "前端源码 `DevelopMethodProtocol.vue`（el-link href 指向 /resource/docs/*.pdf 静态资源，target=_blank）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "静态资源只读链接，重复点击无状态变化；链接存在性与 target 由 OP-PDEV-001 覆盖。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c03-authcode-apply-repeat",
+          "name": "获取授权码按钮重复提交（触发方式=重复点击）",
+          "evidence": [
+            "前端源码 `DevelopMethodProtocol.vue`（BtnApplyAuthCode 组件复用自 `src/pages/integration/authcode/components/BtnApplyAuthCode.vue`）；查重比对 authcode 功能包"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "获取授权码按钮提交（含重复提交）写入链路由 authcode 功能包同名组件覆盖，查重不重复设计；本包仅核验按钮存在与余量展示（OP-PDEV-003）。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数交叉组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -78,10 +301,28 @@
       "name": "成功、异常与边界",
       "objects": [
         {
-          "id": "c04-existing-cases",
-          "name": "成功、异常与边界（现有用例基线）",
+          "id": "c04-firmware-create-success",
+          "name": "新建固件版本成功终态（toast + 列表新行）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "前端源码 `BtnEditFirmwareVersion.vue` doConfirm（createFirmwareVersion 成功 → ElMessage.success('新增固件成功') → emit success → refreshList）；2026-09-03 执行实证（全链路成功：合成 .bin 上传 KS3 → toast → 列表行状态=开发中）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PDEV-005"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单一成功路径对象，无参数交叉组合（写入取值为固定合成值）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-firmware-form-negative",
+          "name": "固件表单负向与边界（字符集拒绝/长度截断/格式提示/比较规则）",
+          "evidence": [
+            "前端源码 `ValidationRuleBuilder.ts`（text/version/versionNewer 提示）、`BtnEditFirmwareVersion.vue` el-input maxlength；2026-09-03 执行实证（D01~D05：# 拒绝、33 字截断、格式提示、OTA≤生产提示、合法恢复清空）"
           ],
           "disposition": "covered",
           "caseIds": [
@@ -89,7 +330,39 @@
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "负向取值逐字段独立喂入（逐行单一操作+单一预期），不构造多负向叠加组合；字段×取值类的组合建模归属 C02 c02-firmware-form-validation 的 direct_enumeration。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-server-reject-path",
+          "name": "服务端拒绝路径（固件名称非纯中文等前后端不一致场景）",
+          "evidence": [
+            "conclusion.md 2026-09-03 实证（服务端 add 接口仅接受纯中文固件名，前端文案为「只能包含中英文、数字和常用标点符号」）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "构造服务端拒绝需额外提交写入尝试（违背最少写入原则）；前后端规则不一致的实证结论已记录于 conclusion.md，以缺陷记录而非用例承载。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c04-invalid-product-direct",
+          "name": "无效产品ID直达 /develop（路径负向）",
+          "evidence": [
+            "前端源码 `src/routes/integration.ts`（:id 路径参数无前置校验）、`ProductIntegration.vue`（setProductId 直接取路由参数）；页面异常终态未见源码显式处理"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "无效 ID 的页面终态（空态/报错形态）未经页面探索核实，不做无依据断言；页面探索轮确认预期终态后再补用例。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数交叉组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -102,20 +375,135 @@
       "name": "权限、状态与导航",
       "objects": [
         {
-          "id": "c05-existing-cases",
-          "name": "权限、状态与导航（现有用例基线）",
+          "id": "c05-unauthed-redirect",
+          "name": "未登录访问受保护产品配置路由的重定向结果（跳转终态）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "前端源码 `src/permission.ts`（无 token → next({ name: 'login' })）；2026-09-11 对象矩阵核对补行（新增 OP-PDEV-008）"
           ],
           "disposition": "covered",
           "caseIds": [
-            "OP-PDEV-002",
-            "OP-PDEV-003",
-            "OP-PDEV-004"
+            "OP-PDEV-008"
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单一跳转终态对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-firmware-create-visibility",
+          "name": "「新建版本」按钮显隐状态规则（canAllFirmware=固件数为0 或 产品已上线）",
+          "evidence": [
+            "前端源码 `DevelopFirmareTable.vue` canAllFirmware computed；conclusion.md 2026-09-03 实证（固件数>0 且未上线时按钮隐藏）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PDEV-004",
+            "OP-PDEV-005"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单状态显隐对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-authcode-quota-display",
+          "name": "授权码余量状态展示与申请入口存在性",
+          "evidence": [
+            "前端源码 `DevelopMethodProtocol.vue`（authCodeStatics?.unusedNum || '0' + BtnApplyAuthCode）；需求「第一步：获取设备授权码」；2026-09-03 执行实证（余量显示正常、按钮可点）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
+            "OP-PDEV-003"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单状态展示对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-phase-switch-prereq",
+          "name": "阶段切换前置校验负路径（「请先完成…」拦截）",
+          "evidence": [
+            "前端源码 `ProductIntegration.vue`（switchConfigStage → validateStageCompleteStatus；stageRequireMap[develop]=[Function] 且 Function 恒豁免 notReady 过滤，切换至设备开发恒放行）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "切换至设备开发阶段的前置恒放行（前置 Function 恒豁免，源码核实），本包无该负路径对象；其他阶段（basic/function）的切换拦截行为属相应功能包范围。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-firmware-status-flow",
+          "name": "固件状态流转（开发中→送审中→测试中→测试通过/未上线→已上线→已下线）",
+          "evidence": [
+            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`「固件列表显示」（固件状态枚举与状态×操作矩阵）；前端源码 FirmwareVersionStatus"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "状态流转由后台送审/审核/测试流程驱动（属产品测试与后台审核链路），本包无法在设备开发页内构造状态变迁；状态列展示由 OP-PDEV-004 覆盖。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-firmware-edit-delete",
+          "name": "固件「编辑」「删除」操作链路（状态×操作矩阵中开发中/测试未通过可编辑删除）",
+          "evidence": [
+            "前端源码 `DevelopFirmareTable.vue`（canEdit=[Developing,TestFailed]、canDelete=[Developing,TestFailed,Offline]、delVersion confirm 弹窗）；需求「操作：查看、编辑、删除」"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "编辑会变更台账已登记固件记录（破坏 OP-PDEV-005 幂等核验链）；删除不可逆且使 canAllFirmware 状态翻转干扰后续用例；属固件/烧录类对象，按用户硬边界以只读观察为限（查看由 OP-PDEV-006 覆盖）。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-firmware-upgrade",
+          "name": "固件「升级」（OTA）及升级按钮出现条件（canUpVersion）",
+          "evidence": [
+            "前端源码 `DevelopFirmareTable.vue`（canUpVersion=非最后版本且 status=TestPassed、upVersion → updateFirmware）；需求「针对直连设备烧录固件可以通过上传固件，进行固件 OTA」"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "固件升级依赖已激活真实设备并下发 OTA，属高风险设备动作红线（断网/刷固件/控制硬件类）；按钮出现条件依赖多固件+测试通过状态流转，一并范围外（设备侧 OTA 由 device-ota 包在批4覆盖）。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c05-permission-diff",
+          "name": "菜单/权限差异（develop 路由 permission: '/integration' 的权限有无差异）",
+          "evidence": [
+            "前端源码 `src/routes/integration.ts`（meta.permission='/integration'）、`src/permission.ts`（queryMenu 权限加载）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "权限差异验证需多权限测试账号，依赖企业成员管理模块构造，跨模块且无既有差异账号。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数交叉组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -128,22 +516,69 @@
       "name": "验证码、登录态与特殊能力",
       "objects": [
         {
-          "id": "c06-existing-cases",
-          "name": "验证码、登录态与特殊能力（现有用例基线）",
+          "id": "c06-login-state-reuse",
+          "name": "登录态建立与跨包复用（本包前置；短信/图形验证码细节属 login-register 包）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "`experience/open-platform.md`（跨包登录态复用与 runtime/auth-state.json 约定）；前端源码 product-develop.spec.ts restoreSession/smsLogin 前置；SKILL「跨包登录态复用」模式"
           ],
           "disposition": "covered",
           "caseIds": [
-            "OP-PDEV-001",
-            "OP-PDEV-004",
+            "OP-PDEV-001"
+          ],
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "单状态前置对象（有效/失效二态由前置条件覆盖），无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c06-synthetic-file-upload",
+          "name": "合成固件文件上传（隐藏 input[type=file]、accept=\"*\"、上传后大小回显）",
+          "evidence": [
+            "前端源码 `BtnEditFirmwareVersion.vue`（file-uploader accept=\"*\" limit=1、onUrlChange/onOtaUrlChange 大小回显）；`experience/general.md`（隐藏控件定位属合法降级）；2026-09-03 执行实证（合成 .bin 上传成功、大小回显）"
+          ],
+          "disposition": "covered",
+          "caseIds": [
             "OP-PDEV-005",
-            "OP-PDEV-006",
             "OP-PDEV-007"
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单一上传控件对象，无参数交叉组合（文件为固定合成 bin）。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c06-upload-type-size-boundary",
+          "name": "上传文件类型/大小边界（非固件类型文件、超大文件）",
+          "evidence": [
+            "前端源码 `BtnEditFirmwareVersion.vue`（file-uploader accept=\"*\" 无类型白名单；无大小上限校验）；需求未定义固件大小阈值"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "accept=\"*\" 无前端类型限制（源码实证），需求未定义大小阈值无断言依据；且选择文件即触发对象存储上传（KS3），构造负向上传产生额外存储写入，违背最少写入原则。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数交叉组合。",
+            "validCombinationCount": 0,
+            "parameters": [],
+            "constraints": []
+          }
+        },
+        {
+          "id": "c06-sms-captcha",
+          "name": "短信/图形验证码链路（获取验证码、点选验证码、倒计时）",
+          "evidence": [
+            "`experience/open-platform.md`（登录注册验证码人工协助模式）；查重比对 login-register 功能包（25 条用例覆盖）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "验证码链路由 login-register 功能包覆盖；本包仅复用其登录态（runtime/auth-state.json），失效时按跨包复用约定重建。",
+          "combinationDesign": {
+            "strategy": "not_applicable",
+            "rationale": "范围外对象，无参数交叉组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": []
@@ -156,24 +591,22 @@
       "name": "数据写入与后续处理",
       "objects": [
         {
-          "id": "c07-existing-cases",
-          "name": "数据写入与后续处理（现有用例基线）",
+          "id": "c07-firmware-write-ledger",
+          "name": "新建固件版本写入与台账记录（对象=create-product 台账最新既有产品 at0672，不创建产品）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "前端源码 `BtnEditFirmwareVersion.vue` doConfirm（createFirmwareVersion）；`src/support/recordGeneratedData.ts`（recordGeneratedFirmwareVersion 台账只增不删）；用户指令（2026-09-11：不创建产品，操作对象为台账既有产品）；2026-09-03 执行实证（写入全链路成功）"
           ],
           "disposition": "covered",
           "caseIds": [
-            "OP-PDEV-002",
             "OP-PDEV-005"
           ],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "单一写入对象（写入取值为固定合成值：纯中文合成名+1.0.0/1.0.1+合成 bin），无参数交叉组合；高风险写入用例以 manualSupplementCaseIds 显式补充。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": [],
             "manualSupplementCaseIds": [
-              "OP-PDEV-002",
               "OP-PDEV-005"
             ]
           }

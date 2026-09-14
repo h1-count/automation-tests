@@ -7,24 +7,74 @@
       "name": "可达性与主流程",
       "objects": [
         {
-          "id": "c01-existing-cases",
-          "name": "可达性与主流程（现有用例基线）",
+          "id": "c01-stage-page-reach",
+          "name": "产品测试页可达（从产品阶段导航进入 /testing 正路径）",
           "evidence": [
-            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「产品测试」章节）、前端源码 `web-open-platform/src/pages/integration/product/ProductPhaseTesting.vue`、`components/BtnEditTestingApplication.vue`（预约申请表单 175 行）、`components/BtnShowTestingApplication.vue`、`components/BtnSendDevice.vue`（寄送样机，未深入）、`src/utils/ValidationRuleBuilder.ts`（realname/mobile/email 规则）、`experience/general.md`、`experience/open-platform.md`；查重比对 product-develop 包（关联固件来自该包写入）。"
+            "需求文档「产品测试」章节（自测与实验室预约）、前端源码 `web-open-platform/src/pages/integration/product/ProductPhaseTesting.vue`、2026-09-03 执行实证"
           ],
           "disposition": "covered",
-          "caseIds": [
-            "OP-PTST-001",
-            "OP-PTST-002",
-            "OP-PTST-004"
+          "caseIds": ["OP-PTST-001"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "单一入口正路径导航，无参数交叉组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c01-bypass-direct-url",
+          "name": "已登录绕过入口直达 /testing URL（2026-09-11 对象矩阵核对补充）",
+          "evidence": [
+            "对象矩阵核对①⑤「入口方式×访问方式」补行；`web-open-platform/src/routes/integration.ts` 子路由与 permission.ts 全局守卫（已登录放行，create-product OP-PROD-003 同树实证）"
           ],
-          "combinationDesign": {
-            "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
-            "validCombinationCount": 0,
-            "parameters": [],
-            "constraints": []
-          }
+          "disposition": "covered",
+          "caseIds": ["OP-PTST-001"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "单路径直达核对，无参数交叉组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c01-logged-out-direct",
+          "name": "未登录直达 /testing（负路径）",
+          "evidence": [
+            "`web-open-platform/src/routes/integration.ts`（/integration 树 permission 元信息）与 `src/permission.ts` 全局守卫；create-product 包 OP-PROD-001 同树重定向实证"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "同树登录守卫行为已由 create-product 包 OP-PROD-001 覆盖并实证（跨包查重划界），本包不重复设计。",
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "范围外对象，无组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c01-page-structure",
+          "name": "自测与实验室预约页结构（下载资料自测步骤 + 实验室测试步骤 + 申请测试区）",
+          "evidence": [
+            "需求文档「产品测试」章节、`ProductPhaseTesting.vue` 页面结构、2026-09-03 执行实证"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PTST-001"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "静态结构渲染核对，无参数交叉组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c01-booking-dialog-structure",
+          "name": "预约申请弹窗结构与回显（Model/企业名称/固件下拉/测试类型选项/日期默认值）",
+          "evidence": [
+            "`components/BtnEditTestingApplication.vue`（预约申请表单 175 行）、需求文档「产品测试」章节"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PTST-002"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "弹窗结构与回显核对，无参数交叉组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c01-booking-list-structure",
+          "name": "预约列表结构（8 列表头 + 申请测试区提示 + 空态）",
+          "evidence": [
+            "`ProductPhaseTesting.vue` 列表列头、需求文档「产品测试」章节"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PTST-004"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "列表结构核对，无参数交叉组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c01-detail-view",
+          "name": "预约详情查看弹窗",
+          "evidence": [
+            "`components/BtnShowTestingApplication.vue`、需求文档「产品测试」章节操作列"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PTST-006"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "只读详情核对，无参数交叉组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
         }
       ]
     },
@@ -33,21 +83,35 @@
       "name": "字段与输入规则",
       "objects": [
         {
-          "id": "c02-existing-cases",
-          "name": "字段与输入规则（现有用例基线）",
+          "id": "c02-booking-form-fields",
+          "name": "预约申请表单 7 字段取值类（关联固件版本/预约测试类型 必填；预约开始时间 禁选早于今日；计划上线时间 不早于开始时间；联系人 required realname 仅字符集无长度；联系电话 required mobile；邮箱 email 格式）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "`components/BtnEditTestingApplication.vue`（表单 175 行：required 标注与 ValidationRuleBuilder 引用）、`src/utils/ValidationRuleBuilder.ts`（realname/mobile/email 校验器）、2026-09-03 执行实证（联系人仅有字符集校验无长度校验；日期 disabled-date）"
           ],
           "disposition": "covered",
-          "caseIds": [
-            "OP-PTST-003"
-          ],
+          "caseIds": ["OP-PTST-003", "OP-PTST-002"],
           "combinationDesign": {
-            "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
-            "validCombinationCount": 0,
-            "parameters": [],
-            "constraints": []
+            "strategy": "direct_enumeration",
+            "rationale": "2 参数（校验字段×取值类）经业务约束过滤后 9 条有效组合（≤12），逐行映射 OP-PTST-003 数据编号 D01~D09，D09 为还原合法值核对步骤。",
+            "validCombinationCount": 9,
+            "parameters": [
+              {
+                "name": "校验字段",
+                "values": ["联系人", "联系电话", "邮箱", "预约开始时间", "关联固件版本", "预约测试类型", "计划上线时间"],
+                "evidence": "BtnEditTestingApplication.vue 表单字段清单（Model/企业名称为回显只读不计）"
+              },
+              {
+                "name": "取值类",
+                "values": ["空值（必填）", "非法格式", "越界日期", "恢复合法值"],
+                "evidence": "等价类压缩：必填空值/格式非法/日期越界/合法还原"
+              }
+            ],
+            "constraints": [
+              "# 联系人/联系电话/邮箱 仅格式与字符集取值类（required 空值 + 非法格式）",
+              "# 两个日期字段仅日期越界取值类（disabled-date 由组件约束）",
+              "# 关联固件版本/预约测试类型 仅必填空值取值类（选项为受控字典）",
+              "# 非法字符集示例 test_user!@#、10 位电话、abc@ 均为合成值"
+            ]
           }
         }
       ]
@@ -57,20 +121,24 @@
       "name": "唯一性与重复操作",
       "objects": [
         {
-          "id": "c03-not-applicable",
-          "name": "唯一性与重复操作（当前包无独立对象）",
+          "id": "c03-duplicate-booking",
+          "name": "预约重复提交防护（已有「待回复」预约时的幂等核验）",
           "evidence": [
-            "`sources/open-platform/需求/产品接入系统功能需求说明/产品接入系统功能需求说明.md`（「产品测试」章节）、前端源码 `web-open-platform/src/pages/integration/product/ProductPhaseTesting.vue`、`components/BtnEditTestingApplication.vue`（预约申请表单 175 行）、`components/BtnShowTestingApplication.vue`、`components/BtnSendDevice.vue`（寄送样机，未深入）、`src/utils/ValidationRuleBuilder.ts`（realname/mobile/email 规则）、`experience/general.md`、`experience/open-platform.md`；查重比对 product-develop 包（关联固件来自该包写入）。"
+            "`BtnEditTestingApplication.vue` 提交链路 createProductTestingItem、预约无 UI 删除路径（不可撤销写入），2026-09-03 设计实证"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PTST-005"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "幂等核验为单条件分支（列表有无待回复预约），无参数交叉组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c03-submit-spam-click",
+          "name": "提交按钮连点防重（请求期禁用）",
+          "evidence": [
+            "对象矩阵核对③「可重复动作×触发方式」补行；`BtnEditTestingApplication.vue` 提交按钮无请求期 loading 禁用的实现证据（与 basic 包 handleSave 同口径核对）"
           ],
           "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
-          "combinationDesign": {
-            "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
-            "validCombinationCount": 0,
-            "parameters": [],
-            "constraints": []
-          }
+          "reason": "源码无请求期禁用实现证据，难以稳定构造且违背最少写入原则；重复提交语义由 OP-PTST-005 幂等设计与后端幂等兜底。",
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "范围外对象，无组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
         }
       ]
     },
@@ -79,22 +147,54 @@
       "name": "成功、异常与边界",
       "objects": [
         {
-          "id": "c04-existing-cases",
-          "name": "成功、异常与边界（现有用例基线）",
+          "id": "c04-submit-success",
+          "name": "预约提交成功终态（toast + 列表新增待回复行）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "`BtnEditTestingApplication.vue` 提交成功回调、需求文档「产品测试」章节、2026-09-03 执行实证 toast「预约申请提交成功」"
           ],
           "disposition": "covered",
-          "caseIds": [
-            "OP-PTST-003"
+          "caseIds": ["OP-PTST-005"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "单成功终态核对，无参数交叉组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c04-form-negative-boundary",
+          "name": "预约表单负向与边界（必填/格式/日期越界，见 C02 取值类）",
+          "evidence": [
+            "同 c02-booking-form-fields 证据"
           ],
-          "combinationDesign": {
-            "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
-            "validCombinationCount": 0,
-            "parameters": [],
-            "constraints": []
-          }
+          "disposition": "covered",
+          "caseIds": ["OP-PTST-003"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "负向取值已在 C02 对象以 direct_enumeration 建模（D01~D08），此处不重复计数。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c04-dialog-cancel-no-write",
+          "name": "预约弹窗取消关闭（无写入）",
+          "evidence": [
+            "`BtnEditTestingApplication.vue` 取消链路、2026-09-03 设计"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PTST-002"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "单取消动作核对，无参数交叉组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c04-list-empty-state",
+          "name": "预约列表空态（at0672 新建产品无预约记录）",
+          "evidence": [
+            "create-product 台账（at0672 为 2026-09-10 新建产品，本包台账无其预约记录）、`ProductPhaseTesting.vue` 空态"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PTST-004"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "空态/数据行以注解核对，无参数交叉组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c04-server-reject-path",
+          "name": "预约提交服务端拒绝路径",
+          "evidence": [
+            "2026-09-03 轮未观测到服务端拒绝实例；构造拒绝需额外写入或依赖实验室侧状态"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "拒绝路径无法稳定构造且需额外写入，违背最少写入原则；若执行中偶发拒绝以注解记录。",
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "范围外对象，无组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
         }
       ]
     },
@@ -103,20 +203,44 @@
       "name": "权限、状态与导航",
       "objects": [
         {
-          "id": "c05-not-applicable",
-          "name": "权限、状态与导航（当前包无独立对象）",
+          "id": "c05-edit-entry-gating",
+          "name": "「修改预约」入口状态门控（仅申请状态=0 待回复可用）",
           "evidence": [
-            "cases.md：上下文结论与范围外声明"
+            "`ProductPhaseTesting.vue` 操作列渲染条件、需求文档「产品测试」章节"
           ],
           "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
-          "combinationDesign": {
-            "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
-            "validCombinationCount": 0,
-            "parameters": [],
-            "constraints": []
-          }
+          "reason": "修改预约动作整体范围外（避免对实验室队列重复提交，见既有范围外声明）；入口门控随动作一并声明。",
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "范围外对象，无组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c05-send-device-gating",
+          "name": "「寄送样机」入口状态门控（状态=1 且非设备升级类型）",
+          "evidence": [
+            "`components/BtnSendDevice.vue`（寄送样机，未深入）、需求文档「产品测试」章节"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "寄送样机依赖实验室回复状态流转 + 真实物流动作，属线下链路（既有范围外声明）。",
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "范围外对象，无组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c05-application-status-flow",
+          "name": "申请状态流转（待回复→已回复/测试中→测试结果）",
+          "evidence": [
+            "需求文档「产品测试」章节（实验室 2 个工作日回复）"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "状态流转依赖实验室人工处理，超出自动化范围（既有范围外声明）。",
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "范围外对象，无组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c05-stage-nav-cross",
+          "name": "阶段步骤条跨阶段导航（测试页上一步/下一步落点页）",
+          "evidence": [
+            "对象矩阵核对①⑤「入口×跳转」补行；落点页属相邻阶段包（product-basic/product-function），product-function 010/011 已覆盖相邻导航"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "跨阶段导航落点页由相邻阶段包覆盖（跨包查重划界），本包不重复设计。",
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "范围外对象，无组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
         }
       ]
     },
@@ -125,20 +249,34 @@
       "name": "验证码、登录态与特殊能力",
       "objects": [
         {
-          "id": "c06-not-applicable",
-          "name": "验证码、登录态与特殊能力（当前包无独立对象）",
+          "id": "c06-login-state",
+          "name": "登录态获取与重建",
           "evidence": [
-            "cases.md：上下文结论与范围外声明"
+            "login-register 功能包（登录全链路覆盖）、`experience/open-platform.md`（跨包登录态复用模式：复用 create-product 包 runtime/auth-state.json，失效时重新登录刷新）"
           ],
           "disposition": "out_of_scope",
-          "reason": "当前功能包的既有资料和用例未识别到该类独立测试对象；后续需求、源码或页面事实变化时须重新评估。",
-          "combinationDesign": {
-            "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
-            "validCombinationCount": 0,
-            "parameters": [],
-            "constraints": []
-          }
+          "reason": "登录功能由 login-register 包覆盖（跨包查重划界），本包仅复用登录态作前置。",
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "范围外对象，无组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c06-captcha",
+          "name": "图形验证码（登录/短信前置点选）",
+          "evidence": [
+            "`experience/general.md`（人工协助点选模式）、login-register 功能包覆盖"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "验证码链路由 login-register 包覆盖（跨包查重划界）。",
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "范围外对象，无组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
+        },
+        {
+          "id": "c06-session-prefill",
+          "name": "会话用户信息预填（联系人/联系电话/邮箱从会话资料回填）",
+          "evidence": [
+            "`BtnEditTestingApplication.vue`（会话用户信息预填逻辑）、需求文档「产品测试」章节"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PTST-002"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "预填回显核对，无参数交叉组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
         }
       ]
     },
@@ -147,27 +285,51 @@
       "name": "数据写入与后续处理",
       "objects": [
         {
-          "id": "c07-existing-cases",
-          "name": "数据写入与后续处理（现有用例基线）",
+          "id": "c07-booking-write",
+          "name": "预约提交写入（createProductTestingItem 新建 1 条实验室预约；幂等防重复；台账 kind=open-platform-testing-booking 只增不删）",
           "evidence": [
-            "cases.md：快速索引、对象矩阵与上下文来源"
+            "`BtnEditTestingApplication.vue` 提交链路 createProductTestingItem、本包台账 runtime/generated-data.json（kind=open-platform-testing-booking，1 条既有记录）、2026-09-03 执行实证"
           ],
           "disposition": "covered",
-          "caseIds": [
-            "OP-PTST-002",
-            "OP-PTST-005"
-          ],
+          "caseIds": ["OP-PTST-005"],
           "combinationDesign": {
             "strategy": "not_applicable",
-            "rationale": "存量用例按单场景设计，无参数交叉组合；后续需求变更时按组合触发判定细化（不适用/直接枚举/pairwise）。",
+            "rationale": "写入对象为单场景提交（幂等设计），无参数交叉组合。",
             "validCombinationCount": 0,
             "parameters": [],
             "constraints": [],
-            "manualSupplementCaseIds": [
-              "OP-PTST-002",
-              "OP-PTST-005"
-            ]
+            "manualSupplementCaseIds": ["OP-PTST-005"]
           }
+        },
+        {
+          "id": "c07-write-target-scope",
+          "name": "写入对象限定（仅 create-product 台账既有产品 at0672，不创建产品；固件选项依赖 product-develop 包先行写入）",
+          "evidence": [
+            "用户指令（2026-09-11：不创建产品，直接编辑既有产品）、create-product 台账 runtime/generated-data.json 最新记录（at0672，2026-09-10）、请求计划 product-edit-chain-20260910 执行顺序（develop 第 3、testing 第 5）"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PTST-005"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "写入对象口径约束，无参数交叉组合。", "validCombinationCount": 0, "parameters": [], "constraints": [], "manualSupplementCaseIds": ["OP-PTST-005"] }
+        },
+        {
+          "id": "c07-negative-no-write",
+          "name": "负向场景不写入（弹窗取消/字段校验不提交）",
+          "evidence": [
+            "`BtnEditTestingApplication.vue` 取消链路与校验拦截（2026-09-03 设计实证：003 逐字段喂值不点击提交）"
+          ],
+          "disposition": "covered",
+          "caseIds": ["OP-PTST-002", "OP-PTST-003"],
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "负向不写入核对，无参数交叉组合。", "validCombinationCount": 0, "parameters": [], "constraints": [], "manualSupplementCaseIds": ["OP-PTST-005"] }
+        },
+        {
+          "id": "c07-booking-no-delete",
+          "name": "预约记录后续处置（UI 无删除/撤销路径）",
+          "evidence": [
+            "`ProductPhaseTesting.vue` 操作列（仅 查看/修改/寄送样机，无删除）、需求文档「产品测试」章节"
+          ],
+          "disposition": "out_of_scope",
+          "reason": "预约不可从 UI 撤销（实现事实）；台账只增不删约定下写入按幂等设计最小化，后续处置依赖实验室线下流程。",
+          "combinationDesign": { "strategy": "not_applicable", "rationale": "范围外对象，无组合。", "validCombinationCount": 0, "parameters": [], "constraints": [] }
         }
       ]
     }
