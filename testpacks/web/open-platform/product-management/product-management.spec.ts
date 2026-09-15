@@ -43,8 +43,20 @@ async function readCreateProductLedger(requireAssignedModel = true): Promise<Pro
   const ledgerPath = join(packDirectory!, "..", "create-product", "runtime", "generated-data.json");
   try {
     const parsed = JSON.parse(await readFile(ledgerPath, "utf8")) as { records?: ProductRecord[] };
+    // 2026-09-14 收官修订：剔除已删除产品（OP-PMGT-008 自造候选即建即删后会成为台账末条，
+    // 不过滤会让「最新受保护」位与候选搜索指向已删除产品）。删除记录集来自本包台账。
+    let deletedNames = new Set<string>();
+    try {
+      const deletionPath = join(packDirectory!, "runtime", "generated-data.json");
+      const deletionDoc = JSON.parse(await readFile(deletionPath, "utf8")) as {
+        records?: { productName?: string }[];
+      };
+      deletedNames = new Set((deletionDoc.records ?? []).map((r) => r.productName).filter(Boolean) as string[]);
+    } catch {
+      deletedNames = new Set();
+    }
     return (parsed.records ?? []).filter(
-      (r) => r.productName && (requireAssignedModel ? Boolean(r.assignedProductModel) : true)
+      (r) => r.productName && (requireAssignedModel ? Boolean(r.assignedProductModel) : true) && !deletedNames.has(r.productName)
     );
   } catch {
     return [];
@@ -843,8 +855,61 @@ test.describe("开放平台产品开发列表", () => {
     });
 
     // 覆盖 OP-PMGT-008：删除合成产品（二次确认含取消分支，写入台账）。
+    // 2026-09-14 收官新增：条件性前置补造（审核期前置写授权，借 create-product 功能包「创建产品成功」已审核契约）。
+    // 候选耗尽时经创建向导补造 1 个合成候选（即建即删），台账只增不删；读取端按删除记录过滤。
+    async function mintDeletionCandidate(page: Page): Promise<ProductRecord> {
+      const runId = Date.now();
+      const generated = {
+        runId,
+        productName: `自动化测试产品${runId}`,
+        productModel: `at${String(runId).slice(-4)}`,
+        category: "照明-灯",
+        developmentMethod: "开放协议接入",
+        deviceType: "普通设备",
+        description: `自动化测试删除候选（OP-PMGT-008 前置补造）${runId}`
+      };
+      // 借 create-product「创建产品成功」契约：向导三步（品类 照明→灯 / 方案 开放协议接入 / 表单+提交）。
+      await page.goto("/integration/product/create", { waitUntil: "domcontentloaded", timeout: 60_000 });
+      await expect(page).toHaveURL(/\/integration\/product\/create/u, { timeout: 20_000 });
+      await expect(page.getByText("请选择您创建的产品", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+      await page.evaluate(() => document.fonts.ready).catch(() => {});
+      const level1Item = page.locator("main").getByText("照明", { exact: true }).first();
+      const level2Item = page.locator("main").getByText("灯", { exact: true }).first();
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        await level1Item.click();
+        try {
+          await level2Item.click({ timeout: 8_000 });
+          break;
+        } catch {
+          console.log(`[前置补造] 二级品类「灯」未出现（第 ${attempt} 次），重选一级品类`);
+          if (attempt === 3) throw new Error("前置补造：二级品类「灯」在重试后仍未出现");
+        }
+      }
+      await page.locator("main").getByText("开放协议接入", { exact: true }).first().click({ timeout: 25_000 });
+      await expect(page.locator("main").locator(".plan-item.active").filter({ hasText: "开放协议接入" })).toBeVisible({ timeout: 10_000 });
+      await page.getByPlaceholder("请输入产品名称").fill(generated.productName);
+      await page.getByPlaceholder("仅支持小写字母或数字").fill(generated.productModel);
+      await page.locator("main").getByText("WiFi", { exact: true }).first().click();
+      await page.locator("main").getByText("普通设备", { exact: true }).first().click();
+      await page.getByPlaceholder("简单描述产品功能，应用场景").fill(generated.description);
+      await expect(page.getByRole("radio", { name: "WiFi", exact: true })).toBeChecked();
+      await expect(page.getByRole("radio", { name: "普通设备", exact: true })).toBeChecked();
+
+      // 提交创建 → 成功提示 + 跳转基础配置页（与 create-product「创建产品成功」用例同一口径）。
+      await page.getByRole("button", { name: "创建产品", exact: true }).click();
+      await expect(page.getByText("产品创建成功", { exact: true })).toBeVisible({ timeout: 20_000 });
+      await expect(page).toHaveURL(/\/integration\/product\/[^/]+\/basic/u, { timeout: 30_000 });
+      await expect(page.getByText(generated.productName).first()).toBeVisible({ timeout: 20_000 });
+
+      // 台账只增不删（kind=open-platform-product，借 create-product「创建产品成功」契约记入 create-product 台账）。
+      const { recordGeneratedProductData } = await import("../../../../src/support/recordGeneratedData");
+      await recordGeneratedProductData(generated);
+      console.log(`[前置补造] 已创建删除候选 ${generated.productName} / ${generated.productModel}（即建即删，已记 create-product 台账）`);
+      return generated;
+    }
+
     test("OP-PMGT-008 删除合成产品", async ({ page }) => {
-      test.setTimeout(180_000);
+      test.setTimeout(300_000);
       // 2026-09-07 修订：读取完整台账（含缺 assignedProductModel 的历史记录——2026-09-02 批次
       // 平台已生成 Model 且处于可删状态，其 Model 在删除时从行内单元格取实测值）。
       const records = await readCreateProductLedger(false);
@@ -880,6 +945,7 @@ test.describe("开放平台产品开发列表", () => {
         await page.waitForTimeout(1_000);
       }
       let target = deletable[deletable.length - 1];
+      let selfMinted = false;
       if (!target) {
         // 分页兜底：第 1 页无台账候选时，按台账倒序逐个搜索（跳过最新受保护产品），
         // 命中「名称+删除」同行者即选为目标，并保持搜索上下文供删除步骤定位行。
@@ -901,9 +967,25 @@ test.describe("开放平台产品开发列表", () => {
         }
       }
       if (!target) {
-        throw new Error(
-          "无可安全删除的候选产品（最新产品受保护，其余台账产品均已删除、不在列表或已离开可删状态；若搜索亦无台账行请核对登录态与列表接口）。请先重跑 create-product 功能包补充测试产品后再执行本用例。"
-        );
+        // 条件性前置补造（2026-09-14 收官修订，写授权已在 OP-PMGT-008 审核件确认）：
+        // 无满足候选时借 create-product「创建产品成功」已审核契约，经创建向导补造 1 个合成候选
+        //（照明-灯/开放协议接入/普通设备，即建即删），记入 create-product 台账后作为删除目标。
+        // 补造的产品不受「非最新」约束——它生而即为删除目标；台账读取端按删除记录过滤，
+        // 即建即删不污染后续轮次的「最新」定位。
+        target = await mintDeletionCandidate(page);
+        selfMinted = true;
+        // 搜索上下文切到补造产品（创建成功后落在基础配置页，回列表搜索定位）。
+        await gotoListReady(page);
+        const keyword = page.getByPlaceholder(/Model\/名称\/型号/u);
+        await keyword.fill(target.productName);
+        await page.getByRole("button", { name: "搜索", exact: true }).click();
+        await page.waitForTimeout(2_000);
+      }
+      if (selfMinted) {
+        test.info().annotations.push({
+          type: "前置补造",
+          description: `候选耗尽终态触发条件性前置补造（写授权已在审核件确认）：借 create-product「创建产品成功」契约创建合成候选 ${target.productName}（${target.productModel}），即建即删，已记 create-product 台账`
+        });
       }
 
       // 步骤 1：定位台账产品行（名称核对；台账已记 Model 时加 Model 双重核对）并点击删除。

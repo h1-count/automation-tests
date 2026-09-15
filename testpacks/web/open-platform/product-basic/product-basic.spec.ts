@@ -29,7 +29,19 @@ async function readCreateProductLedger(): Promise<ProductRecord[]> {
   const ledgerPath = join(packDirectory!, "..", "create-product", "runtime", "generated-data.json");
   try {
     const parsed = JSON.parse(await readFile(ledgerPath, "utf8")) as { records?: ProductRecord[] };
-    return (parsed.records ?? []).filter((r) => r.productName && r.assignedProductModel);
+    // 2026-09-14 收官修订：剔除已删除产品（OP-PMGT-008 自造候选即建即删后会成为台账末条，
+    // 不过滤会让下轮「最新」定位指向已删除产品）。删除记录集来自 product-management 台账。
+    let deletedNames = new Set<string>();
+    try {
+      const deletionPath = join(packDirectory!, "..", "product-management", "runtime", "generated-data.json");
+      const deletionDoc = JSON.parse(await readFile(deletionPath, "utf8")) as {
+        records?: { productName?: string }[];
+      };
+      deletedNames = new Set((deletionDoc.records ?? []).map((r) => r.productName).filter(Boolean) as string[]);
+    } catch {
+      deletedNames = new Set();
+    }
+    return (parsed.records ?? []).filter((r) => r.productName && r.assignedProductModel && !deletedNames.has(r.productName));
   } catch {
     return [];
   }
