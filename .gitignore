@@ -13,6 +13,7 @@ testpacks/**/runtime/
 *.log
 .DS_Store
 .idea/
+*.apk
 
 # DSH 会话工具产物
 .dsh-vision-toolkit/
